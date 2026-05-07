@@ -1,0 +1,40 @@
+{
+  "name": "siyuan-plugin-task-tracker",
+  "author": "risoyo",
+  "url": "https://github.com/risoyo/siyuan-plugin-task-tracker",
+  "version": "0.3.5-fix",
+  "minAppVersion": "3.6.4",
+  "backends": [
+    "windows",
+    "linux",
+    "darwin",
+    "docker",
+    "all"
+  ],
+  "frontends": [
+    "desktop",
+    "browser-desktop",
+    "desktop-window"
+  ],
+  "disabledInPublish": false,
+  "displayName": {
+    "default": "Task Tracker",
+    "zh_CN": "任务追踪"
+  },
+  "description": {
+    "default": "Track task-note documents, subtasks, projects, priorities, dates, and calendar views.",
+    "zh_CN": "以任务文档为中心管理任务、子任务、项目、优先级、日期和日历视图。"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "keywords": [
+    "task",
+    "tasks",
+    "calendar",
+    "任务管理",
+    "任务追踪",
+    "日历视图"
+  ]
+}
