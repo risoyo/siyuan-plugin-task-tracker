@@ -12,7 +12,6 @@ import {
 import type { TaskService } from "../document";
 import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialog";
 import {
-  ACTIVE_TASK_STATUSES,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   type TaskItem,
@@ -20,26 +19,44 @@ import {
   type TaskStatus
 } from "../types";
 
-type TaskManagerView = "list" | "table" | "timeline" | "kanban" | "calendar";
+export type TaskManagerView = "table" | "list" | "timeline" | "kanban" | "calendar";
 
-type TaskTreeNode = {
+export interface TaskManagerNewTaskOptions {
+  parentId?: string;
+  presetPlanDate?: string;
+}
+
+export interface TaskManagerTabActions {
+  newTask: (options?: TaskManagerNewTaskOptions) => void;
+  createSubtask: (parentId: string) => void;
+  openTask: (task: TaskItem) => void;
+  sync?: () => Promise<unknown> | unknown;
+}
+
+interface TaskManagerTabData {
+  view?: TaskManagerView;
+  month?: string;
+  search?: string;
+}
+
+interface TaskTreeNode {
   task: TaskItem;
   children: TaskTreeNode[];
   contextOnly: boolean;
-};
+}
 
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
-  { value: "list", label: "列表" },
   { value: "table", label: "表格" },
-  { value: "timeline", label: "时间线" },
+  { value: "list", label: "清单" },
+  { value: "timeline", label: "时间轴" },
   { value: "kanban", label: "看板" },
   { value: "calendar", label: "日历" }
 ];
 
-const STATUSES: TaskStatus[] = ["todo", "doing", "waiting", "cancelled", "completed"];
+const STATUSES = Object.keys(TASK_STATUS_LABELS) as TaskStatus[];
 
 export class TaskManagerTab {
-  private view: TaskManagerView = "list";
+  private view: TaskManagerView = "table";
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
@@ -48,59 +65,86 @@ export class TaskManagerTab {
   constructor(
     private container: HTMLElement,
     private service: TaskService,
-    private actions: {
-      newTask: (options?: { presetPlanDate?: string }) => void;
-      createSubtask: (parentId: string) => void;
-      openTask: (task: TaskItem) => void;
-      sync?: () => Promise<void>;
-    }
+    private actions: TaskManagerTabActions,
+    data?: TaskManagerTabData
   ) {
+    if (data?.view && VIEWS.some((view) => view.value === data.view)) {
+      this.view = data.view;
+    }
+    if (data?.search) {
+      this.search = data.search;
+    }
+    if (data?.month) {
+      const date = new Date(`${data.month}-01T00:00:00`);
+      if (!Number.isNaN(date.getTime())) {
+        this.month = monthStart(date);
+      }
+    }
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
   destroy(): void {
     this.unsubscribe?.();
+    this.container.onclick = null;
+    this.container.onchange = null;
+    this.container.oninput = null;
+    this.container.onkeydown = null;
   }
 
   render(): void {
     const tasks = this.filteredTasks();
-    this.container.innerHTML = `<div class="task-manager">
-  <div class="task-manager__toolbar">
-    <div class="task-manager__views">
-      ${VIEWS.map((item) => `<button class="task-manager__view ${item.value === this.view ? "is-active" : ""}" data-manager-view="${item.value}">${item.label}</button>`).join("")}
-    </div>
-    <input class="b3-text-field task-manager__search" data-field="search" placeholder="搜索任务标题、项目、来源或文档 ID" value="${escapeAttr(this.search)}" />
-    <button class="b3-button b3-button--outline" data-action="sync">同步</button>
-    <button class="b3-button b3-button--text" data-action="new-task">新建任务</button>
-  </div>
-  <div class="task-manager__content">
-    ${this.renderView(tasks)}
+
+    this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
+  ${this.renderToolbar(tasks.length)}
+  <div class="task-manager__body">
+    ${tasks.length ? this.renderCurrentView(tasks) : `<div class="task-manager-empty">这里暂时没有匹配任务。</div>`}
   </div>
 </div>`;
+
     this.bind();
   }
 
-  private renderView(tasks: TaskItem[]): string {
+  private renderToolbar(count: number): string {
+    return `<div class="task-manager-toolbar">
+  <div class="task-manager-toolbar__title">
+    <svg class="task-manager-toolbar__icon"><use xlink:href="#iconTaskTracker"></use></svg>
+    <span>任务控制面板</span>
+    <small>${count}</small>
+  </div>
+  <div class="task-manager-toolbar__views" role="tablist" aria-label="任务视图">
+    ${VIEWS.map((view) => `<button class="task-manager-view-button ${this.view === view.value ? "is-active" : ""}" data-manager-view="${view.value}" aria-label="${view.label}" role="tab" aria-selected="${this.view === view.value}"><span>${view.label}</span></button>`).join("")}
+  </div>
+  <label class="task-manager-toolbar__search">
+    <svg><use xlink:href="#iconSearch"></use></svg>
+    <input class="b3-text-field" data-field="search" value="${escapeAttr(this.search)}" placeholder="搜索任务、项目、状态、父任务" />
+  </label>
+  <span class="fn__flex-1"></span>
+  <button class="b3-button b3-button--text" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>新建</span></button>
+  <button class="block__icon ariaLabel" data-action="sync" aria-label="同步任务文档" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
+</div>`;
+  }
+
+  private renderCurrentView(tasks: TaskItem[]): string {
     switch (this.view) {
-      case "table":
-        return this.renderTableView(tasks);
+      case "list":
+        return this.renderListView(tasks);
       case "timeline":
         return this.renderTimelineView(tasks);
       case "kanban":
         return this.renderKanbanView(tasks);
       case "calendar":
         return this.renderCalendarView(tasks);
-      case "list":
+      case "table":
       default:
-        return this.renderListView(tasks);
+        return this.renderTableView(tasks);
     }
   }
 
   private renderTableView(tasks: TaskItem[]): string {
+    const childCounts = countChildren(this.service.store.all());
     const matched = new Set(tasks.map((task) => task.id));
     const visible = includeAncestors(this.service.store.all(), matched);
     const tree = buildTaskTree(this.service.store.all(), visible, matched);
-    const childCounts = countDescendants(tree);
 
     return `<div class="task-manager-table-wrap">
   <table class="task-manager-table">
@@ -114,11 +158,11 @@ export class TaskManagerTab {
         <th>截止</th>
         <th>父任务</th>
         <th>子任务</th>
-        <th>操作</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
-      ${tree.length ? tree.map((node) => this.renderTableNode(node, 0, childCounts)).join("") : `<tr><td colspan="9" class="task-manager-empty">这里暂时没有任务。</td></tr>`}
+      ${tree.map((node) => this.renderTableNode(node, 0, childCounts)).join("")}
     </tbody>
   </table>
 </div>`;
@@ -473,28 +517,43 @@ export class TaskManagerTab {
     if (!query) {
       return tasks;
     }
+
     return tasks.filter((task) => {
-      const haystack = normalizeSearch([
+      const parent = task.parentId ? this.service.store.get(task.parentId) : undefined;
+      const haystack = [
         task.title,
         task.project,
-        task.sourceText,
-        task.sourceDocId,
-        task.id
-      ].filter(Boolean).join(" "));
-      return haystack.includes(query);
+        TASK_STATUS_LABELS[task.status],
+        TASK_PRIORITY_LABELS[task.priority],
+        task.planStart,
+        task.dueDate,
+        parent?.title
+      ].filter(Boolean).join(" ");
+      return normalizeSearch(haystack).includes(query);
     });
   }
 
-  private taskFromElement(element: Element): TaskItem | undefined {
-    const row = element.closest<HTMLElement>("[data-task-id]");
-    const taskId = row?.dataset.taskId;
+  private taskFromElement(element: HTMLElement): TaskItem | undefined {
+    const owner = element.closest<HTMLElement>("[data-task-id]");
+    const taskId = owner?.dataset.taskId;
     return taskId ? this.service.store.get(taskId) : undefined;
   }
+}
+
+function countChildren(tasks: TaskItem[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.parentId) {
+      counts.set(task.parentId, (counts.get(task.parentId) || 0) + 1);
+    }
+  }
+  return counts;
 }
 
 function includeAncestors(tasks: TaskItem[], matched: Set<string>): Set<string> {
   const visible = new Set(matched);
   const byId = new Map(tasks.map((task) => [task.id, task]));
+
   for (const id of matched) {
     let current = byId.get(id);
     while (current?.parentId) {
@@ -502,6 +561,7 @@ function includeAncestors(tasks: TaskItem[], matched: Set<string>): Set<string> 
       current = byId.get(current.parentId);
     }
   }
+
   return visible;
 }
 
@@ -526,81 +586,66 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
       roots.push(node);
     }
   }
+
   return roots;
 }
 
-function countDescendants(roots: TaskTreeNode[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  const visit = (node: TaskTreeNode): number => {
-    let total = 0;
-    for (const child of node.children) {
-      total += 1 + visit(child);
-    }
-    counts.set(node.task.id, total);
-    return total;
-  };
-  roots.forEach((node) => visit(node));
-  return counts;
-}
-
-function groupByPlanDate(tasks: TaskItem[]): Array<{ label: string; tasks: TaskItem[] }> {
+function groupByPlanDate(tasks: TaskItem[]): Array<{ key: string; label: string; tasks: TaskItem[] }> {
   const groups = new Map<string, TaskItem[]>();
   for (const task of tasks) {
-    const key = toDateKey(task.planStart) || "未安排";
-    const bucket = groups.get(key) || [];
-    bucket.push(task);
-    groups.set(key, bucket);
+    const key = toDateKey(task.planStart) || "unplanned";
+    const group = groups.get(key) || [];
+    group.push(task);
+    groups.set(key, group);
   }
+
   return Array.from(groups.entries())
     .sort(([a], [b]) => {
-      if (a === "未安排") {
+      if (a === "unplanned") {
         return 1;
       }
-      if (b === "未安排") {
+      if (b === "unplanned") {
         return -1;
       }
       return a.localeCompare(b);
     })
-    .map(([label, groupTasks]) => ({ label, tasks: groupTasks }));
+    .map(([key, groupTasks]) => ({
+      key,
+      label: key === "unplanned" ? "未安排" : key,
+      tasks: groupTasks
+    }));
+}
+
+function calendarDays(month: Date): Date[] {
+  const first = monthStart(month);
+  const startOffset = (first.getDay() + 6) % 7;
+  const start = new Date(first.getFullYear(), first.getMonth(), first.getDate() - startOffset);
+  return Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
 }
 
 function groupTasksByDate(tasks: TaskItem[]): Record<string, TaskItem[]> {
-  return tasks.reduce<Record<string, TaskItem[]>>((result, task) => {
-    const key = toDateKey(task.planStart || task.dueDate);
+  const result: Record<string, TaskItem[]> = {};
+  for (const task of tasks) {
+    const key = toDateKey(task.planStart);
     if (!key) {
-      return result;
+      continue;
     }
-    if (!result[key]) {
-      result[key] = [];
-    }
+    result[key] ||= [];
     result[key].push(task);
-    return result;
-  }, {});
+  }
+  return result;
 }
 
 function monthInputValue(date: Date): string {
   return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
 }
 
-function normalizeSearch(value: string): string {
-  return value.trim().toLowerCase();
+function normalizeSearch(value?: string): string {
+  return (value || "").trim().toLocaleLowerCase();
 }
 
 function escapeAttr(value: string): string {
   return escapeHtml(value).replace(/'/g, "&#039;");
-}
-
-function calendarDays(month: Date): Date[] {
-  const first = monthStart(month);
-  const startOffset = (first.getDay() + 6) % 7;
-  const start = new Date(first);
-  start.setDate(first.getDate() - startOffset);
-
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    return date;
-  });
 }
 
 function renderChevron(expanded: boolean): string {

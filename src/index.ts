@@ -160,7 +160,7 @@ export default class TaskTrackerPlugin extends Plugin {
             createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId }),
             openTask: (task: TaskItem) => void plugin.openTask(task),
             sync: () => plugin.syncDeletedTasks()
-          });
+          }, tab.data || {});
           plugin.managerViews.set(tab.element, view);
           view.render();
         }).catch((error) => {
