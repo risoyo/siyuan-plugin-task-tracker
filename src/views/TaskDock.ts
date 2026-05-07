@@ -94,23 +94,13 @@ export class TaskDock {
     ${childCount
       ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-tracker-task__toggle-placeholder"></span>`}
-    <div class="task-tracker-task__summary">
-      <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
-      <div class="task-tracker-task__meta">
-        ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
-        ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
-        ${task.dueDate ? this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate) : ""}
-      </div>
+    <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
+    <div class="task-tracker-task__meta">
+      ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
+      ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
+      ${task.dueDate ? this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate) : ""}
     </div>
     ${childCount ? `<span class="task-tracker-task__child-count">${childCount}</span>` : ""}
-    <div class="task-tracker-task__controls">
-      <button class="block__icon ariaLabel" data-action="open" aria-label="打开任务" data-position="north"><svg><use xlink:href="#iconFocus"></use></svg></button>
-      <button class="block__icon ariaLabel" data-action="subtask" aria-label="创建子任务" data-position="north"><svg><use xlink:href="#iconAdd"></use></svg></button>
-      ${task.status === "completed"
-        ? `<button class="block__icon ariaLabel" data-action="reopen" aria-label="重新打开" data-position="north"><svg><use xlink:href="#iconRefresh"></use></svg></button>`
-        : `<button class="block__icon ariaLabel" data-action="complete" aria-label="完成任务" data-position="north"><svg><use xlink:href="#iconSelect"></use></svg></button>`}
-      <button class="block__icon ariaLabel" data-action="remove-record" aria-label="从任务追踪移除" data-position="north"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
-    </div>
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>`
@@ -167,7 +157,6 @@ export class TaskDock {
         }
         this.render();
       });
-      row.querySelector("[data-action='subtask']")?.addEventListener("click", () => this.actions.createSubtask(task.id));
       row.querySelectorAll<HTMLElement>(".task-tracker-task__meta-chip--date").forEach((chip) => {
         chip.addEventListener("click", (event) => {
           const input = chip.querySelector<HTMLInputElement>("input[type='date']");
@@ -185,18 +174,6 @@ export class TaskDock {
           } else {
             input.click();
           }
-        });
-      });
-      row.querySelector("[data-action='complete']")?.addEventListener("click", () => this.runUpdate(() => this.service.completeTask(task.id)));
-      row.querySelector("[data-action='reopen']")?.addEventListener("click", () => this.runUpdate(() => this.service.reopenTask(task.id)));
-      row.querySelector("[data-action='remove-record']")?.addEventListener("click", () => {
-        const message = `仅从插件任务追踪中移除“${task.title}”及其子任务记录，不会删除思源文档。确定继续？`;
-        if (!window.confirm(message)) {
-          return;
-        }
-        this.runUpdate(async () => {
-          const count = await this.service.removeTaskRecord(task.id, { cascade: true });
-          showMessage(count > 0 ? `已移除 ${count} 个任务记录` : "任务记录已不存在");
         });
       });
     });
