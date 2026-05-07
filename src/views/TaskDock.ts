@@ -1,12 +1,12 @@
 import { showMessage } from "siyuan";
-import { fromDateInput, formatHumanDate, isActiveDateBeforeToday, toDateKey } from "../date";
+import { formatHumanDate, isActiveDateBeforeToday, toDateKey } from "../date";
 import type { TaskService } from "../document";
-import { priorityOptions, statusOptions, escapeHtml } from "../dialogs/TaskDialog";
+import { escapeHtml } from "../dialogs/TaskDialog";
 import {
   ACTIVE_TASK_STATUSES,
-  type TaskItem,
-  type TaskPriority,
-  type TaskStatus
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  type TaskItem
 } from "../types";
 
 type DockFilter = "focus" | "unplanned" | "today" | "overdue" | "all" | "done";
@@ -93,31 +93,28 @@ export class TaskDock {
     const contextClass = node.contextOnly ? " task-tracker-task--context" : "";
 
     return `<div class="task-tracker-task ${statusClass} ${priorityClass}${depthClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
-  <div class="task-tracker-task__main">
-    <div class="task-tracker-task__title-row">
-      ${childCount
-        ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}"><span>${collapsed ? "▸" : "▾"}</span></button>`
-        : `<span class="task-tracker-task__toggle-placeholder"></span>`}
-      <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
-      ${childCount ? `<span class="task-tracker-task__child-count">${childCount}</span>` : ""}
-    </div>
-    <div class="task-tracker-task__meta">
-      <span>${escapeHtml(task.project || "无项目")}</span>
-      <span>计划：${planned}</span>
-      <span>截止：${due}</span>
-      ${parent ? `<span>父任务：${escapeHtml(parent.title)}</span>` : ""}
+  <div class="task-tracker-task__title-row">
+    ${childCount
+      ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}"><span>${collapsed ? "▸" : "▾"}</span></button>`
+      : `<span class="task-tracker-task__toggle-placeholder"></span>`}
+    <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
+    ${childCount ? `<span class="task-tracker-task__child-count">${childCount}</span>` : ""}
+    <div class="task-tracker-task__controls">
+      <button class="block__icon ariaLabel" data-action="open" aria-label="打开任务" data-position="north"><svg><use xlink:href="#iconFocus"></use></svg></button>
+      <button class="block__icon ariaLabel" data-action="subtask" aria-label="创建子任务" data-position="north"><svg><use xlink:href="#iconAdd"></use></svg></button>
+      ${task.status === "completed"
+        ? `<button class="block__icon ariaLabel" data-action="reopen" aria-label="重新打开" data-position="north"><svg><use xlink:href="#iconRefresh"></use></svg></button>`
+        : `<button class="block__icon ariaLabel" data-action="complete" aria-label="完成任务" data-position="north"><svg><use xlink:href="#iconSelect"></use></svg></button>`}
+      <button class="block__icon ariaLabel" data-action="remove-record" aria-label="从任务追踪移除" data-position="north"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
     </div>
   </div>
-  <div class="task-tracker-task__controls">
-    <select class="b3-select" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
-    <select class="b3-select" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select>
-    <input class="b3-text-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
-    <input class="b3-text-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" />
-    <button class="block__icon ariaLabel" data-action="subtask" aria-label="创建子任务" data-position="north"><svg><use xlink:href="#iconAdd"></use></svg></button>
-    ${task.status === "completed"
-      ? `<button class="block__icon ariaLabel" data-action="reopen" aria-label="重新打开" data-position="north"><svg><use xlink:href="#iconRefresh"></use></svg></button>`
-      : `<button class="block__icon ariaLabel" data-action="complete" aria-label="完成任务" data-position="north"><svg><use xlink:href="#iconSelect"></use></svg></button>`}
-    <button class="block__icon ariaLabel" data-action="remove-record" aria-label="从任务追踪移除" data-position="north"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
+  <div class="task-tracker-task__meta">
+    <span>${escapeHtml(task.project || "无项目")}</span>
+    <span>${TASK_STATUS_LABELS[task.status]}</span>
+    <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
+    <span>计划：${planned}</span>
+    <span>截止：${due}</span>
+    ${parent ? `<span>父任务：${escapeHtml(parent.title)}</span>` : ""}
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>`
@@ -173,18 +170,6 @@ export class TaskDock {
         });
       });
 
-      row.querySelector<HTMLSelectElement>("[data-field='status']")?.addEventListener("change", (event) => {
-        this.runUpdate(() => this.service.updateTask(task.id, { status: (event.target as HTMLSelectElement).value as TaskStatus }));
-      });
-      row.querySelector<HTMLSelectElement>("[data-field='priority']")?.addEventListener("change", (event) => {
-        this.runUpdate(() => this.service.updateTask(task.id, { priority: (event.target as HTMLSelectElement).value as TaskPriority }));
-      });
-      row.querySelector<HTMLInputElement>("[data-field='planDate']")?.addEventListener("change", (event) => {
-        this.runUpdate(() => this.service.updateTask(task.id, { planStart: fromDateInput((event.target as HTMLInputElement).value) }));
-      });
-      row.querySelector<HTMLInputElement>("[data-field='dueDate']")?.addEventListener("change", (event) => {
-        this.runUpdate(() => this.service.updateTask(task.id, { dueDate: (event.target as HTMLInputElement).value || undefined }));
-      });
     });
   }
 

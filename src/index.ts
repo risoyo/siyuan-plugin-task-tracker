@@ -3,7 +3,6 @@ import {
   Menu,
   Plugin,
   Setting,
-  openSetting,
   openTab,
   showMessage
 } from "siyuan";
@@ -268,7 +267,7 @@ export default class TaskTrackerPlugin extends Plugin {
       icon: "iconSettings",
       label: "插件设置",
       click: () => {
-        openSetting(this.app);
+        this.openSetting();
       }
     });
     menu.open({

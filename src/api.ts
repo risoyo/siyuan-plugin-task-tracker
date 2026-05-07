@@ -1,6 +1,10 @@
 import { fetchSyncPost } from "siyuan";
 import type { BlockRow } from "./types";
 
+export interface DocSearchResult extends BlockRow {
+  hpath?: string;
+}
+
 interface SiyuanResponse<T> {
   code: number;
   msg?: string;
@@ -26,6 +30,28 @@ export async function sql<T = Record<string, unknown>>(stmt: string): Promise<T[
 export async function getBlockById(id: string): Promise<BlockRow | undefined> {
   const rows = await sql<BlockRow>(`select * from blocks where id = '${sqlText(id)}' limit 1`);
   return rows[0];
+}
+
+export async function searchDocs(keyword: string, limit = 20): Promise<DocSearchResult[]> {
+  const term = keyword.trim();
+  if (!term) {
+    return [];
+  }
+  const escaped = sqlText(term);
+  const safeLimit = Math.max(1, Math.min(limit, 50));
+  return sql<DocSearchResult>(`select id, box, path, hpath, content, type from blocks
+where type = 'd'
+  and (content like '%${escaped}%' or path like '%${escaped}%' or hpath like '%${escaped}%')
+order by updated desc
+limit ${safeLimit}`);
+}
+
+export async function getDocById(id: string): Promise<BlockRow | undefined> {
+  const block = await getBlockById(id);
+  if (!block || block.type !== "d") {
+    return undefined;
+  }
+  return block;
 }
 
 export async function getHPathById(id: string): Promise<string> {

@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 
 const root = process.cwd();
 const dist = join(root, "dist");
+const localPluginDir = "/Users/risoyo/SiYuan/data/plugins/siyuan-plugin-task-tracker";
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
@@ -39,4 +40,19 @@ if (existsSync(join(root, "i18n"))) {
   await cp(join(root, "i18n"), join(dist, "i18n"), { recursive: true });
 }
 
+await syncToLocalPluginDir();
+
 console.log("Built SiYuan plugin to dist/");
+console.log(`Synced dist/ to ${localPluginDir}`);
+
+async function syncToLocalPluginDir() {
+  await mkdir(localPluginDir, { recursive: true });
+  const entries = await readdir(dist);
+
+  for (const entry of entries) {
+    const source = join(dist, entry);
+    const target = join(localPluginDir, entry);
+    await rm(target, { recursive: true, force: true });
+    await cp(source, target, { recursive: true });
+  }
+}
