@@ -1018,12 +1018,18 @@
   position: relative;
 }
 
+.task-tracker-task__meta-chip--date:hover {
+  background: color-mix(in srgb, var(--task-accent) 6%, var(--b3-theme-surface) 94%);
+}
+
 .task-tracker-task__meta-date-input {
-  cursor: pointer;
-  inset: 0;
+  height: 1px;
+  left: 0;
   opacity: 0;
+  pointer-events: none;
   position: absolute;
-  width: 100%;
+  top: 0;
+  width: 1px;
 }
 
 .task-tracker-task__controls {

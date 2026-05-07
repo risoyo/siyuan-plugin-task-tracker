@@ -1,11 +1,10 @@
 import { showMessage } from "siyuan";
 import { formatMonthDay, fromDateInput, isActiveDateBeforeToday, toDateKey } from "../date";
 import type { TaskService } from "../document";
-import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialog";
+import { escapeHtml, statusOptions } from "../dialogs/TaskDialog";
 import {
   ACTIVE_TASK_STATUSES,
   type TaskItem,
-  type TaskPriority,
   type TaskStatus
 } from "../types";
 
@@ -108,9 +107,8 @@ export class TaskDock {
   </div>
   <div class="task-tracker-task__meta">
     ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
-    ${this.renderSelectMeta("优先", "priority", priorityOptions(task.priority))}
     ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
-    ${this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate || "")}
+    ${task.dueDate ? this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate) : ""}
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>`
@@ -118,7 +116,7 @@ export class TaskDock {
 </div>`;
   }
 
-  private renderSelectMeta(label: string, field: "status" | "priority", options: string): string {
+  private renderSelectMeta(label: string, field: "status", options: string): string {
     return `<label class="task-tracker-task__meta-chip">
   <select class="task-tracker-task__meta-select" data-field="${field}" aria-label="${label}">${options}</select>
 </label>`;
@@ -168,6 +166,25 @@ export class TaskDock {
         this.render();
       });
       row.querySelector("[data-action='subtask']")?.addEventListener("click", () => this.actions.createSubtask(task.id));
+      row.querySelectorAll<HTMLElement>(".task-tracker-task__meta-chip--date").forEach((chip) => {
+        chip.addEventListener("click", (event) => {
+          const input = chip.querySelector<HTMLInputElement>("input[type='date']");
+          if (!input) {
+            return;
+          }
+          if (event.target === input) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          input.focus();
+          if (typeof input.showPicker === "function") {
+            input.showPicker();
+          } else {
+            input.click();
+          }
+        });
+      });
       row.querySelector("[data-action='complete']")?.addEventListener("click", () => this.runUpdate(() => this.service.completeTask(task.id)));
       row.querySelector("[data-action='reopen']")?.addEventListener("click", () => this.runUpdate(() => this.service.reopenTask(task.id)));
       row.querySelector("[data-action='remove-record']")?.addEventListener("click", () => {
@@ -193,8 +210,6 @@ export class TaskDock {
 
     if (field.dataset.field === "status") {
       void this.runUpdate(() => this.service.updateTask(task.id, { status: (field as HTMLSelectElement).value as TaskStatus }));
-    } else if (field.dataset.field === "priority") {
-      void this.runUpdate(() => this.service.updateTask(task.id, { priority: (field as HTMLSelectElement).value as TaskPriority }));
     } else if (field.dataset.field === "planDate") {
       void this.runUpdate(() => this.service.updateTask(task.id, { planStart: fromDateInput((field as HTMLInputElement).value) }));
     } else if (field.dataset.field === "dueDate") {
