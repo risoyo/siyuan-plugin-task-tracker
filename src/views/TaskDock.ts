@@ -120,14 +120,12 @@ export class TaskDock {
 
   private renderSelectMeta(label: string, field: "status" | "priority", options: string): string {
     return `<label class="task-tracker-task__meta-chip">
-  <span class="task-tracker-task__meta-label">${label}</span>
   <select class="task-tracker-task__meta-select" data-field="${field}" aria-label="${label}">${options}</select>
 </label>`;
   }
 
   private renderDateMeta(label: string, field: "planDate" | "dueDate", display: string, value: string): string {
     return `<label class="task-tracker-task__meta-chip task-tracker-task__meta-chip--date">
-  <span class="task-tracker-task__meta-label">${label}</span>
   <span class="task-tracker-task__meta-value">${display}</span>
   <input class="task-tracker-task__meta-date-input" data-field="${field}" type="date" value="${value}" aria-label="${label}" />
 </label>`;
