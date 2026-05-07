@@ -1,12 +1,12 @@
 import { showMessage } from "siyuan";
-import { formatHumanDate, isActiveDateBeforeToday, toDateKey } from "../date";
+import { formatMonthDay, fromDateInput, isActiveDateBeforeToday, toDateKey } from "../date";
 import type { TaskService } from "../document";
-import { escapeHtml } from "../dialogs/TaskDialog";
+import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialog";
 import {
   ACTIVE_TASK_STATUSES,
-  TASK_PRIORITY_LABELS,
-  TASK_STATUS_LABELS,
-  type TaskItem
+  type TaskItem,
+  type TaskPriority,
+  type TaskStatus
 } from "../types";
 
 type DockFilter = "focus" | "unplanned" | "today" | "overdue" | "all" | "done";
@@ -32,6 +32,7 @@ export class TaskDock {
 
   destroy(): void {
     this.unsubscribe?.();
+    this.container.onchange = null;
   }
 
   render(): void {
@@ -84,9 +85,6 @@ export class TaskDock {
     const task = node.task;
     const statusClass = `task-status-${task.status}`;
     const priorityClass = `task-priority-${task.priority}`;
-    const planned = formatHumanDate(task.planStart);
-    const due = formatHumanDate(task.dueDate);
-    const parent = task.parentId ? this.service.store.get(task.parentId) : undefined;
     const childCount = node.children.length;
     const collapsed = this.collapsedTaskIds.has(task.id);
     const depthClass = depth > 0 ? " task-tracker-task--child" : "";
@@ -95,7 +93,7 @@ export class TaskDock {
     return `<div class="task-tracker-task ${statusClass} ${priorityClass}${depthClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   <div class="task-tracker-task__title-row">
     ${childCount
-      ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}"><span>${collapsed ? "▸" : "▾"}</span></button>`
+      ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-tracker-task__toggle-placeholder"></span>`}
     <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
     ${childCount ? `<span class="task-tracker-task__child-count">${childCount}</span>` : ""}
@@ -109,17 +107,30 @@ export class TaskDock {
     </div>
   </div>
   <div class="task-tracker-task__meta">
-    <span>${escapeHtml(task.project || "无项目")}</span>
-    <span>${TASK_STATUS_LABELS[task.status]}</span>
-    <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
-    <span>计划：${planned}</span>
-    <span>截止：${due}</span>
-    ${parent ? `<span>父任务：${escapeHtml(parent.title)}</span>` : ""}
+    ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
+    ${this.renderSelectMeta("优先", "priority", priorityOptions(task.priority))}
+    ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
+    ${this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate || "")}
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>`
     : ""}
 </div>`;
+  }
+
+  private renderSelectMeta(label: string, field: "status" | "priority", options: string): string {
+    return `<label class="task-tracker-task__meta-chip">
+  <span class="task-tracker-task__meta-label">${label}</span>
+  <select class="task-tracker-task__meta-select" data-field="${field}" aria-label="${label}">${options}</select>
+</label>`;
+  }
+
+  private renderDateMeta(label: string, field: "planDate" | "dueDate", display: string, value: string): string {
+    return `<label class="task-tracker-task__meta-chip task-tracker-task__meta-chip--date">
+  <span class="task-tracker-task__meta-label">${label}</span>
+  <span class="task-tracker-task__meta-value">${display}</span>
+  <input class="task-tracker-task__meta-date-input" data-field="${field}" type="date" value="${value}" aria-label="${label}" />
+</label>`;
   }
 
   private bind(): void {
@@ -138,6 +149,8 @@ export class TaskDock {
         this.render();
       });
     });
+
+    this.container.onchange = (event) => this.handleFieldChange(event);
 
     this.container.querySelectorAll<HTMLElement>("[data-task-id]").forEach((row) => {
       const taskId = row.dataset.taskId;
@@ -169,8 +182,32 @@ export class TaskDock {
           showMessage(count > 0 ? `已移除 ${count} 个任务记录` : "任务记录已不存在");
         });
       });
-
     });
+  }
+
+  private handleFieldChange(event: Event): void {
+    const target = event.target as HTMLElement;
+    const field = target.closest<HTMLElement>("[data-field]");
+    const task = field ? this.taskFromElement(field) : undefined;
+    if (!field || !task) {
+      return;
+    }
+
+    if (field.dataset.field === "status") {
+      void this.runUpdate(() => this.service.updateTask(task.id, { status: (field as HTMLSelectElement).value as TaskStatus }));
+    } else if (field.dataset.field === "priority") {
+      void this.runUpdate(() => this.service.updateTask(task.id, { priority: (field as HTMLSelectElement).value as TaskPriority }));
+    } else if (field.dataset.field === "planDate") {
+      void this.runUpdate(() => this.service.updateTask(task.id, { planStart: fromDateInput((field as HTMLInputElement).value) }));
+    } else if (field.dataset.field === "dueDate") {
+      void this.runUpdate(() => this.service.updateTask(task.id, { dueDate: (field as HTMLInputElement).value || undefined }));
+    }
+  }
+
+  private taskFromElement(element: Element): TaskItem | undefined {
+    const row = element.closest<HTMLElement>("[data-task-id]");
+    const taskId = row?.dataset.taskId;
+    return taskId ? this.service.store.get(taskId) : undefined;
   }
 
   private async runUpdate(action: () => Promise<unknown>): Promise<void> {
@@ -273,4 +310,8 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
   }
 
   return roots;
+}
+
+function renderChevron(expanded: boolean): string {
+  return `<span class="task-tree-chevron${expanded ? " is-expanded" : ""}" aria-hidden="true"></span>`;
 }

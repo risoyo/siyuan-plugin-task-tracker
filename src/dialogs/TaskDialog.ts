@@ -1,6 +1,6 @@
 import { Dialog, showMessage } from "siyuan";
 import { fromDatetimeLocal } from "../date";
-import { getDocById, searchDocs, type DocSearchResult } from "../api";
+import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import {
   TASK_PRIORITY_LABELS,
@@ -21,14 +21,15 @@ export interface TaskDialogOptions {
   onSaved?: (task: TaskItem) => void;
 }
 
+type SourceMode = "manual" | "note";
+
 export class TaskDialog {
   constructor(private options: TaskDialogOptions) {}
 
   show(): void {
-    let selectedSource = this.options.source ? { ...this.options.source } : undefined as SourceContext | undefined;
-    let searchResults: DocSearchResult[] = [];
-    let searching = false;
-    let latestSearchToken = 0;
+    const defaultMode: SourceMode = this.options.source?.docId ? "note" : "manual";
+    let sourceMode: SourceMode = defaultMode;
+    let selectedSource = sourceMode === "note" && this.options.source ? { ...this.options.source } : undefined as SourceContext | undefined;
     const tasks = this.options.service.store.all();
     const activeTasks = tasks.filter((task) => {
       return task.id === this.options.parentId || (task.status !== "completed" && task.status !== "cancelled");
@@ -36,6 +37,7 @@ export class TaskDialog {
     const projects = this.options.service.store.getProjects();
     const defaultTitle = this.options.presetTitle || this.options.source?.text || "";
     const defaultPlanStart = this.options.presetPlanDate ? `${this.options.presetPlanDate}T09:00` : "";
+    const defaultSourceDocId = this.options.source?.docId || "";
 
     const dialog = new Dialog({
       title: this.options.parentId ? "新建子任务" : "新建任务",
@@ -87,16 +89,19 @@ export class TaskDialog {
       <div class="task-tracker-field task-tracker-field--wide task-tracker-source">
         <span>来源</span>
         <div class="task-tracker-source__summary" data-source-summary></div>
-        <div class="task-tracker-source__inputs">
-          <input class="b3-text-field fn__block" name="sourceSearch" placeholder="搜索笔记标题或路径关键词" />
-          <input class="b3-text-field fn__block" name="sourceDocId" placeholder="或手动填写笔记 ID" />
+        <div class="task-tracker-source__mode" role="radiogroup" aria-label="来源模式">
+          <label class="task-tracker-source__mode-item">
+            <input type="radio" name="sourceMode" value="manual" ${sourceMode === "manual" ? "checked" : ""} />
+            <span>手动创建</span>
+          </label>
+          <label class="task-tracker-source__mode-item">
+            <input type="radio" name="sourceMode" value="note" ${sourceMode === "note" ? "checked" : ""} />
+            <span>笔记</span>
+          </label>
         </div>
-        <div class="task-tracker-source__actions">
-          <button type="button" class="b3-button b3-button--outline" data-action="search-source">搜索笔记</button>
-          <button type="button" class="b3-button b3-button--outline" data-action="apply-source-doc-id">使用笔记 ID</button>
-          <button type="button" class="b3-button b3-button--cancel" data-action="clear-source">清除覆盖</button>
+        <div class="task-tracker-source__note" data-source-note ${sourceMode === "note" ? "" : "hidden"}>
+          <input class="b3-text-field fn__block" name="sourceDocId" placeholder="填写笔记 ID" value="${escapeAttr(defaultSourceDocId)}" />
         </div>
-        <div class="task-tracker-source__results" data-source-results></div>
       </div>
     </div>
   </div>
@@ -111,10 +116,9 @@ export class TaskDialog {
 
     const form = dialog.element.querySelector("form") as HTMLFormElement;
     const titleInput = dialog.element.querySelector<HTMLInputElement>("input[name='title']");
-    const sourceSearchInput = dialog.element.querySelector<HTMLInputElement>("input[name='sourceSearch']");
     const sourceDocIdInput = dialog.element.querySelector<HTMLInputElement>("input[name='sourceDocId']");
     const sourceSummary = dialog.element.querySelector<HTMLElement>("[data-source-summary]");
-    const sourceResults = dialog.element.querySelector<HTMLElement>("[data-source-results]");
+    const sourceNote = dialog.element.querySelector<HTMLElement>("[data-source-note]");
     titleInput?.focus();
     titleInput?.select();
 
@@ -122,46 +126,20 @@ export class TaskDialog {
       if (!sourceSummary) {
         return;
       }
-      sourceSummary.innerHTML = `<div class="task-tracker-source__current">当前来源：${escapeHtml(selectedSource?.text || "手动创建")}</div>`;
+      const current = sourceMode === "note"
+        ? selectedSource?.text || sourceDocIdInput?.value.trim() || "尚未填写笔记 ID"
+        : this.options.source?.text || "手动创建";
+      sourceSummary.innerHTML = `<div class="task-tracker-source__current">当前来源：${escapeHtml(current)}</div>`;
     };
 
-    const renderSourceResults = () => {
-      if (!sourceResults) {
-        return;
+    const renderSourceMode = () => {
+      if (sourceNote) {
+        sourceNote.hidden = sourceMode !== "note";
       }
-      if (searching) {
-        sourceResults.innerHTML = `<div class="task-tracker-source__empty">正在搜索笔记...</div>`;
-        return;
+      if (sourceMode === "manual") {
+        selectedSource = undefined;
       }
-      if (!searchResults.length) {
-        sourceResults.innerHTML = `<div class="task-tracker-source__empty">暂无搜索结果</div>`;
-        return;
-      }
-      sourceResults.innerHTML = searchResults.map((doc) => {
-        const label = doc.content || doc.hpath || doc.id;
-        const detail = doc.hpath || doc.path || doc.box || "";
-        return `<button type="button" class="task-tracker-source__result" data-source-doc-id="${escapeAttr(doc.id)}" title="${escapeAttr(label)}">
-  <span class="task-tracker-source__result-title">${escapeHtml(label)}</span>
-  <span class="task-tracker-source__result-detail">${escapeHtml(detail || doc.id)}</span>
-</button>`;
-      }).join("");
-      sourceResults.querySelectorAll<HTMLElement>("[data-source-doc-id]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const doc = searchResults.find((item) => item.id === button.dataset.sourceDocId);
-          if (!doc) {
-            return;
-          }
-          selectedSource = {
-            blockId: doc.id,
-            docId: doc.id,
-            text: doc.content || doc.hpath || doc.id
-          };
-          if (sourceDocIdInput) {
-            sourceDocIdInput.value = doc.id;
-          }
-          renderSourceSummary();
-        });
-      });
+      renderSourceSummary();
     };
 
     const applyDocIdSource = async (): Promise<void> => {
@@ -181,65 +159,34 @@ export class TaskDialog {
       renderSourceSummary();
     };
 
-    const runSearch = async (): Promise<void> => {
-      const keyword = sourceSearchInput?.value.trim() || "";
-      if (!keyword) {
-        searchResults = [];
-        renderSourceResults();
-        return;
-      }
-      const token = ++latestSearchToken;
-      searching = true;
-      renderSourceResults();
-      try {
-        const results = await searchDocs(keyword, 20);
-        if (token !== latestSearchToken) {
-          return;
-        }
-        searchResults = results;
-      } finally {
-        if (token === latestSearchToken) {
-          searching = false;
-          renderSourceResults();
-        }
-      }
-    };
-
-    renderSourceSummary();
-    renderSourceResults();
+    renderSourceMode();
 
     dialog.element.querySelector("[data-action='cancel']")?.addEventListener("click", () => dialog.destroy());
-    dialog.element.querySelector("[data-action='search-source']")?.addEventListener("click", () => {
-      void runSearch().catch((error) => showMessage(error instanceof Error ? error.message : "搜索笔记失败", 5000, "error"));
+    dialog.element.querySelectorAll<HTMLInputElement>("input[name='sourceMode']").forEach((input) => {
+      input.addEventListener("change", () => {
+        sourceMode = input.value as SourceMode;
+        renderSourceMode();
+      });
     });
-    dialog.element.querySelector("[data-action='apply-source-doc-id']")?.addEventListener("click", () => {
-      void applyDocIdSource().catch((error) => showMessage(error instanceof Error ? error.message : "设置来源失败", 5000, "error"));
-    });
-    dialog.element.querySelector("[data-action='clear-source']")?.addEventListener("click", () => {
-      selectedSource = this.options.source ? { ...this.options.source } : undefined;
-      if (sourceDocIdInput) {
-        sourceDocIdInput.value = "";
-      }
-      renderSourceSummary();
-    });
-    sourceSearchInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void runSearch().catch((error) => showMessage(error instanceof Error ? error.message : "搜索笔记失败", 5000, "error"));
+    sourceDocIdInput?.addEventListener("input", () => {
+      if (sourceMode === "note") {
+        selectedSource = undefined;
+        renderSourceSummary();
       }
     });
     dialog.bindInput(titleInput, () => form.requestSubmit());
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const submitButton = form.querySelector<HTMLButtonElement>("button[type='submit']");
+      const submitButton = form.querySelector<HTMLButtonElement>("button[type='submit']") as HTMLButtonElement;
       submitButton.disabled = true;
       submitButton.textContent = "创建中...";
 
       try {
         const data = new FormData(form);
-        const manualSourceDocId = String(data.get("sourceDocId") || "").trim();
-        if (manualSourceDocId && (!selectedSource || selectedSource.docId !== manualSourceDocId)) {
+        if (sourceMode === "note") {
           await applyDocIdSource();
+        } else {
+          selectedSource = this.options.source ? { ...this.options.source } : undefined;
         }
         const input: TaskCreateInput = {
           title: String(data.get("title") || "").trim(),
@@ -287,7 +234,7 @@ export function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/\"/g, "&quot;");
 }
 
 function escapeAttr(value: string): string {

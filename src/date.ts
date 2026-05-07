@@ -104,3 +104,8 @@ export function formatHumanDate(value?: string): string {
   const key = toDateKey(value);
   return key || "未设置";
 }
+
+export function formatMonthDay(value?: string): string {
+  const key = toDateKey(value);
+  return key ? key.slice(5) : "未设置";
+}
