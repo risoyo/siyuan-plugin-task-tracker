@@ -116,8 +116,8 @@
 .task-manager-toolbar__search {
   align-items: center;
   display: flex;
-  flex: 0 1 320px;
-  min-width: 180px;
+  flex: 0 1 168px;
+  min-width: 120px;
   position: relative;
 }
 
@@ -314,8 +314,8 @@
   align-items: center;
   appearance: none;
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--manager-accent) 32%, var(--manager-border));
-  border-radius: 999px;
+  border: 0;
+  border-radius: 0;
   color: var(--manager-accent) !important;
   cursor: pointer;
   display: inline-flex;
@@ -973,6 +973,7 @@
   font-size: 11px;
   gap: 0 4px;
   line-height: 1.45;
+  margin-left: 6px;
   margin-right: 2px;
   min-width: 0;
   overflow: hidden;
@@ -996,11 +997,6 @@
   line-height: 1;
 }
 
-.task-tracker-task__meta-chip--date {
-  min-width: 0;
-  padding: 0 4px;
-}
-
 .task-tracker-task__meta-select,
 .task-tracker-task__meta-date-input {
   background: transparent;
@@ -1022,7 +1018,8 @@
 
 .task-tracker-task__meta-chip--date {
   cursor: pointer;
-  min-width: 52px;
+  min-width: 0;
+  padding: 0 3px;
   position: relative;
 }
 

@@ -60,6 +60,9 @@ export class TaskManagerTab {
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
+  private isComposingSearch = false;
+  private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
+  private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
   private unsubscribe?: () => void;
 
   constructor(
@@ -89,6 +92,8 @@ export class TaskManagerTab {
     this.container.onchange = null;
     this.container.oninput = null;
     this.container.onkeydown = null;
+    this.container.removeEventListener("compositionstart", this.compositionStartListener);
+    this.container.removeEventListener("compositionend", this.compositionEndListener);
   }
 
   render(): void {
@@ -361,6 +366,10 @@ export class TaskManagerTab {
     this.container.onchange = (event) => this.handleChange(event);
     this.container.oninput = (event) => this.handleInput(event);
     this.container.onkeydown = (event) => this.handleKeydown(event);
+    this.container.removeEventListener("compositionstart", this.compositionStartListener);
+    this.container.removeEventListener("compositionend", this.compositionEndListener);
+    this.container.addEventListener("compositionstart", this.compositionStartListener);
+    this.container.addEventListener("compositionend", this.compositionEndListener);
   }
 
   private handleClick(event: MouseEvent): void {
@@ -450,10 +459,36 @@ export class TaskManagerTab {
       return;
     }
 
+    this.search = target.value;
+    if (this.isComposingSearch) {
+      return;
+    }
+
     const cursor = target.selectionStart ?? target.value.length;
+    this.render();
+    const nextSearch = this.container.querySelector<HTMLInputElement>("[data-field='search']");
+    nextSearch?.focus();
+    nextSearch?.setSelectionRange(cursor, cursor);
+  }
+
+  private handleCompositionStart(event: CompositionEvent): void {
+    const target = event.target as HTMLElement;
+    if (target instanceof HTMLInputElement && target.dataset.field === "search") {
+      this.isComposingSearch = true;
+    }
+  }
+
+  private handleCompositionEnd(event: CompositionEvent): void {
+    const target = event.target as HTMLElement;
+    if (!(target instanceof HTMLInputElement) || target.dataset.field !== "search") {
+      return;
+    }
+
+    this.isComposingSearch = false;
     this.search = target.value;
     this.render();
     const nextSearch = this.container.querySelector<HTMLInputElement>("[data-field='search']");
+    const cursor = nextSearch?.value.length ?? 0;
     nextSearch?.focus();
     nextSearch?.setSelectionRange(cursor, cursor);
   }
