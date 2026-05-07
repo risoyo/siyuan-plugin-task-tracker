@@ -94,7 +94,14 @@ export class TaskDock {
     ${childCount
       ? `<button class="task-tracker-task__toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-tracker-task__toggle-placeholder"></span>`}
-    <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
+    <div class="task-tracker-task__summary">
+      <button class="task-tracker-task__title" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</button>
+      <div class="task-tracker-task__meta">
+        ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
+        ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
+        ${task.dueDate ? this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate) : ""}
+      </div>
+    </div>
     ${childCount ? `<span class="task-tracker-task__child-count">${childCount}</span>` : ""}
     <div class="task-tracker-task__controls">
       <button class="block__icon ariaLabel" data-action="open" aria-label="打开任务" data-position="north"><svg><use xlink:href="#iconFocus"></use></svg></button>
@@ -104,11 +111,6 @@ export class TaskDock {
         : `<button class="block__icon ariaLabel" data-action="complete" aria-label="完成任务" data-position="north"><svg><use xlink:href="#iconSelect"></use></svg></button>`}
       <button class="block__icon ariaLabel" data-action="remove-record" aria-label="从任务追踪移除" data-position="north"><svg><use xlink:href="#iconTrashcan"></use></svg></button>
     </div>
-  </div>
-  <div class="task-tracker-task__meta">
-    ${this.renderSelectMeta("状态", "status", statusOptions(task.status))}
-    ${this.renderDateMeta("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
-    ${task.dueDate ? this.renderDateMeta("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate) : ""}
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>`
