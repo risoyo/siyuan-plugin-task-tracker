@@ -31,7 +31,7 @@ var plugin_default = {
   name: "siyuan-plugin-task-tracker",
   author: "risoyo",
   url: "https://github.com/risoyo/siyuan-plugin-task-tracker",
-  version: "0.3.5-fix",
+  version: "1.0.0",
   minAppVersion: "3.6.4",
   backends: [
     "windows",

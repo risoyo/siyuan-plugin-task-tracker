@@ -31,7 +31,7 @@ var plugin_default = {
   name: "siyuan-plugin-task-tracker",
   author: "risoyo",
   url: "https://github.com/risoyo/siyuan-plugin-task-tracker",
-  version: "0.4.0",
+  version: "1.0.0",
   minAppVersion: "3.6.4",
   backends: [
     "windows",
@@ -860,7 +860,7 @@ function showHelpDialog() {
   <p>\u53EF\u4EE5\u4ECE\u53F3\u4E0A\u89D2\u63D2\u4EF6\u83DC\u5355\u65B0\u5EFA\u4EFB\u52A1\uFF0C\u4E5F\u53EF\u4EE5\u4ECE\u5F53\u524D\u6587\u6863\u6216\u5F53\u524D\u5757\u521B\u5EFA\u4EFB\u52A1\u3002\u4EFB\u52A1\u5B57\u6BB5\u5305\u62EC\u9879\u76EE\u3001\u72B6\u6001\u3001\u4F18\u5148\u7EA7\u3001\u8BA1\u5212\u5F00\u59CB\u3001\u8BA1\u5212\u7ED3\u675F\u3001\u622A\u6B62\u65E5\u671F\u548C\u7236\u4EFB\u52A1\u3002</p>
 
   <h2>\u4E09\u3001\u4EFB\u52A1\u8FFD\u8E2A\u9762\u677F</h2>
-  <p>\u4FA7\u8FB9\u680F\u9762\u677F\u7528\u4E8E\u5FEB\u901F\u6D4F\u89C8\u548C\u5904\u7406\u6D3B\u8DC3\u4EFB\u52A1\uFF1B\u4EFB\u52A1\u7BA1\u7406\u5668\u5219\u63D0\u4F9B\u8868\u683C\u3001\u6E05\u5355\u3001\u65F6\u95F4\u8F74\u3001\u770B\u677F\u3001\u65E5\u5386\u7B49\u5B8C\u6574\u9762\u677F\u3002\u4E24\u8005\u90FD\u56F4\u7ED5\u4E8B\u9879\u5E93\u6587\u6863\u6811\u5DE5\u4F5C\uFF0C\u4EFB\u52A1\u4E0E\u5B50\u4EFB\u52A1\u5BF9\u5E94\u771F\u5B9E\u7B14\u8BB0\u6587\u6863\uFF0C\u70B9\u51FB\u4EFB\u52A1\u6807\u9898\u4F1A\u76F4\u63A5\u6253\u5F00\u5BF9\u5E94\u7B14\u8BB0\u3002</p>
+  <p>\u201C\u5168\u90E8\u201D\u663E\u793A\u6240\u6709\u672A\u5B8C\u6210\u4EFB\u52A1\uFF1B\u201C\u7126\u70B9\u201D\u663E\u793A\u8FDB\u884C\u4E2D\u3001\u4ECA\u5929\u53CA\u4EE5\u524D\u9700\u8981\u5173\u6CE8\u7684\u4EFB\u52A1\uFF1B\u201C\u672A\u5B89\u6392\u201D\u663E\u793A\u6CA1\u6709\u8BA1\u5212\u5F00\u59CB\u65F6\u95F4\u7684\u4EFB\u52A1\uFF1B\u201C\u4ECA\u65E5\u201D\u201C\u903E\u671F\u201D\u201C\u5B8C\u6210\u201D\u5206\u522B\u663E\u793A\u5BF9\u5E94\u72B6\u6001\u3002\u5B50\u4EFB\u52A1\u4F1A\u6298\u53E0\u5728\u7236\u4EFB\u52A1\u4E0B\u65B9\uFF0C\u70B9\u51FB\u7BAD\u5934\u5C55\u5F00\u6216\u6536\u8D77\u3002</p>
 
   <h2>\u56DB\u3001\u65E5\u5386\u89C6\u56FE</h2>
   <p>\u65E5\u5386\u6309\u8BA1\u5212\u5F00\u59CB\u65F6\u95F4\u5C55\u793A\u4EFB\u52A1\uFF1B\u6CA1\u6709\u8BA1\u5212\u5F00\u59CB\u65F6\u95F4\u7684\u4EFB\u52A1\u4F1A\u8FDB\u5165\u53F3\u4FA7\u201C\u672A\u767B\u8BB0\u8BA1\u5212\u65F6\u95F4\u201D\u3002\u6708\u4EFD\u6807\u9898\u4E24\u4FA7\u6309\u94AE\u53EF\u5207\u6362\u524D\u540E\u6708\u4EFD\uFF0C\u6708\u4EFD\u9009\u62E9\u6846\u53EF\u5FEB\u901F\u8DF3\u8F6C\u3002</p>
@@ -1168,13 +1168,7 @@ var TaskDock = class {
     this.bind();
   }
   renderContent(tree, counts) {
-    const settings = this.service.store.getSettings();
-    return `<div class="task-tracker-dock__summary">
-  <div class="task-tracker-dock__summary-title">\u4E8B\u9879\u5E93</div>
-  <div class="task-tracker-dock__summary-name">${escapeHtml(settings.taskRootTitle || "\u672A\u7ED1\u5B9A\u4E8B\u9879\u5E93")}</div>
-  <div class="task-tracker-dock__summary-hint">\u4EFB\u52A1\u4E0E\u5B50\u4EFB\u52A1\u90FD\u5BF9\u5E94\u771F\u5B9E\u7B14\u8BB0\u6587\u6863\u3002</div>
-</div>
-<div class="task-tracker-tabs">
+    return `<div class="task-tracker-tabs">
   ${tabButton("all", "\u5168\u90E8", counts.all, this.filter)}
   ${tabButton("focus", "\u7126\u70B9", counts.focus, this.filter)}
   ${tabButton("unplanned", "\u672A\u5B89\u6392", counts.unplanned, this.filter)}
@@ -1216,8 +1210,6 @@ var TaskDock = class {
       <span>\u8BA1\u5212\uFF1A${planned}</span>
       <span>\u622A\u6B62\uFF1A${due}</span>
       ${parent ? `<span>\u7236\u4EFB\u52A1\uFF1A${escapeHtml(parent.title)}</span>` : ""}
-      ${task.sourceText ? `<span>\u6765\u6E90\uFF1A${escapeHtml(task.sourceText)}</span>` : ""}
-      ${task.path ? `<span>\u8DEF\u5F84\uFF1A${escapeHtml(task.path)}</span>` : ""}
     </div>
   </div>
   <div class="task-tracker-task__controls">
@@ -1395,7 +1387,6 @@ var TaskManagerTab = class {
     __publicField(this, "search", "");
     __publicField(this, "month", monthStart(/* @__PURE__ */ new Date()));
     __publicField(this, "collapsedTaskIds", /* @__PURE__ */ new Set());
-    __publicField(this, "childCounts", /* @__PURE__ */ new Map());
     __publicField(this, "unsubscribe");
     if (data?.view && VIEWS.some((view) => view.value === data.view)) {
       this.view = data.view;
@@ -1419,72 +1410,33 @@ var TaskManagerTab = class {
     this.container.onkeydown = null;
   }
   render() {
-    const allTasks = this.service.store.all();
     const tasks = this.filteredTasks();
-    this.childCounts = countChildren(allTasks);
     this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
-  ${this.renderDashboardHeader(allTasks, tasks)}
+  ${this.renderToolbar(tasks.length)}
   <div class="task-manager__body">
     ${tasks.length ? this.renderCurrentView(tasks) : `<div class="task-manager-empty">\u8FD9\u91CC\u6682\u65F6\u6CA1\u6709\u5339\u914D\u4EFB\u52A1\u3002</div>`}
   </div>
 </div>`;
     this.bind();
   }
-  renderDashboardHeader(allTasks, tasks) {
-    const settings = this.service.store.getSettings();
-    const overview = this.buildOverview(allTasks);
-    const rootTitle = settings.taskRootTitle || "\u672A\u7ED1\u5B9A\u4E8B\u9879\u5E93";
-    const rootHint = settings.taskRootHPath || settings.taskRootPath || "\u4EFB\u52A1\u4EE5\u771F\u5B9E\u7B14\u8BB0\u548C\u5B50\u6587\u6863\u5F62\u5F0F\u7EC4\u7EC7";
-    return `<section class="task-manager-dashboard">
-  <div class="task-manager-hero">
-    <div class="task-manager-hero__title">
-      <div class="task-manager-toolbar__title">
-        <svg class="task-manager-toolbar__icon"><use xlink:href="#iconTaskTracker"></use></svg>
-        <span>\u4EFB\u52A1\u63A7\u5236\u9762\u677F</span>
-        <small>${tasks.length}</small>
-      </div>
-      <div class="task-manager-hero__subtitle">\u56F4\u7ED5\u4E8B\u9879\u5E93\u6587\u6863\u6811\u7BA1\u7406\u4EFB\u52A1\uFF0C\u6253\u5F00\u4EFB\u52A1\u5373\u6253\u5F00\u5BF9\u5E94\u7B14\u8BB0\u3002</div>
-    </div>
-    <div class="task-manager-hero__actions">
-      <button class="b3-button b3-button--text" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>\u65B0\u5EFA\u4EFB\u52A1</span></button>
-      <button class="block__icon ariaLabel" data-action="sync" aria-label="\u540C\u6B65\u4EFB\u52A1\u6587\u6863" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
-    </div>
+  renderToolbar(count) {
+    return `<div class="task-manager-toolbar">
+  <div class="task-manager-toolbar__title">
+    <svg class="task-manager-toolbar__icon"><use xlink:href="#iconTaskTracker"></use></svg>
+    <span>\u4EFB\u52A1\u63A7\u5236\u9762\u677F</span>
+    <small>${count}</small>
   </div>
-  <div class="task-manager-overview">
-    ${this.renderOverviewCard("\u4E8B\u9879\u5E93", rootTitle, rootHint, "task-manager-overview-card--root")}
-    ${this.renderOverviewCard("\u6D3B\u8DC3\u4EFB\u52A1", String(overview.active), "\u5F85\u5904\u7406 / \u8FDB\u884C\u4E2D / \u7B49\u5F85\u4E2D", overview.active ? "" : "is-muted")}
-    ${this.renderOverviewCard("\u4ECA\u65E5\u4EFB\u52A1", String(overview.today), "\u8BA1\u5212\u6216\u622A\u6B62\u5728\u4ECA\u5929", overview.today ? "" : "is-muted")}
-    ${this.renderOverviewCard("\u903E\u671F\u4EFB\u52A1", String(overview.overdue), "\u9700\u8981\u4F18\u5148\u5904\u7406", overview.overdue ? "task-manager-overview-card--danger" : "is-muted")}
-    ${this.renderOverviewCard("\u672A\u5B89\u6392", String(overview.unplanned), "\u5C1A\u672A\u8BBE\u7F6E\u8BA1\u5212\u5F00\u59CB", overview.unplanned ? "" : "is-muted")}
-    ${this.renderOverviewCard("\u5DF2\u5B8C\u6210", String(overview.completed), "\u5DF2\u7ECF\u5B8C\u6210\u7684\u4EFB\u52A1\u7B14\u8BB0", overview.completed ? "" : "is-muted")}
+  <div class="task-manager-toolbar__views" role="tablist" aria-label="\u4EFB\u52A1\u89C6\u56FE">
+    ${VIEWS.map((view) => `<button class="task-manager-view-button ${this.view === view.value ? "is-active" : ""}" data-manager-view="${view.value}" aria-label="${view.label}" role="tab" aria-selected="${this.view === view.value}"><span>${view.label}</span></button>`).join("")}
   </div>
-  <div class="task-manager-toolbar">
-    <div class="task-manager-toolbar__views" role="tablist" aria-label="\u4EFB\u52A1\u89C6\u56FE">
-      ${VIEWS.map((view) => `<button class="task-manager-view-button ${this.view === view.value ? "is-active" : ""}" data-manager-view="${view.value}" aria-label="${view.label}" role="tab" aria-selected="${this.view === view.value}"><span>${view.label}</span></button>`).join("")}
-    </div>
-    <label class="task-manager-toolbar__search">
-      <svg><use xlink:href="#iconSearch"></use></svg>
-      <input class="b3-text-field" data-field="search" value="${escapeAttr2(this.search)}" placeholder="\u641C\u7D22\u4EFB\u52A1\u3001\u9879\u76EE\u3001\u72B6\u6001\u3001\u7236\u4EFB\u52A1\u3001\u6765\u6E90" />
-    </label>
-  </div>
-</section>`;
-  }
-  renderOverviewCard(label, value, hint, extraClass = "") {
-    return `<article class="task-manager-overview-card ${extraClass}">
-  <div class="task-manager-overview-card__label">${label}</div>
-  <div class="task-manager-overview-card__value">${escapeHtml(value)}</div>
-  <div class="task-manager-overview-card__hint">${escapeHtml(hint)}</div>
-</article>`;
-  }
-  buildOverview(tasks) {
-    const today = toDateKey((/* @__PURE__ */ new Date()).toISOString());
-    return {
-      active: tasks.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status)).length,
-      today: tasks.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status) && toDateKey(task.planStart || task.dueDate) === today).length,
-      overdue: tasks.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status) && isActiveDateBeforeToday(task.planStart || task.dueDate)).length,
-      unplanned: tasks.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status) && !task.planStart).length,
-      completed: tasks.filter((task) => task.status === "completed").length
-    };
+  <label class="task-manager-toolbar__search">
+    <svg><use xlink:href="#iconSearch"></use></svg>
+    <input class="b3-text-field" data-field="search" value="${escapeAttr2(this.search)}" placeholder="\u641C\u7D22\u4EFB\u52A1\u3001\u9879\u76EE\u3001\u72B6\u6001\u3001\u7236\u4EFB\u52A1" />
+  </label>
+  <span class="fn__flex-1"></span>
+  <button class="b3-button b3-button--text" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>\u65B0\u5EFA</span></button>
+  <button class="block__icon ariaLabel" data-action="sync" aria-label="\u540C\u6B65\u4EFB\u52A1\u6587\u6863" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
+</div>`;
   }
   renderCurrentView(tasks) {
     switch (this.view) {
@@ -1502,6 +1454,7 @@ var TaskManagerTab = class {
     }
   }
   renderTableView(tasks) {
+    const childCounts = countChildren(this.service.store.all());
     const matched = new Set(tasks.map((task) => task.id));
     const visible = includeAncestors2(this.service.store.all(), matched);
     const tree = buildTaskTree2(this.service.store.all(), visible, matched);
@@ -1510,19 +1463,18 @@ var TaskManagerTab = class {
     <thead>
       <tr>
         <th>\u4EFB\u52A1</th>
-        <th>\u6587\u6863\u5173\u8054</th>
         <th>\u9879\u76EE</th>
         <th>\u72B6\u6001</th>
         <th>\u4F18\u5148\u7EA7</th>
         <th>\u8BA1\u5212</th>
         <th>\u622A\u6B62</th>
         <th>\u7236\u4EFB\u52A1</th>
-        <th>\u5B50\u6587\u6863</th>
+        <th>\u5B50\u4EFB\u52A1</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
-      ${tree.map((node) => this.renderTableNode(node, 0, this.childCounts)).join("")}
+      ${tree.map((node) => this.renderTableNode(node, 0, childCounts)).join("")}
     </tbody>
   </table>
 </div>`;
@@ -1542,14 +1494,10 @@ var TaskManagerTab = class {
     return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   <td>
     <div class="task-manager-table__task-cell">
-      ${childCount ? `<button class="task-manager-task__toggle task-manager-table__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "\u5C55\u5F00\u5B50\u4EFB\u52A1" : "\u6298\u53E0\u5B50\u4EFB\u52A1"}" title="${collapsed ? "\u5C55\u5F00\u5B50\u4EFB\u52A1" : "\u6298\u53E0\u5B50\u4EFB\u52A1"}"><span>${collapsed ? "\u25B8" : "\u25BE"}</span></button>` : `<span class="task-manager-task__toggle-placeholder"></span>`}
-      <div class="task-manager-table__task-main">
-        <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr2(task.title)}">${escapeHtml(task.title)}</button>
-        ${task.path ? `<div class="task-manager-table__path">${escapeHtml(task.path)}</div>` : ""}
-      </div>
+      ${childCount ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "\u5C55\u5F00\u5B50\u4EFB\u52A1" : "\u6298\u53E0\u5B50\u4EFB\u52A1"}" title="${collapsed ? "\u5C55\u5F00\u5B50\u4EFB\u52A1" : "\u6298\u53E0\u5B50\u4EFB\u52A1"}"><span>${collapsed ? "\u25B8" : "\u25BE"}</span></button>` : `<span class="task-manager-task__toggle-placeholder"></span>`}
+      <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr2(task.title)}">${escapeHtml(task.title)}</button>
     </div>
   </td>
-  <td>${this.renderDocLinkMeta(task, parent, childCount)}</td>
   <td>${escapeHtml(task.project || "\u65E0\u9879\u76EE")}</td>
   <td><select class="b3-select task-manager-field" data-field="status" aria-label="\u4EFB\u52A1\u72B6\u6001">${statusOptions(task.status)}</select></td>
   <td><select class="b3-select task-manager-field" data-field="priority" aria-label="\u4EFB\u52A1\u4F18\u5148\u7EA7">${priorityOptions(task.priority)}</select></td>
@@ -1587,7 +1535,7 @@ var TaskManagerTab = class {
       <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
       <span>\u8BA1\u5212\uFF1A${formatHumanDate(task.planStart)}</span>
       <span>\u622A\u6B62\uFF1A${formatHumanDate(task.dueDate)}</span>
-      ${this.renderDocMetaLine(task, parent, childCount)}
+      ${parent ? `<span>\u7236\u4EFB\u52A1\uFF1A${escapeHtml(parent.title)}</span>` : ""}
     </div>
   </div>
   <div class="task-manager-task__controls">
@@ -1669,7 +1617,6 @@ var TaskManagerTab = class {
   }
   renderTaskCard(task, mode) {
     const parent = task.parentId ? this.service.store.get(task.parentId) : void 0;
-    const childCount = this.childCounts.get(task.id) || 0;
     return `<article class="task-manager-card task-manager-card--${mode} task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
   <div class="task-manager-card__header">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr2(task.title)}">${escapeHtml(task.title)}</button>
@@ -1681,7 +1628,7 @@ var TaskManagerTab = class {
     <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
     <span>\u8BA1\u5212\uFF1A${formatHumanDate(task.planStart)}</span>
     <span>\u622A\u6B62\uFF1A${formatHumanDate(task.dueDate)}</span>
-    ${this.renderDocMetaLine(task, parent, childCount)}
+    ${parent ? `<span>\u7236\u4EFB\u52A1\uFF1A${escapeHtml(parent.title)}</span>` : ""}
   </div>
   <div class="task-manager-card__controls">
     <select class="b3-select task-manager-field" data-field="status" aria-label="\u4EFB\u52A1\u72B6\u6001">${statusOptions(task.status)}</select>
@@ -1696,22 +1643,6 @@ var TaskManagerTab = class {
   <button class="block__icon ariaLabel" data-task-action="subtask" aria-label="\u521B\u5EFA\u5B50\u4EFB\u52A1" data-position="north"><svg><use xlink:href="#iconAdd"></use></svg></button>
   ${task.status === "completed" ? `<button class="block__icon ariaLabel" data-task-action="reopen" aria-label="\u91CD\u65B0\u6253\u5F00" data-position="north"><svg><use xlink:href="#iconRefresh"></use></svg></button>` : `<button class="block__icon ariaLabel" data-task-action="complete" aria-label="\u5B8C\u6210\u4EFB\u52A1" data-position="north"><svg><use xlink:href="#iconSelect"></use></svg></button>`}
 </span>`;
-  }
-  renderDocMetaLine(task, parent, childCount) {
-    const segments = [
-      parent ? `\u7236\u4EFB\u52A1\uFF1A${parent.title}` : "",
-      task.sourceText ? `\u6765\u6E90\uFF1A${task.sourceText}` : task.sourceDocId ? `\u6765\u6E90\u6587\u6863\uFF1A${task.sourceDocId}` : "",
-      childCount ? `\u5B50\u6587\u6863\uFF1A${childCount}` : "",
-      task.path ? `\u8DEF\u5F84\uFF1A${task.path}` : ""
-    ].filter(Boolean);
-    return segments.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
-  }
-  renderDocLinkMeta(task, parent, childCount) {
-    return `<div class="task-manager-doc-meta">
-  ${parent ? `<div class="task-manager-doc-meta__item">\u7236\u4EFB\u52A1\uFF1A${escapeHtml(parent.title)}</div>` : ""}
-  ${task.sourceText ? `<div class="task-manager-doc-meta__item">\u6765\u6E90\uFF1A${escapeHtml(task.sourceText)}</div>` : task.sourceDocId ? `<div class="task-manager-doc-meta__item">\u6765\u6E90\u6587\u6863\uFF1A${escapeHtml(task.sourceDocId)}</div>` : `<div class="task-manager-doc-meta__item">\u6587\u6863 ID\uFF1A${escapeHtml(task.docId)}</div>`}
-  <div class="task-manager-doc-meta__item">\u5B50\u6587\u6863\uFF1A${childCount}</div>
-</div>`;
   }
   bind() {
     this.container.onclick = (event) => this.handleClick(event);
@@ -1864,7 +1795,6 @@ var TaskManagerTab = class {
       const haystack = [
         task.title,
         task.project,
-        task.sourceText,
         TASK_STATUS_LABELS[task.status],
         TASK_PRIORITY_LABELS[task.priority],
         task.planStart,
