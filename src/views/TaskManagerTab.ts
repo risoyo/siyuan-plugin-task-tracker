@@ -30,6 +30,7 @@ export interface TaskManagerTabActions {
   newTask: (options?: TaskManagerNewTaskOptions) => void;
   createSubtask: (parentId: string) => void;
   openTask: (task: TaskItem) => void;
+  openSourceDoc?: (docId: string) => void;
   sync?: () => Promise<unknown> | unknown;
 }
 
@@ -223,25 +224,19 @@ export class TaskManagerTab {
     const task = node.task;
     const childCount = node.children.length;
     const collapsed = this.collapsedTaskIds.has(task.id);
-    const parent = task.parentId ? this.service.store.get(task.parentId) : undefined;
     const contextClass = node.contextOnly ? " task-manager-task--context" : "";
+    const childClass = depth > 0 ? " task-manager-task--child" : "";
 
-    return `<div class="task-manager-task task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    return `<div class="task-manager-task task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}${childClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   <div class="task-manager-task__main">
     <div class="task-manager-task__title-row">
       ${childCount
         ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
         : `<span class="task-manager-task__toggle-placeholder"></span>`}
       <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
+      ${this.renderProjectPill(task)}
+      ${this.renderSourcePill(task)}
       ${childCount ? `<span class="task-manager-task__child-count">${childCount}</span>` : ""}
-    </div>
-    <div class="task-manager-task__meta">
-      <span>${escapeHtml(task.project || "无项目")}</span>
-      <span>${TASK_STATUS_LABELS[task.status]}</span>
-      <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
-      <span>计划：${formatHumanDate(task.planStart)}</span>
-      <span>截止：${formatHumanDate(task.dueDate)}</span>
-      ${parent ? `<span>父任务：${escapeHtml(parent.title)}</span>` : ""}
     </div>
   </div>
   <div class="task-manager-task__controls">
@@ -253,6 +248,19 @@ export class TaskManagerTab {
   </div>
   ${childCount && !collapsed ? `<div class="task-manager-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>` : ""}
 </div>`;
+  }
+
+  private renderProjectPill(task: TaskItem): string {
+    return `<span class="task-manager-task__pill task-manager-task__pill--project" title="${escapeAttr(task.project || "无项目")}">${escapeHtml(task.project || "无项目")}</span>`;
+  }
+
+  private renderSourcePill(task: TaskItem): string {
+    if (!task.sourceDocId) {
+      return `<span class="task-manager-task__pill task-manager-task__pill--source is-manual" title="手动创建">手动创建</span>`;
+    }
+
+    const label = task.sourceText?.trim() || "来源笔记";
+    return `<button class="task-manager-task__pill task-manager-task__pill--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
@@ -414,7 +422,7 @@ export class TaskManagerTab {
       event.stopPropagation();
       const task = this.taskFromElement(taskAction);
       if (task) {
-        this.handleTaskAction(taskAction.dataset.taskAction || "", task);
+        this.handleTaskAction(taskAction.dataset.taskAction || "", task, taskAction);
       }
       return;
     }
@@ -502,9 +510,14 @@ export class TaskManagerTab {
     }
   }
 
-  private handleTaskAction(action: string, task: TaskItem): void {
+  private handleTaskAction(action: string, task: TaskItem, element?: HTMLElement): void {
     if (action === "open") {
       this.actions.openTask(task);
+    } else if (action === "open-source") {
+      const docId = element?.dataset.sourceDocId || task.sourceDocId;
+      if (docId) {
+        this.actions.openSourceDoc?.(docId);
+      }
     } else if (action === "subtask") {
       this.actions.createSubtask(task.id);
     } else if (action === "complete") {

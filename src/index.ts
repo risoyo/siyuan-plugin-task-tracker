@@ -124,6 +124,7 @@ export default class TaskTrackerPlugin extends Plugin {
             newTask: (options) => void plugin.showTaskDialog(options || {}),
             createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId }),
             openTask: (task: TaskItem) => void plugin.openTask(task),
+            openSourceDoc: (docId: string) => void plugin.openDocById(docId),
             sync: () => plugin.syncDeletedTasks()
           }, tab.data || {});
           plugin.managerViews.set(tab.element, view);
@@ -348,10 +349,14 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private async openTask(task: TaskItem): Promise<void> {
+    this.openDocById(task.docId);
+  }
+
+  private openDocById(docId: string): void {
     openTab({
       app: this.app,
       doc: {
-        id: task.docId
+        id: docId
       }
     });
   }
