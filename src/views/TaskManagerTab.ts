@@ -367,17 +367,22 @@ export class TaskManagerTab {
   }
 
   private renderRowActions(task: TaskItem): string {
-    const listClass = this.view === "list" ? " task-manager-actions--list" : "";
-    const buttonClass = this.view === "list"
+    const isListView = this.view === "list";
+    const listClass = isListView ? " task-manager-actions--list" : "";
+    const buttonClass = isListView
       ? "task-manager-task__action-button"
       : "block__icon ariaLabel";
-    const positionAttr = this.view === "list" ? "" : " data-position=\"north\"";
+    const positionAttr = isListView ? "" : " data-position=\"north\"";
+    const subtaskLabel = isListView ? "添加子任务" : "创建子任务";
+    const statusLabel = task.status === "completed"
+      ? "重新打开"
+      : "完成任务";
 
     return `<span class="task-manager-actions${listClass}">
-  <button class="${buttonClass}" data-task-action="subtask" aria-label="创建子任务" title="创建子任务"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
+  <button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
   ${task.status === "completed"
-    ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="重新打开" title="重新打开"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
-    : `<button class="${buttonClass}" data-task-action="complete" aria-label="完成任务" title="完成任务"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
+    ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
+    : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
 </span>`;
   }
 

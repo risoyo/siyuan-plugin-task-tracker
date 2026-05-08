@@ -388,6 +388,11 @@
   padding-left: 10px;
 }
 
+.task-manager--list .task-manager-task {
+  --task-title-offset: 22px;
+  --task-control-width: 124px;
+}
+
 .task-manager--list .task-manager-task__title-row {
   gap: 4px;
 }
@@ -480,55 +485,58 @@
   align-items: center;
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
-  justify-content: flex-end;
+  gap: 6px;
+  justify-content: flex-start;
+  margin-left: var(--task-title-offset);
   margin-top: 8px;
-  padding-right: 10px;
+  overflow-x: auto;
+  padding-right: 0;
+  width: calc(100% - var(--task-title-offset));
 }
 
 .task-manager--list .task-manager-task__control-grid {
   display: grid;
   flex: 0 0 auto;
   gap: 6px;
-  grid-template-columns: repeat(4, 112px);
+  grid-template-columns: repeat(4, var(--task-control-width));
 }
 
 .task-manager--list .task-manager-actions--list {
   align-items: center;
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 4px;
+  gap: 2px;
   min-width: max-content;
 }
 
 .task-manager--list .task-manager-task__action-button {
   align-items: center;
   appearance: none;
-  background: color-mix(in srgb, var(--manager-accent) 8%, var(--manager-surface) 92%);
-  border: 1px solid color-mix(in srgb, var(--manager-accent) 26%, var(--manager-border));
-  border-radius: 6px;
-  color: var(--manager-accent);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: color-mix(in srgb, var(--manager-accent) 76%, var(--manager-muted));
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
-  height: 24px;
+  height: 18px;
   justify-content: center;
   padding: 0;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-  width: 24px;
+  transition: color 120ms ease, background-color 120ms ease;
+  width: 18px;
 }
 
 .task-manager--list .task-manager-task__action-button:hover {
-  background: color-mix(in srgb, var(--manager-accent) 14%, var(--manager-surface) 86%);
-  border-color: color-mix(in srgb, var(--manager-accent) 42%, var(--manager-border));
+  background: color-mix(in srgb, var(--manager-accent) 8%, transparent);
+  color: var(--manager-accent);
 }
 
 .task-manager--list .task-manager-task__action-button svg {
   color: currentColor;
   fill: currentColor;
-  height: 14px;
+  height: 12px;
   pointer-events: none;
-  width: 14px;
+  width: 12px;
 }
 
 .task-manager--list .task-manager-task--child {
@@ -543,12 +551,6 @@
 
 .task-manager--list .task-manager-task--child.task-manager-task--context {
   border-style: none;
-}
-
-.task-manager--list .task-manager-task--child .task-manager-task__controls {
-  margin-left: 22px;
-  margin-top: 6px;
-  padding-right: 0;
 }
 
 .task-manager--list .task-manager-task__children {
@@ -1450,12 +1452,11 @@
 
   .task-manager--list .task-manager-task__controls {
     gap: 6px;
-    overflow-x: auto;
     padding-bottom: 2px;
   }
 
   .task-manager--list .task-manager-task__control-grid {
-    grid-template-columns: repeat(4, 104px);
+    grid-template-columns: repeat(4, 116px);
   }
 
   .task-manager--list .task-manager-actions--list {
