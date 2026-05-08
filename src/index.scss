@@ -300,17 +300,18 @@
   min-width: 0;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-task__pill {
+.task-manager--table .task-manager-table__cell .task-manager-task__pill--project,
+.task-manager--table .task-manager-table__cell .task-manager-task__pill--source {
   align-items: center;
   appearance: none;
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--manager-muted);
+  color: var(--b3-theme-on-background);
   display: inline-flex;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1;
+  font: inherit;
+  font-weight: 600;
+  line-height: inherit;
   max-width: 100%;
   min-width: 0;
   padding: 0;
@@ -318,17 +319,18 @@
 
 .task-manager--table .task-manager-table__cell .task-manager-task__pill-label {
   color: inherit;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1;
+  font: inherit;
+  font-weight: inherit;
+  line-height: inherit;
 }
 
 .task-manager--table .task-manager-table__cell .task-manager-task__pill--source.is-note {
-  color: var(--manager-accent);
+  color: var(--b3-theme-on-background);
   cursor: pointer;
 }
 
 .task-manager--table .task-manager-table__cell .task-manager-task__pill--source.is-note:hover {
+  color: var(--manager-accent);
   text-decoration: underline;
 }
 
