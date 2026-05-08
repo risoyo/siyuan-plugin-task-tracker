@@ -312,6 +312,7 @@
 
 .task-manager--table .task-manager-table__cell .task-manager-table__text--static {
   cursor: default;
+  pointer-events: none;
 }
 
 .task-manager--table .task-manager-table__cell .task-manager-table__text--static:hover {

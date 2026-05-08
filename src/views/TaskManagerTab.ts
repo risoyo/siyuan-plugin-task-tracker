@@ -318,7 +318,7 @@ export class TaskManagerTab {
 
   private renderTableProjectText(task: TaskItem): string {
     const label = task.project || "无项目";
-    return `<span class="task-manager-task-title task-manager-table__text task-manager-table__text--static" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+    return `<button type="button" class="task-manager-task-title task-manager-table__text task-manager-table__text--static" tabindex="-1" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderSourcePill(task: TaskItem): string {
@@ -332,7 +332,7 @@ export class TaskManagerTab {
 
   private renderTableSourceText(task: TaskItem): string {
     if (!task.sourceDocId) {
-      return `<span class="task-manager-task-title task-manager-table__text task-manager-table__text--static" title="手动创建">手动创建</span>`;
+      return `<button type="button" class="task-manager-task-title task-manager-table__text task-manager-table__text--static" tabindex="-1" title="手动创建">手动创建</button>`;
     }
 
     const label = task.sourceText?.trim() || "来源笔记";
