@@ -515,13 +515,16 @@
 
 .task-manager-card__meta-chip {
   align-items: center;
+  appearance: none;
   background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
   border: 1px solid color-mix(in srgb, var(--manager-border) 88%, transparent);
   border-radius: 999px;
+  box-sizing: border-box;
   color: var(--manager-muted);
   display: inline-flex;
   flex: 0 1 auto;
   font-size: 11px;
+  font-weight: 400;
   gap: 0;
   line-height: 1;
   max-width: 140px;
@@ -530,17 +533,18 @@
   overflow: hidden;
   padding: 3px 7px;
   text-overflow: ellipsis;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
 .task-manager-card__meta-chip--project {
-  color: var(--b3-theme-on-background);
+  color: var(--manager-muted);
 }
 
 .task-manager-card__meta-chip--source {
-  appearance: none;
   background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
   cursor: default;
+  font: inherit;
 }
 
 .task-manager-card__meta-chip--source.is-manual {
