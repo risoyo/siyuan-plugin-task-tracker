@@ -390,10 +390,12 @@
 
 .task-manager--list .task-manager-task {
   --task-title-offset: 22px;
-  --task-control-width: 124px;
+  --task-control-width: 128px;
+  --task-controls-right-gap: 26%;
 }
 
 .task-manager--list .task-manager-task__title-row {
+  align-items: center;
   gap: 4px;
 }
 
@@ -481,32 +483,26 @@
   background: color-mix(in srgb, var(--manager-accent) 16%, var(--manager-surface) 84%);
 }
 
-.task-manager--list .task-manager-task__controls {
-  align-items: center;
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  justify-content: flex-start;
-  margin-left: var(--task-title-offset);
-  margin-top: 8px;
-  overflow-x: auto;
-  padding-right: 0;
-  width: calc(100% - var(--task-title-offset));
-}
-
-.task-manager--list .task-manager-task__control-grid {
-  display: grid;
-  flex: 0 0 auto;
-  gap: 6px;
-  grid-template-columns: repeat(4, var(--task-control-width));
-}
-
-.task-manager--list .task-manager-actions--list {
+.task-manager--list .task-manager-task__row-actions {
   align-items: center;
   display: inline-flex;
   flex: 0 0 auto;
   gap: 2px;
+  margin-left: 12px;
   min-width: max-content;
+}
+
+.task-manager--list .task-manager-task__controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-right: var(--task-controls-right-gap);
+}
+
+.task-manager--list .task-manager-task__control-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, var(--task-control-width));
 }
 
 .task-manager--list .task-manager-task__action-button {
@@ -1451,16 +1447,17 @@
   }
 
   .task-manager--list .task-manager-task__controls {
-    gap: 6px;
+    overflow-x: auto;
     padding-bottom: 2px;
   }
 
   .task-manager--list .task-manager-task__control-grid {
-    grid-template-columns: repeat(4, 116px);
+    grid-template-columns: repeat(4, 120px);
   }
 
-  .task-manager--list .task-manager-actions--list {
+  .task-manager--list .task-manager-task__row-actions {
     flex-shrink: 0;
+    margin-left: 10px;
   }
 
   .task-manager-timeline__group {

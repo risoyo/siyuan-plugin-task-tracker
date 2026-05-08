@@ -241,6 +241,7 @@ export class TaskManagerTab {
           ${childCount ? `<span class="task-manager-task__child-count">${childCount}</span>` : ""}
         </div>
       </div>
+      ${this.renderRowActions(task)}
     </div>
   </div>
   <div class="task-manager-task__controls">
@@ -250,7 +251,6 @@ export class TaskManagerTab {
       <input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
       <input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" />
     </div>
-    ${this.renderRowActions(task)}
   </div>
   ${childCount && !collapsed ? `<div class="task-manager-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>` : ""}
 </div>`;
@@ -368,11 +368,11 @@ export class TaskManagerTab {
 
   private renderRowActions(task: TaskItem): string {
     const isListView = this.view === "list";
-    const listClass = isListView ? " task-manager-actions--list" : "";
+    const listClass = isListView ? " task-manager-task__row-actions" : "";
     const buttonClass = isListView
-      ? "task-manager-task__action-button"
+      ? "task-manager-task__action-button ariaLabel"
       : "block__icon ariaLabel";
-    const positionAttr = isListView ? "" : " data-position=\"north\"";
+    const positionAttr = " data-position=\"north\"";
     const subtaskLabel = isListView ? "添加子任务" : "创建子任务";
     const statusLabel = task.status === "completed"
       ? "重新打开"
