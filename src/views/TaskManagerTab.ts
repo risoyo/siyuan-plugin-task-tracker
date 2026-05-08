@@ -318,7 +318,7 @@ export class TaskManagerTab {
 
   private renderTableProjectText(task: TaskItem): string {
     const label = task.project || "无项目";
-    return `<span class="task-manager-table__text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+    return `<span class="task-manager-task-title task-manager-table__text task-manager-table__text--static" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
   }
 
   private renderSourcePill(task: TaskItem): string {
@@ -332,11 +332,11 @@ export class TaskManagerTab {
 
   private renderTableSourceText(task: TaskItem): string {
     if (!task.sourceDocId) {
-      return `<span class="task-manager-table__text" title="手动创建">手动创建</span>`;
+      return `<span class="task-manager-task-title task-manager-table__text task-manager-table__text--static" title="手动创建">手动创建</span>`;
     }
 
     const label = task.sourceText?.trim() || "来源笔记";
-    return `<button class="task-manager-table__text task-manager-table__text--interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
+    return `<button class="task-manager-task-title task-manager-table__text task-manager-table__text--interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {

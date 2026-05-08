@@ -301,31 +301,21 @@
 }
 
 .task-manager--table .task-manager-table__cell .task-manager-table__text {
-  background: transparent;
-  border: 0;
-  color: var(--b3-theme-on-background);
-  display: inline-block;
-  font: inherit;
-  font-weight: 600;
-  line-height: inherit;
+  display: block;
   margin: 0;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
-  padding: 0;
-  text-align: left;
   text-overflow: ellipsis;
   vertical-align: middle;
-  white-space: nowrap;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text--interactive {
-  cursor: pointer;
+.task-manager--table .task-manager-table__cell .task-manager-table__text--static {
+  cursor: default;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text--interactive:hover {
-  color: var(--manager-accent);
-  text-decoration: underline;
+.task-manager--table .task-manager-table__cell .task-manager-table__text--static:hover {
+  color: var(--b3-theme-on-background);
 }
 
 .task-manager--table .task-manager-actions,
