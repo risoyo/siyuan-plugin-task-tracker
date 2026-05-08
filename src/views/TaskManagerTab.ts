@@ -246,10 +246,10 @@ export class TaskManagerTab {
 </td>`;
     }
     if (key === "project") {
-      return `<td class="task-manager-table__cell">${this.renderProjectPill(task)}</td>`;
+      return `<td class="task-manager-table__cell">${this.renderTableProjectText(task)}</td>`;
     }
     if (key === "source") {
-      return `<td class="task-manager-table__cell">${this.renderSourcePill(task)}</td>`;
+      return `<td class="task-manager-table__cell">${this.renderTableSourceText(task)}</td>`;
     }
     if (key === "status") {
       return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>`;
@@ -316,6 +316,11 @@ export class TaskManagerTab {
     return `<span class="task-manager-task__pill task-manager-task__pill--project" title="${escapeAttr(task.project || "无项目")}">${escapeHtml(task.project || "无项目")}</span>`;
   }
 
+  private renderTableProjectText(task: TaskItem): string {
+    const label = task.project || "无项目";
+    return `<span class="task-manager-table__text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+  }
+
   private renderSourcePill(task: TaskItem): string {
     if (!task.sourceDocId) {
       return `<span class="task-manager-task__pill task-manager-task__pill--source is-manual" title="手动创建">手动创建</span>`;
@@ -323,6 +328,15 @@ export class TaskManagerTab {
 
     const label = task.sourceText?.trim() || "来源笔记";
     return `<button class="task-manager-task__pill task-manager-task__pill--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}"><span class="task-manager-task__pill-label">${escapeHtml(label)}</span></button>`;
+  }
+
+  private renderTableSourceText(task: TaskItem): string {
+    if (!task.sourceDocId) {
+      return `<span class="task-manager-table__text" title="手动创建">手动创建</span>`;
+    }
+
+    const label = task.sourceText?.trim() || "来源笔记";
+    return `<button class="task-manager-table__text task-manager-table__text--interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
