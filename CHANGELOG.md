@@ -5,6 +5,18 @@
 - `Y`：小版本，表示向后兼容的新功能或明显增强；
 - `Z`：缺陷修复，表示不改变功能面的修复和小幅改进。
 
+## [1.4.9-hotfix2] - 2026-05-08
+
+### 发布说明
+- 继续修正任务控制面板（TaskManagerTab）清单视图第二行的有效区域计算，并发布 `1.4.9-hotfix2`。
+- 这次不再使用 `width / calc / max-width` 控制第二行宽度，改为直接用左边距和右边距限定 controls 区域。
+- 本轮仍然只调整第二行，不改动第一行标题、胶囊、任务数和按钮位置。
+
+### 缺陷修复
+- 清单视图第二行 controls 改为保留 `margin-left: var(--task-title-offset)`，并新增 `margin-right: 24%` 直接收右边界。
+- 删除第二行 controls 上的 `width`、`max-width`、`padding-right` 以及 control grid 上的 `margin-left: auto`，避免多套右对齐逻辑互相打架。
+- 状态、优先级、计划、截止四个字段继续保持 `repeat(4, minmax(0, 1fr))` 等宽自适应列，不影响第一行与其他视图。
+
 ## [1.4.9-hotfix] - 2026-05-08
 
 ### 发布说明
