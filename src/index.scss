@@ -396,6 +396,7 @@
 .task-manager--list .task-manager-task {
   --task-title-offset: 22px;
   --task-controls-right-padding: 12px;
+  --task-controls-max-width: 76%;
 }
 
 .task-manager--list .task-manager-task__title-row {
@@ -500,6 +501,7 @@
   box-sizing: border-box;
   margin-left: var(--task-title-offset);
   margin-top: 8px;
+  max-width: var(--task-controls-max-width);
   padding-right: var(--task-controls-right-padding);
   width: calc(100% - var(--task-title-offset));
 }
@@ -508,6 +510,7 @@
   display: grid;
   gap: 6px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-left: auto;
   width: 100%;
 }
 
