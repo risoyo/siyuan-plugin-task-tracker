@@ -3,6 +3,7 @@ import {
   addMonths,
   formatDateKey,
   formatHumanDate,
+  formatMonthDay,
   fromDateInput,
   monthStart,
   monthTitle,
@@ -395,19 +396,36 @@ export class TaskManagerTab {
     return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
   <div class="task-manager-card__header task-manager-card__header--compact">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-    <div class="task-manager-card__header-meta">
+    <div class="task-manager-card__header-meta task-manager-card__header-meta--flow">
       ${this.renderProjectPill(task)}
       ${this.renderSourcePill(task)}
+      ${this.renderRowActions(task, { compact: true })}
     </div>
-    ${this.renderRowActions(task, { compact: true })}
   </div>
-  <div class="task-manager-card__controls task-manager-card__controls--compact">
-    <select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
-    <select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select>
-    <input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
-    <input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" />
+  <div class="task-manager-card__meta-chips">
+    ${this.renderSelectMetaChip("状态", "status", statusOptions(task.status))}
+    ${this.renderPriorityMetaChip(task)}
+    ${this.renderDateMetaChip("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
+    ${this.renderDateMetaChip("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate || "")}
   </div>
 </article>`;
+  }
+
+  private renderPriorityMetaChip(task: TaskItem): string {
+    return this.renderSelectMetaChip("优先级", "priority", priorityOptions(task.priority));
+  }
+
+  private renderSelectMetaChip(label: string, field: "status" | "priority", options: string): string {
+    return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--select">
+  <select class="task-manager-card__meta-select" data-field="${field}" aria-label="${label}">${options}</select>
+</label>`;
+  }
+
+  private renderDateMetaChip(label: string, field: "planDate" | "dueDate", display: string, value: string): string {
+    return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--date">
+  <span class="task-manager-card__meta-value">${escapeHtml(display || "未设置")}</span>
+  <input class="task-manager-card__meta-date-input" data-field="${field}" type="date" value="${escapeAttr(value)}" aria-label="${label}" />
+</label>`;
   }
 
   private renderRowActions(task: TaskItem, options: RowActionOptions = {}): string {
@@ -487,6 +505,22 @@ export class TaskManagerTab {
         this.handleTaskAction(taskAction.dataset.taskAction || "", task, taskAction);
       }
       return;
+    }
+
+    const dateChip = target.closest<HTMLElement>(".task-manager-card__meta-chip--date");
+    if (dateChip) {
+      const input = dateChip.querySelector<HTMLInputElement>("input[type='date']");
+      if (input && event.target !== input) {
+        event.preventDefault();
+        event.stopPropagation();
+        input.focus();
+        if (typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          input.click();
+        }
+        return;
+      }
     }
 
     const day = target.closest<HTMLElement>(".task-manager-calendar-day");
