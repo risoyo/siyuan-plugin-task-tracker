@@ -14,6 +14,7 @@ import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialo
 import {
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  type TableColumnKey,
   type TaskItem,
   type TaskPriority,
   type TaskStatus
@@ -46,6 +47,18 @@ interface TaskTreeNode {
   contextOnly: boolean;
 }
 
+interface TableColumnDef {
+  key: TableColumnKey;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  className?: string;
+}
+
+interface RowActionOptions {
+  compact?: boolean;
+}
+
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
   { value: "table", label: "表格" },
   { value: "list", label: "清单" },
@@ -56,12 +69,25 @@ const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
 
 const STATUSES = Object.keys(TASK_STATUS_LABELS) as TaskStatus[];
 
+const TABLE_COLUMNS: TableColumnDef[] = [
+  { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
+  { key: "project", label: "项目", defaultWidth: 140, minWidth: 110 },
+  { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
+  { key: "status", label: "状态", defaultWidth: 120, minWidth: 96 },
+  { key: "priority", label: "优先级", defaultWidth: 120, minWidth: 96 },
+  { key: "plan", label: "计划", defaultWidth: 144, minWidth: 124 },
+  { key: "due", label: "截止", defaultWidth: 144, minWidth: 124 },
+  { key: "actions", label: "操作", defaultWidth: 96, minWidth: 84, className: "is-actions" }
+];
+
 export class TaskManagerTab {
   private view: TaskManagerView = "table";
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
   private isComposingSearch = false;
+  private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths();
+  private resizeCleanup?: () => void;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
   private unsubscribe?: () => void;
@@ -84,15 +110,18 @@ export class TaskManagerTab {
         this.month = monthStart(date);
       }
     }
+    this.tableColumnWidths = normalizeTableColumnWidths(this.service.store.getSettings().tableColumnWidths);
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
   destroy(): void {
     this.unsubscribe?.();
+    this.resizeCleanup?.();
     this.container.onclick = null;
     this.container.onchange = null;
     this.container.oninput = null;
     this.container.onkeydown = null;
+    this.container.onpointerdown = null;
     this.container.removeEventListener("compositionstart", this.compositionStartListener);
     this.container.removeEventListener("compositionend", this.compositionEndListener);
   }
@@ -154,17 +183,12 @@ export class TaskManagerTab {
 
     return `<div class="task-manager-table-wrap">
   <table class="task-manager-table">
+    <colgroup>
+      ${TABLE_COLUMNS.map((column) => `<col style="width: ${this.tableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
+    </colgroup>
     <thead>
       <tr>
-        <th>任务</th>
-        <th>项目</th>
-        <th>状态</th>
-        <th>优先级</th>
-        <th>计划</th>
-        <th>截止</th>
-        <th>父任务</th>
-        <th>子任务</th>
-        <th></th>
+        ${TABLE_COLUMNS.map((column) => this.renderTableHeaderCell(column)).join("")}
       </tr>
     </thead>
     <tbody>
@@ -172,6 +196,15 @@ export class TaskManagerTab {
     </tbody>
   </table>
 </div>`;
+  }
+
+  private renderTableHeaderCell(column: TableColumnDef): string {
+    return `<th class="task-manager-table__head ${column.className || ""}" data-column-key="${column.key}">
+  <div class="task-manager-table__head-content">
+    <span>${column.label}</span>
+    <button class="task-manager-table__resize-handle" data-column-resize="${column.key}" aria-label="调整${column.label || "操作"}列宽" title="拖动调整列宽"></button>
+  </div>
+</th>`;
   }
 
   private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>): string {
@@ -188,26 +221,42 @@ export class TaskManagerTab {
 
   private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean): string {
     const task = node.task;
-    const parent = task.parentId ? this.service.store.get(task.parentId) : undefined;
     const contextClass = node.contextOnly ? " task-manager-table__row--context" : "";
     return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
-  <td>
-    <div class="task-manager-table__task-cell">
-      ${childCount
-        ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
-        : `<span class="task-manager-task__toggle-placeholder"></span>`}
-      <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-    </div>
-  </td>
-  <td>${escapeHtml(task.project || "无项目")}</td>
-  <td><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>
-  <td><select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select></td>
-  <td><input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" /></td>
-  <td><input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" /></td>
-  <td>${parent ? `<button class="task-manager-parent-link" data-task-id="${parent.id}" data-task-action="open">${escapeHtml(parent.title)}</button>` : "无"}</td>
-  <td>${childCount}</td>
-  <td>${this.renderRowActions(task)}</td>
+  ${TABLE_COLUMNS.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
+  }
+
+  private renderTableCell(key: TableColumnKey, task: TaskItem, childCount: number, collapsed: boolean): string {
+    if (key === "task") {
+      return `<td class="task-manager-table__cell is-task">
+  <div class="task-manager-table__task-cell">
+    ${childCount
+      ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
+      : `<span class="task-manager-task__toggle-placeholder"></span>`}
+    <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
+  </div>
+</td>`;
+    }
+    if (key === "project") {
+      return `<td class="task-manager-table__cell">${this.renderProjectPill(task)}</td>`;
+    }
+    if (key === "source") {
+      return `<td class="task-manager-table__cell">${this.renderSourcePill(task)}</td>`;
+    }
+    if (key === "status") {
+      return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>`;
+    }
+    if (key === "priority") {
+      return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select></td>`;
+    }
+    if (key === "plan") {
+      return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" /></td>`;
+    }
+    if (key === "due") {
+      return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" /></td>`;
+    }
+    return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true })}</td>`;
   }
 
   private renderListView(tasks: TaskItem[]): string {
@@ -270,7 +319,7 @@ export class TaskManagerTab {
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
-    const groups = groupByPlanDate(tasks);
+    const groups = groupByPlanDate(tasks, { unplannedFirst: true });
     return `<div class="task-manager-timeline">
   ${groups.map((group) => `<section class="task-manager-timeline__group">
     <div class="task-manager-timeline__date">${group.label}<span>${group.tasks.length}</span></div>
@@ -343,21 +392,16 @@ export class TaskManagerTab {
   }
 
   private renderTaskCard(task: TaskItem, mode: "timeline" | "kanban" | "calendar-aside"): string {
-    const parent = task.parentId ? this.service.store.get(task.parentId) : undefined;
-    return `<article class="task-manager-card task-manager-card--${mode} task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
-  <div class="task-manager-card__header">
+    return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
+  <div class="task-manager-card__header task-manager-card__header--compact">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-    ${this.renderRowActions(task)}
+    <div class="task-manager-card__header-meta">
+      ${this.renderProjectPill(task)}
+      ${this.renderSourcePill(task)}
+    </div>
+    ${this.renderRowActions(task, { compact: true })}
   </div>
-  <div class="task-manager-card__meta">
-    <span>${escapeHtml(task.project || "无项目")}</span>
-    <span>${TASK_STATUS_LABELS[task.status]}</span>
-    <span>${TASK_PRIORITY_LABELS[task.priority]}</span>
-    <span>计划：${formatHumanDate(task.planStart)}</span>
-    <span>截止：${formatHumanDate(task.dueDate)}</span>
-    ${parent ? `<span>父任务：${escapeHtml(parent.title)}</span>` : ""}
-  </div>
-  <div class="task-manager-card__controls">
+  <div class="task-manager-card__controls task-manager-card__controls--compact">
     <select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
     <select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select>
     <input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
@@ -366,14 +410,14 @@ export class TaskManagerTab {
 </article>`;
   }
 
-  private renderRowActions(task: TaskItem): string {
-    const isListView = this.view === "list";
-    const listClass = isListView ? " task-manager-task__row-actions" : "";
-    const buttonClass = isListView
+  private renderRowActions(task: TaskItem, options: RowActionOptions = {}): string {
+    const useCompact = options.compact || this.view === "list";
+    const listClass = useCompact ? " task-manager-task__row-actions" : "";
+    const buttonClass = useCompact
       ? "task-manager-task__action-button ariaLabel"
       : "block__icon ariaLabel";
     const positionAttr = " data-position=\"north\"";
-    const subtaskLabel = isListView ? "添加子任务" : "创建子任务";
+    const subtaskLabel = useCompact ? "添加子任务" : "创建子任务";
     const statusLabel = task.status === "completed"
       ? "重新打开"
       : "完成任务";
@@ -391,6 +435,7 @@ export class TaskManagerTab {
     this.container.onchange = (event) => this.handleChange(event);
     this.container.oninput = (event) => this.handleInput(event);
     this.container.onkeydown = (event) => this.handleKeydown(event);
+    this.container.onpointerdown = (event) => this.handlePointerDown(event);
     this.container.removeEventListener("compositionstart", this.compositionStartListener);
     this.container.removeEventListener("compositionend", this.compositionEndListener);
     this.container.addEventListener("compositionstart", this.compositionStartListener);
@@ -496,6 +541,68 @@ export class TaskManagerTab {
     nextSearch?.setSelectionRange(cursor, cursor);
   }
 
+  private handlePointerDown(event: PointerEvent): void {
+    const target = event.target as HTMLElement;
+    const resizeHandle = target.closest<HTMLElement>("[data-column-resize]");
+    if (!resizeHandle) {
+      return;
+    }
+
+    const columnKey = resizeHandle.dataset.columnResize as TableColumnKey | undefined;
+    const column = columnKey ? TABLE_COLUMNS.find((item) => item.key === columnKey) : undefined;
+    if (!column) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = this.tableColumnWidths[column.key];
+    const move = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX;
+      this.tableColumnWidths = {
+        ...this.tableColumnWidths,
+        [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
+      };
+      this.applyTableColumnWidths();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      this.resizeCleanup = undefined;
+      void this.persistTableColumnWidths();
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+    this.resizeCleanup = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      this.resizeCleanup = undefined;
+    };
+  }
+
+  private applyTableColumnWidths(): void {
+    const table = this.container.querySelector<HTMLTableElement>(".task-manager-table");
+    const cols = table?.querySelectorAll<HTMLTableColElement>("colgroup col");
+    if (!table || !cols?.length) {
+      return;
+    }
+
+    TABLE_COLUMNS.forEach((column, index) => {
+      const col = cols[index];
+      if (col) {
+        col.style.width = `${this.tableColumnWidths[column.key]}px`;
+        col.style.minWidth = `${column.minWidth}px`;
+      }
+    });
+  }
+
+  private async persistTableColumnWidths(): Promise<void> {
+    await this.service.store.setSettings({ tableColumnWidths: this.tableColumnWidths });
+  }
+
   private handleCompositionStart(event: CompositionEvent): void {
     const target = event.target as HTMLElement;
     if (target instanceof HTMLInputElement && target.dataset.field === "search") {
@@ -588,6 +695,8 @@ export class TaskManagerTab {
       const haystack = [
         task.title,
         task.project,
+        task.sourceText,
+        task.sourceDocId ? "来源笔记" : "手动创建",
         TASK_STATUS_LABELS[task.status],
         TASK_PRIORITY_LABELS[task.priority],
         task.planStart,
@@ -655,7 +764,7 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
   return roots;
 }
 
-function groupByPlanDate(tasks: TaskItem[]): Array<{ key: string; label: string; tasks: TaskItem[] }> {
+function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean } = {}): Array<{ key: string; label: string; tasks: TaskItem[] }> {
   const groups = new Map<string, TaskItem[]>();
   for (const task of tasks) {
     const key = toDateKey(task.planStart) || "unplanned";
@@ -667,10 +776,10 @@ function groupByPlanDate(tasks: TaskItem[]): Array<{ key: string; label: string;
   return Array.from(groups.entries())
     .sort(([a], [b]) => {
       if (a === "unplanned") {
-        return 1;
+        return options.unplannedFirst ? -1 : 1;
       }
       if (b === "unplanned") {
-        return -1;
+        return options.unplannedFirst ? 1 : -1;
       }
       return a.localeCompare(b);
     })
@@ -679,6 +788,31 @@ function groupByPlanDate(tasks: TaskItem[]): Array<{ key: string; label: string;
       label: key === "unplanned" ? "未安排" : key,
       tasks: groupTasks
     }));
+}
+
+function defaultTableColumnWidths(): Record<TableColumnKey, number> {
+  return {
+    task: 320,
+    project: 140,
+    source: 170,
+    status: 120,
+    priority: 120,
+    plan: 144,
+    due: 144,
+    actions: 96
+  };
+}
+
+function normalizeTableColumnWidths(raw?: Partial<Record<TableColumnKey, number>>): Record<TableColumnKey, number> {
+  const defaults = defaultTableColumnWidths();
+  const next = { ...defaults };
+  for (const column of TABLE_COLUMNS) {
+    const value = raw?.[column.key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[column.key] = Math.max(column.minWidth, Math.round(value));
+    }
+  }
+  return next;
 }
 
 function calendarDays(month: Date): Date[] {

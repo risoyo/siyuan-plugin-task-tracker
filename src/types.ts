@@ -23,6 +23,8 @@ export interface TaskItem {
   completedAt?: string;
 }
 
+export type TableColumnKey = "task" | "project" | "source" | "status" | "priority" | "plan" | "due" | "actions";
+
 export interface TaskSettings {
   taskRootDocId?: string;
   taskRootNotebookId?: string;
@@ -31,6 +33,7 @@ export interface TaskSettings {
   taskRootTitle?: string;
   defaultProject?: string;
   taskTemplate?: string;
+  tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
 }
 
 export interface TaskCreateInput {

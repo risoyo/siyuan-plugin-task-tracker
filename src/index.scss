@@ -191,7 +191,8 @@
 .task-manager-table {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 1080px;
+  min-width: 1180px;
+  table-layout: fixed;
   width: 100%;
 }
 
@@ -206,6 +207,7 @@
   position: sticky;
   text-align: left;
   top: 0;
+  vertical-align: middle;
   z-index: 1;
 }
 
@@ -213,8 +215,54 @@
   border-bottom: 1px solid var(--manager-border);
   height: 42px;
   max-width: 260px;
+  min-width: 0;
   padding: 6px 10px;
   vertical-align: middle;
+}
+
+.task-manager-table__head {
+  overflow: visible;
+}
+
+.task-manager-table__head-content {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  position: relative;
+}
+
+.task-manager-table__head-content > span {
+  min-width: 0;
+}
+
+.task-manager-table__resize-handle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: col-resize;
+  flex: 0 0 auto;
+  height: 24px;
+  margin: -4px -10px -4px auto;
+  padding: 0;
+  position: relative;
+  width: 12px;
+}
+
+.task-manager-table__resize-handle::before {
+  background: color-mix(in srgb, var(--manager-border) 72%, transparent);
+  border-radius: 999px;
+  content: "";
+  height: 18px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+}
+
+.task-manager-table__resize-handle:hover::before {
+  background: var(--manager-accent);
 }
 
 .task-manager-table__row:hover td {
@@ -227,7 +275,16 @@
 
 .task-manager-table .b3-select,
 .task-manager-table .b3-text-field {
+  min-width: 0;
   width: 100%;
+}
+
+.task-manager-table__cell {
+  min-width: 0;
+}
+
+.task-manager-table__cell.is-actions {
+  white-space: nowrap;
 }
 
 .task-manager-table__task-cell {
@@ -240,6 +297,58 @@
 
 .task-manager-table__task-cell .task-manager-task-title {
   flex: 1;
+  min-width: 0;
+}
+
+.task-manager--table .task-manager-table__cell .task-manager-task__pill {
+  max-width: 100%;
+}
+
+.task-manager--table .task-manager-actions,
+.task-manager-card__header .task-manager-actions {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.task-manager--table .task-manager-task__row-actions,
+.task-manager-card__header .task-manager-task__row-actions {
+  margin-left: 8px;
+  min-width: max-content;
+}
+
+.task-manager--table .task-manager-task__action-button,
+.task-manager-card__header .task-manager-task__action-button {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: color-mix(in srgb, var(--manager-accent) 76%, var(--manager-muted));
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 18px;
+  justify-content: center;
+  padding: 0;
+  transition: color 120ms ease, background-color 120ms ease;
+  width: 18px;
+}
+
+.task-manager--table .task-manager-task__action-button:hover,
+.task-manager-card__header .task-manager-task__action-button:hover {
+  background: color-mix(in srgb, var(--manager-accent) 8%, transparent);
+  color: var(--manager-accent);
+}
+
+.task-manager--table .task-manager-task__action-button svg,
+.task-manager-card__header .task-manager-task__action-button svg {
+  color: currentColor;
+  fill: currentColor;
+  height: 12px;
+  pointer-events: none;
+  width: 12px;
 }
 
 .task-manager-list,
@@ -380,8 +489,28 @@
   margin-top: 8px;
 }
 
+.task-manager-card__header--compact {
+  gap: 8px;
+}
+
+.task-manager-card__header-meta {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-manager-card__header-meta .task-manager-task__pill {
+  max-width: 116px;
+}
+
 .task-manager-card__controls {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.task-manager-card__controls--compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .task-manager-task__children {
@@ -648,6 +777,25 @@
 
 .task-manager-card__header .task-manager-actions {
   flex: 0 0 auto;
+}
+
+.task-manager--timeline .task-manager-card,
+.task-manager--kanban .task-manager-card,
+.task-manager--calendar .task-manager-calendar__unplanned .task-manager-card {
+  display: grid;
+  gap: 0;
+}
+
+.task-manager--timeline .task-manager-card__header,
+.task-manager--kanban .task-manager-card__header,
+.task-manager--calendar .task-manager-calendar__unplanned .task-manager-card__header {
+  margin-bottom: 8px;
+}
+
+.task-manager--timeline .task-manager-card__controls,
+.task-manager--kanban .task-manager-card__controls,
+.task-manager--calendar .task-manager-calendar__unplanned .task-manager-card__controls {
+  margin-top: 0;
 }
 
 .task-manager-calendar {
