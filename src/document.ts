@@ -3,6 +3,7 @@ import {
   getBlockAttrs,
   getBlockById,
   getHPathById,
+  renameDocById,
   setBlockAttrs,
   sql,
   sqlText,
@@ -117,8 +118,20 @@ export class TaskService {
     if (!current) {
       throw new Error("任务不存在");
     }
-    const normalized = normalizeCompletion(current, patch);
+
+    const normalizedPatch = normalizeTaskPatch(patch);
+    const title = normalizedPatch.title?.trim();
+    if (title === "") {
+      throw new Error("请填写任务标题");
+    }
+
+    if (title && title !== current.title) {
+      await renameDocById(current.docId, title);
+    }
+
+    const normalized = normalizeCompletion(current, title ? { ...normalizedPatch, title } : normalizedPatch);
     const task = await this.store.update(id, normalized);
+    await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
     await this.syncTaskDocument(task.id);
     if (current.parentId && current.parentId !== task.id) {
@@ -225,6 +238,21 @@ export class TaskService {
       listener();
     }
   }
+}
+
+function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
+  return {
+    ...patch,
+    title: typeof patch.title === "string" ? patch.title.trim() : patch.title,
+    project: typeof patch.project === "string" ? patch.project.trim() || undefined : patch.project,
+    parentId: patch.parentId === "" ? undefined : patch.parentId,
+    sourceBlockId: patch.sourceBlockId === "" ? undefined : patch.sourceBlockId,
+    sourceDocId: patch.sourceDocId === "" ? undefined : patch.sourceDocId,
+    sourceText: typeof patch.sourceText === "string" ? patch.sourceText.trim() || undefined : patch.sourceText,
+    dueDate: patch.dueDate === "" ? undefined : patch.dueDate,
+    planStart: patch.planStart === "" ? undefined : patch.planStart,
+    planEnd: patch.planEnd === "" ? undefined : patch.planEnd
+  };
 }
 
 function normalizeCompletion(current: TaskItem, patch: Partial<TaskItem>): Partial<TaskItem> {
@@ -456,6 +484,24 @@ async function appendSourceTaskId(sourceBlockId: string, taskId: string): Promis
   await setBlockAttrs(sourceBlockId, {
     [SOURCE_TASK_IDS_ATTR]: Array.from(ids).join(",")
   });
+}
+
+async function removeSourceTaskId(sourceBlockId: string, taskId: string): Promise<void> {
+  const attrs = await getBlockAttrs(sourceBlockId).catch(() => ({}));
+  const ids = new Set((attrs[SOURCE_TASK_IDS_ATTR] || "").split(",").map((id) => id.trim()).filter(Boolean));
+  ids.delete(taskId);
+  await setBlockAttrs(sourceBlockId, {
+    [SOURCE_TASK_IDS_ATTR]: Array.from(ids).join(",")
+  });
+}
+
+async function syncSourceTaskReference(previousSourceBlockId: string | undefined, nextSourceBlockId: string | undefined, taskId: string): Promise<void> {
+  if (previousSourceBlockId && previousSourceBlockId !== nextSourceBlockId) {
+    await removeSourceTaskId(previousSourceBlockId, taskId);
+  }
+  if (nextSourceBlockId && nextSourceBlockId !== previousSourceBlockId) {
+    await appendSourceTaskId(nextSourceBlockId, taskId);
+  }
 }
 
 export async function sourceFromBlock(blockId: string): Promise<SourceContext> {

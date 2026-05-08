@@ -1,5 +1,5 @@
 import { Dialog, showMessage } from "siyuan";
-import { fromDatetimeLocal } from "../date";
+import { fromDatetimeLocal, toDatetimeLocal } from "../date";
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import {
@@ -18,6 +18,7 @@ export interface TaskDialogOptions {
   source?: SourceContext;
   presetTitle?: string;
   presetPlanDate?: string;
+  task?: TaskItem;
   onSaved?: (task: TaskItem) => void;
 }
 
@@ -27,20 +28,44 @@ export class TaskDialog {
   constructor(private options: TaskDialogOptions) {}
 
   show(): void {
-    const defaultMode: SourceMode = this.options.source?.docId ? "note" : "manual";
+    const editingTask = this.options.task;
+    const editMode = Boolean(editingTask);
+    const editSource = editingTask
+      ? {
+        blockId: editingTask.sourceBlockId,
+        docId: editingTask.sourceDocId,
+        text: editingTask.sourceText
+      }
+      : undefined;
+    const effectiveSource = editSource?.docId ? editSource : this.options.source;
+    const defaultMode: SourceMode = effectiveSource?.docId ? "note" : "manual";
     let sourceMode: SourceMode = defaultMode;
-    let selectedSource = sourceMode === "note" && this.options.source ? { ...this.options.source } : undefined as SourceContext | undefined;
+    let selectedSource = sourceMode === "note" && effectiveSource ? { ...effectiveSource } : undefined as SourceContext | undefined;
     const tasks = this.options.service.store.all();
     const activeTasks = tasks.filter((task) => {
-      return task.id === this.options.parentId || (task.status !== "completed" && task.status !== "cancelled");
+      if (editMode && task.id === editingTask?.id) {
+        return false;
+      }
+      return task.id === this.options.parentId || task.id === editingTask?.parentId || (task.status !== "completed" && task.status !== "cancelled");
     });
     const projects = this.options.service.store.getProjects();
-    const defaultTitle = this.options.presetTitle || this.options.source?.text || "";
-    const defaultPlanStart = this.options.presetPlanDate ? `${this.options.presetPlanDate}T09:00` : "";
-    const defaultSourceDocId = this.options.source?.docId || "";
+    const defaultTitle = editingTask?.title || this.options.presetTitle || effectiveSource?.text || "";
+    const defaultProject = editingTask?.project || this.options.service.store.getSettings().defaultProject || "";
+    const defaultParentId = editingTask?.parentId || this.options.parentId || "";
+    const defaultStatus = editingTask?.status || "todo";
+    const defaultPriority = editingTask?.priority || "medium";
+    const defaultPlanStart = editingTask?.planStart
+      ? toDatetimeLocal(editingTask.planStart)
+      : (this.options.presetPlanDate ? `${this.options.presetPlanDate}T09:00` : "");
+    const defaultPlanEnd = editingTask?.planEnd ? toDatetimeLocal(editingTask.planEnd) : "";
+    const defaultDueDate = editingTask?.dueDate?.slice(0, 10) || "";
+    const defaultSourceDocId = effectiveSource?.docId || "";
+    const dialogTitle = editMode ? "编辑任务" : (this.options.parentId ? "新建子任务" : "新建任务");
+    const submitLabel = editMode ? "保存任务修改" : "创建任务文档";
+    const submittingLabel = editMode ? "保存中..." : "创建中...";
 
     const dialog = new Dialog({
-      title: this.options.parentId ? "新建子任务" : "新建任务",
+      title: dialogTitle,
       content: `<form class="task-tracker-dialog">
   <div class="b3-dialog__content task-tracker-dialog__content">
     <label class="task-tracker-field">
@@ -50,7 +75,7 @@ export class TaskDialog {
     <div class="task-tracker-dialog__grid">
       <label class="task-tracker-field">
         <span>项目</span>
-        <input class="b3-text-field fn__block" name="project" list="task-tracker-projects" value="${escapeAttr(this.options.service.store.getSettings().defaultProject || "")}" />
+        <input class="b3-text-field fn__block" name="project" list="task-tracker-projects" value="${escapeAttr(defaultProject)}" />
         <datalist id="task-tracker-projects">
           ${projects.map((project) => `<option value="${escapeAttr(project)}"></option>`).join("")}
         </datalist>
@@ -59,19 +84,19 @@ export class TaskDialog {
         <span>父任务</span>
         <select class="b3-select fn__block" name="parentId">
           <option value="">无</option>
-          ${activeTasks.map((task) => `<option value="${task.id}" ${task.id === this.options.parentId ? "selected" : ""}>${escapeHtml(task.title)}</option>`).join("")}
+          ${activeTasks.map((task) => `<option value="${task.id}" ${task.id === defaultParentId ? "selected" : ""}>${escapeHtml(task.title)}</option>`).join("")}
         </select>
       </label>
       <label class="task-tracker-field">
         <span>状态</span>
         <select class="b3-select fn__block" name="status">
-          ${statusOptions("todo")}
+          ${statusOptions(defaultStatus)}
         </select>
       </label>
       <label class="task-tracker-field">
         <span>优先级</span>
         <select class="b3-select fn__block" name="priority">
-          ${priorityOptions("medium")}
+          ${priorityOptions(defaultPriority)}
         </select>
       </label>
       <label class="task-tracker-field">
@@ -80,11 +105,11 @@ export class TaskDialog {
       </label>
       <label class="task-tracker-field">
         <span>计划结束</span>
-        <input class="b3-text-field fn__block" name="planEnd" type="datetime-local" />
+        <input class="b3-text-field fn__block" name="planEnd" type="datetime-local" value="${escapeAttr(defaultPlanEnd)}" />
       </label>
       <label class="task-tracker-field">
         <span>截止日期</span>
-        <input class="b3-text-field fn__block" name="dueDate" type="date" />
+        <input class="b3-text-field fn__block" name="dueDate" type="date" value="${escapeAttr(defaultDueDate)}" />
       </label>
       <div class="task-tracker-field task-tracker-field--wide task-tracker-source">
         <span>来源</span>
@@ -108,7 +133,7 @@ export class TaskDialog {
   <div class="b3-dialog__action">
     <button type="button" class="b3-button b3-button--cancel" data-action="cancel">取消</button>
     <div class="fn__space"></div>
-    <button type="submit" class="b3-button b3-button--text">创建任务文档</button>
+    <button type="submit" class="b3-button b3-button--text">${submitLabel}</button>
   </div>
 </form>`,
       width: "680px"
@@ -128,7 +153,7 @@ export class TaskDialog {
       }
       const current = sourceMode === "note"
         ? selectedSource?.text || sourceDocIdInput?.value.trim() || "尚未填写笔记 ID"
-        : this.options.source?.text || "手动创建";
+        : "手动创建";
       sourceSummary.innerHTML = `<div class="task-tracker-source__current">当前来源：${escapeHtml(current)}</div>`;
     };
 
@@ -179,14 +204,14 @@ export class TaskDialog {
       event.preventDefault();
       const submitButton = form.querySelector<HTMLButtonElement>("button[type='submit']") as HTMLButtonElement;
       submitButton.disabled = true;
-      submitButton.textContent = "创建中...";
+      submitButton.textContent = submittingLabel;
 
       try {
         const data = new FormData(form);
         if (sourceMode === "note") {
           await applyDocIdSource();
         } else {
-          selectedSource = this.options.source ? { ...this.options.source } : undefined;
+          selectedSource = undefined;
         }
         const input: TaskCreateInput = {
           title: String(data.get("title") || "").trim(),
@@ -204,14 +229,16 @@ export class TaskDialog {
         if (!input.title) {
           throw new Error("请填写任务标题");
         }
-        const task = await this.options.service.createTask(input);
-        showMessage("任务文档已创建");
+        const task = editMode && editingTask
+          ? await this.options.service.updateTask(editingTask.id, input)
+          : await this.options.service.createTask(input);
+        showMessage(editMode ? "任务已更新" : "任务文档已创建");
         this.options.onSaved?.(task);
         dialog.destroy();
       } catch (error) {
-        showMessage(error instanceof Error ? error.message : "创建任务失败", 5000, "error");
+        showMessage(error instanceof Error ? error.message : (editMode ? "更新任务失败" : "创建任务失败"), 5000, "error");
         submitButton.disabled = false;
-        submitButton.textContent = "创建任务文档";
+        submitButton.textContent = submitLabel;
       }
     });
   }

@@ -31,6 +31,7 @@ export interface TaskManagerNewTaskOptions {
 export interface TaskManagerTabActions {
   newTask: (options?: TaskManagerNewTaskOptions) => void;
   createSubtask: (parentId: string) => void;
+  editTask: (task: TaskItem) => void;
   openTask: (task: TaskItem) => void;
   openSourceDoc?: (docId: string) => void;
   sync?: () => Promise<unknown> | unknown;
@@ -59,6 +60,7 @@ interface TableColumnDef {
 
 interface RowActionOptions {
   compact?: boolean;
+  showEdit?: boolean;
 }
 
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
@@ -261,7 +263,7 @@ export class TaskManagerTab {
     if (key === "due") {
       return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" /></td>`;
     }
-    return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true })}</td>`;
+    return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true })}</td>`;
   }
 
   private renderListView(tasks: TaskItem[]): string {
@@ -320,7 +322,7 @@ export class TaskManagerTab {
     }
 
     const label = task.sourceText?.trim() || "来源笔记";
-    return `<button class="task-manager-task__pill task-manager-task__pill--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
+    return `<button class="task-manager-task__pill task-manager-task__pill--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}"><span class="task-manager-task__pill-label">${escapeHtml(label)}</span></button>`;
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
@@ -357,7 +359,7 @@ export class TaskManagerTab {
 
     return `<div class="task-manager-calendar">
   <div class="task-manager-calendar__toolbar">
-    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--prev" data-action="prev-month" aria-label="上个月" title="上个月">${renderChevron(true)}</button>
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--prev" data-action="prev-month" aria-label="上个月" title="上个月">${renderChevron(false)}</button>
     <div class="task-manager-calendar__title">${monthTitle(this.month)}</div>
     <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--next" data-action="next-month" aria-label="下个月" title="下个月">${renderChevron(false)}</button>
     <input class="b3-text-field task-manager-calendar__month-input" data-field="month" type="month" value="${monthValue}" aria-label="选择月份" />
@@ -452,11 +454,16 @@ export class TaskManagerTab {
       : "block__icon ariaLabel";
     const positionAttr = " data-position=\"north\"";
     const subtaskLabel = useCompact ? "添加子任务" : "创建子任务";
+    const editLabel = "编辑任务";
     const statusLabel = task.status === "completed"
       ? "重新打开"
       : "完成任务";
+    const editButton = options.showEdit || !useCompact
+      ? `<button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>`
+      : "";
 
     return `<span class="task-manager-actions${listClass}">
+  ${editButton}
   <button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
   ${task.status === "completed"
     ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
@@ -743,6 +750,8 @@ export class TaskManagerTab {
       if (docId) {
         this.actions.openSourceDoc?.(docId);
       }
+    } else if (action === "edit") {
+      this.actions.editTask(task);
     } else if (action === "subtask") {
       this.actions.createSubtask(task.id);
     } else if (action === "complete") {

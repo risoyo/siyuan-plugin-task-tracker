@@ -123,6 +123,7 @@ export default class TaskTrackerPlugin extends Plugin {
           const view = new TaskManagerTab(tab.element, plugin.service, {
             newTask: (options) => void plugin.showTaskDialog(options || {}),
             createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId }),
+            editTask: (task: TaskItem) => void plugin.showTaskDialog({ task }),
             openTask: (task: TaskItem) => void plugin.openTask(task),
             openSourceDoc: (docId: string) => void plugin.openDocById(docId),
             sync: () => plugin.syncDeletedTasks()
@@ -259,6 +260,7 @@ export default class TaskTrackerPlugin extends Plugin {
     source?: SourceContext;
     presetTitle?: string;
     presetPlanDate?: string;
+    task?: TaskItem;
   } = {}): Promise<void> {
     await this.ready;
     new TaskDialog({
@@ -267,6 +269,7 @@ export default class TaskTrackerPlugin extends Plugin {
       source: options.source,
       presetTitle: options.presetTitle,
       presetPlanDate: options.presetPlanDate,
+      task: options.task,
       onSaved: (task) => void this.openTask(task)
     }).show();
   }
