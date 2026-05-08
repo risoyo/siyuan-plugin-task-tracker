@@ -390,8 +390,7 @@
 
 .task-manager--list .task-manager-task {
   --task-title-offset: 22px;
-  --task-control-width: 128px;
-  --task-controls-right-padding: 12px;
+  --task-control-width: 136px;
 }
 
 .task-manager--list .task-manager-task__title-row {
@@ -410,13 +409,15 @@
 .task-manager--list .task-manager-task__header-meta {
   align-items: center;
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   gap: 4px;
+  max-width: none;
   min-width: 0;
 }
 
 .task-manager--list .task-manager-task__summary .task-manager-task-title {
-  flex: 1 1 180px;
+  flex: 0 1 280px;
+  max-width: 280px;
   min-width: 0;
 }
 
@@ -491,11 +492,13 @@
 }
 
 .task-manager--list .task-manager-task__controls {
+  box-sizing: border-box;
   display: flex;
   justify-content: flex-end;
   margin-left: var(--task-title-offset);
   margin-top: 8px;
-  width: calc(100% - var(--task-title-offset) - var(--task-controls-right-padding));
+  padding-right: 12px;
+  width: calc(100% - var(--task-title-offset));
 }
 
 .task-manager--list .task-manager-task__control-grid {

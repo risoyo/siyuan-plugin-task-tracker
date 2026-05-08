@@ -240,8 +240,8 @@ export class TaskManagerTab {
           ${this.renderSourcePill(task)}
           ${childCount ? `<span class="task-manager-task__child-count">${childCount}</span>` : ""}
         </div>
+        ${this.renderRowActions(task)}
       </div>
-      ${this.renderRowActions(task)}
     </div>
   </div>
   <div class="task-manager-task__controls">
