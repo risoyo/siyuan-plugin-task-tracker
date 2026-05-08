@@ -420,11 +420,11 @@ export class TaskManagerTab {
 
   private renderSourceMetaChip(task: TaskItem): string {
     if (!task.sourceDocId) {
-      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-manual" title="手动创建">手动创建</span>`;
+      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-manual" title="手动创建"><span class="task-manager-card__meta-value">手动创建</span></span>`;
     }
 
     const label = task.sourceText?.trim() || "来源笔记";
-    return `<button class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
+    return `<button class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}"><span class="task-manager-card__meta-value">${escapeHtml(label)}</span></button>`;
   }
 
   private renderPriorityMetaChip(task: TaskItem): string {

@@ -545,6 +545,14 @@
   background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
   cursor: default;
   font: inherit;
+  line-height: 1;
+}
+
+.task-manager-card__meta-chip--source .task-manager-card__meta-value {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .task-manager-card__meta-chip--source.is-manual {
