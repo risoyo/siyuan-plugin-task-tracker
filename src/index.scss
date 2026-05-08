@@ -479,6 +479,7 @@
 .task-manager--list .task-manager-task__controls {
   align-items: center;
   display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
   justify-content: flex-end;
   margin-top: 8px;
@@ -487,33 +488,46 @@
 
 .task-manager--list .task-manager-task__control-grid {
   display: grid;
+  flex: 0 0 auto;
   gap: 6px;
   grid-template-columns: repeat(4, 112px);
 }
 
-.task-manager--list .task-manager-actions {
+.task-manager--list .task-manager-actions--list {
   align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: max-content;
+}
+
+.task-manager--list .task-manager-task__action-button {
+  align-items: center;
+  appearance: none;
+  background: color-mix(in srgb, var(--manager-accent) 8%, var(--manager-surface) 92%);
+  border: 1px solid color-mix(in srgb, var(--manager-accent) 26%, var(--manager-border));
+  border-radius: 6px;
   color: var(--manager-accent);
+  cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 2px;
-  min-width: 48px;
-}
-
-.task-manager--list .task-manager-actions .block__icon {
-  align-items: center;
-  color: currentColor !important;
-  display: inline-flex;
-  flex: 0 0 auto;
-  height: 22px;
+  height: 24px;
   justify-content: center;
-  width: 22px;
+  padding: 0;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  width: 24px;
 }
 
-.task-manager--list .task-manager-actions .block__icon svg {
+.task-manager--list .task-manager-task__action-button:hover {
+  background: color-mix(in srgb, var(--manager-accent) 14%, var(--manager-surface) 86%);
+  border-color: color-mix(in srgb, var(--manager-accent) 42%, var(--manager-border));
+}
+
+.task-manager--list .task-manager-task__action-button svg {
   color: currentColor;
   fill: currentColor;
   height: 14px;
+  pointer-events: none;
   width: 14px;
 }
 
@@ -1436,10 +1450,16 @@
 
   .task-manager--list .task-manager-task__controls {
     gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 
   .task-manager--list .task-manager-task__control-grid {
-    grid-template-columns: repeat(4, minmax(0, 104px));
+    grid-template-columns: repeat(4, 104px);
+  }
+
+  .task-manager--list .task-manager-actions--list {
+    flex-shrink: 0;
   }
 
   .task-manager-timeline__group {
