@@ -121,7 +121,7 @@ export class TaskManagerTab {
   </div>
   <label class="task-manager-toolbar__search">
     <svg><use xlink:href="#iconSearch"></use></svg>
-    <input class="b3-text-field" data-field="search" value="${escapeAttr(this.search)}" placeholder="搜索任务、项目、状态、父任务" />
+    <input class="b3-text-field" data-field="search" value="${escapeAttr(this.search)}" placeholder="搜索任务、项目等" />
   </label>
   <span class="fn__flex-1"></span>
   <button class="b3-button b3-button--text" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>新建</span></button>

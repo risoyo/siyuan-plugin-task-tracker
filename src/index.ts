@@ -1,5 +1,4 @@
 import {
-  Dialog,
   Menu,
   Plugin,
   Setting,
@@ -13,12 +12,10 @@ import { TaskDialog } from "./dialogs/TaskDialog";
 import { createTaskSettings } from "./settings";
 import { TaskStore } from "./taskStore";
 import type { SourceContext, TaskItem } from "./types";
-import { CalendarTab } from "./views/CalendarTab";
 import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
-const CALENDAR_TAB_TYPE = "task_tracker_calendar_tab";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
 
 export default class TaskTrackerPlugin extends Plugin {
@@ -26,7 +23,6 @@ export default class TaskTrackerPlugin extends Plugin {
   private service: TaskService;
   private ready: Promise<void>;
   private taskDock?: TaskDock;
-  private calendarViews = new Map<HTMLElement, CalendarTab>();
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
@@ -58,7 +54,6 @@ export default class TaskTrackerPlugin extends Plugin {
     });
 
     this.registerDock();
-    this.registerCalendarTab();
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
@@ -78,9 +73,6 @@ export default class TaskTrackerPlugin extends Plugin {
 
   onunload(): void {
     this.taskDock?.destroy();
-    for (const view of this.calendarViews.values()) {
-      view.destroy();
-    }
     for (const view of this.managerViews.values()) {
       view.destroy();
     }
@@ -120,40 +112,13 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
-  private registerCalendarTab(): void {
-    const plugin = this;
-    this.addTab({
-      type: CALENDAR_TAB_TYPE,
-      init() {
-        const tab = this as any;
-        tab.element.innerHTML = `<div class="task-tracker task-tracker-empty">任务日历加载中...</div>`;
-        void plugin.ready.then(() => {
-          const view = new CalendarTab(tab.element, plugin.service, {
-            newTask: (presetPlanDate?: string) => void plugin.showTaskDialog({ presetPlanDate }),
-            openTask: (task: TaskItem) => void plugin.openTask(task)
-          }, tab.data || {});
-          plugin.calendarViews.set(tab.element, view);
-          view.render();
-        }).catch((error) => {
-          tab.element.innerHTML = `<div class="task-tracker task-tracker-empty">加载失败：${error?.message || error}</div>`;
-        });
-      },
-      destroy() {
-        const tab = this as any;
-        const view = plugin.calendarViews.get(tab.element);
-        view?.destroy();
-        plugin.calendarViews.delete(tab.element);
-      }
-    });
-  }
-
   private registerManagerTab(): void {
     const plugin = this;
     this.addTab({
       type: MANAGER_TAB_TYPE,
       init() {
         const tab = this as any;
-        tab.element.innerHTML = `<div class="task-manager task-manager-empty">任务管理器加载中...</div>`;
+        tab.element.innerHTML = `<div class="task-manager task-manager-empty">任务控制面板加载中...</div>`;
         void plugin.ready.then(() => {
           const view = new TaskManagerTab(tab.element, plugin.service, {
             newTask: (options) => void plugin.showTaskDialog(options || {}),
@@ -183,11 +148,6 @@ export default class TaskTrackerPlugin extends Plugin {
       callback: () => void this.showTaskDialog()
     });
     this.addCommand({
-      langKey: "openCalendar",
-      hotkey: "",
-      callback: () => void this.openCalendar()
-    });
-    this.addCommand({
       langKey: "openTaskManager",
       hotkey: "",
       callback: () => void this.openTaskManager()
@@ -210,7 +170,7 @@ export default class TaskTrackerPlugin extends Plugin {
     return createTaskSettings(this.service, {
       setCurrentDocAsRoot: () => this.setCurrentDocAsRoot(),
       setRootDocId: (docId: string) => this.setRootDocId(docId),
-      openRootDoc: () => this.openRootDoc(),
+      syncDeletedTasks: () => this.syncDeletedTasks(),
       refreshViews: () => this.refreshViews()
     }, pluginManifest.version);
   }
@@ -220,7 +180,7 @@ export default class TaskTrackerPlugin extends Plugin {
       newTask: () => void this.showTaskDialog(),
       createSubtask: (parentId: string) => void this.showTaskDialog({ parentId }),
       openTask: (task: TaskItem) => void this.openTask(task),
-      openCalendar: () => void this.openCalendar(),
+      openTaskManager: () => void this.openTaskManager(),
       setCurrentDocAsRoot: () => void this.setCurrentDocAsRoot()
     };
   }
@@ -234,34 +194,8 @@ export default class TaskTrackerPlugin extends Plugin {
     });
     menu.addItem({
       icon: "iconTaskTracker",
-      label: "打开任务管理器",
+      label: "打开任务控制面板",
       click: () => void this.openTaskManager()
-    });
-    menu.addItem({
-      icon: "iconCalendar",
-      label: "打开任务日历",
-      click: () => void this.openCalendar()
-    });
-    menu.addItem({
-      icon: "iconFolder",
-      label: "打开事项库",
-      click: () => void this.openRootDoc()
-    });
-    menu.addSeparator();
-    menu.addItem({
-      icon: "iconDatabase",
-      label: "设置事项库文档 ID",
-      click: () => void this.showRootDocIdDialog()
-    });
-    menu.addItem({
-      icon: "iconFile",
-      label: "从当前文档创建任务",
-      click: () => void this.createTaskFromCurrentDocument()
-    });
-    menu.addItem({
-      icon: "iconRefresh",
-      label: "清理已删除任务记录",
-      click: () => void this.syncDeletedTasks()
     });
     menu.addItem({
       icon: "iconSettings",
@@ -368,41 +302,6 @@ export default class TaskTrackerPlugin extends Plugin {
     }
   }
 
-  private async showRootDocIdDialog(): Promise<void> {
-    await this.ready;
-    const currentId = this.service.store.getSettings().taskRootDocId || "";
-    const dialog = new Dialog({
-      title: "设置事项库文档 ID",
-      content: `<form class="task-tracker-dialog">
-  <div class="b3-dialog__content task-tracker-dialog__content">
-    <label class="task-tracker-field">
-      <span>文档 ID</span>
-      <input class="b3-text-field fn__block" name="docId" value="${escapeAttr(currentId)}" placeholder="例如：20260506092200-qynf33g" required />
-    </label>
-  </div>
-  <div class="b3-dialog__action">
-    <button type="button" class="b3-button b3-button--cancel" data-action="cancel">取消</button>
-    <div class="fn__space"></div>
-    <button type="submit" class="b3-button b3-button--text">绑定事项库</button>
-  </div>
-</form>`,
-      width: "520px"
-    });
-    const form = dialog.element.querySelector("form") as HTMLFormElement;
-    const input = dialog.element.querySelector<HTMLInputElement>("input[name='docId']");
-    input?.focus();
-    input?.select();
-    dialog.element.querySelector("[data-action='cancel']")?.addEventListener("click", () => dialog.destroy());
-    dialog.bindInput(input, () => form.requestSubmit());
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      await this.setRootDocId(input?.value || "");
-      if (this.service.store.getSettings().taskRootDocId === (input?.value || "").trim()) {
-        dialog.destroy();
-      }
-    });
-  }
-
   private async createTaskFromCurrentDocument(protyle?: any): Promise<void> {
     await this.ready;
     const currentProtyle = protyle || this.getCurrentProtyle();
@@ -435,26 +334,13 @@ export default class TaskTrackerPlugin extends Plugin {
     }
   }
 
-  private async openCalendar(): Promise<void> {
-    await this.ready;
-    openTab({
-      app: this.app,
-      custom: {
-        icon: "iconCalendar",
-        title: "任务日历",
-        id: `${this.name}${CALENDAR_TAB_TYPE}`,
-        data: {}
-      }
-    });
-  }
-
   private async openTaskManager(): Promise<void> {
     await this.ready;
     openTab({
       app: this.app,
       custom: {
         icon: "iconTaskTracker",
-        title: "任务管理器",
+        title: "任务控制面板",
         id: `${this.name}${MANAGER_TAB_TYPE}`,
         data: {}
       }
@@ -470,21 +356,6 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
-  private async openRootDoc(): Promise<void> {
-    await this.ready;
-    const rootDocId = this.service.store.getSettings().taskRootDocId;
-    if (!rootDocId) {
-      showMessage("还没有设置事项库", 4000, "info");
-      return;
-    }
-    openTab({
-      app: this.app,
-      doc: {
-        id: rootDocId
-      }
-    });
-  }
-
   private async syncDeletedTasks(): Promise<void> {
     await this.ready;
     const count = await this.service.syncDeletedDocs();
@@ -493,9 +364,6 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private refreshViews(): void {
     this.taskDock?.render();
-    for (const view of this.calendarViews.values()) {
-      view.render();
-    }
     for (const view of this.managerViews.values()) {
       view.render();
     }
@@ -506,11 +374,3 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 }
 
-function escapeAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}

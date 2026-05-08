@@ -7,7 +7,7 @@ export function createTaskSettings(
   actions: {
     setCurrentDocAsRoot: () => Promise<void>;
     setRootDocId: (docId: string) => Promise<void>;
-    openRootDoc: () => Promise<void>;
+    syncDeletedTasks: () => Promise<void>;
     refreshViews: () => void;
   },
   version: string
@@ -68,15 +68,22 @@ export function createTaskSettings(
         void actions.setCurrentDocAsRoot();
       });
 
-      const openButton = document.createElement("button");
-      openButton.className = "b3-button b3-button--outline fn__size160";
-      openButton.textContent = "打开事项库";
-      openButton.addEventListener("click", () => {
-        void actions.openRootDoc();
-      });
-
-      wrapper.append(rootDocIdInput, bindButton, currentButton, openButton);
+      wrapper.append(rootDocIdInput, bindButton, currentButton);
       return wrapper;
+    }
+  });
+
+  setting.addItem({
+    title: "任务维护",
+    description: "手动清理已经从思源删除、但仍残留在插件索引中的任务记录。",
+    createActionElement: () => {
+      const button = document.createElement("button");
+      button.className = "b3-button b3-button--outline fn__size200";
+      button.textContent = "清理已删除任务记录";
+      button.addEventListener("click", () => {
+        void actions.syncDeletedTasks();
+      });
+      return button;
     }
   });
 
@@ -105,7 +112,7 @@ export function createTaskSettings(
 
   setting.addItem({
     title: "使用帮助",
-    description: "查看事项库设置、任务创建、日历视图、任务删除、模板占位符和版本规则。",
+    description: "查看事项库设置、任务创建、任务控制面板、任务维护、模板占位符和版本规则。",
     createActionElement: () => {
       const button = document.createElement("button");
       button.className = "b3-button b3-button--outline fn__size200";
@@ -139,14 +146,14 @@ function showHelpDialog(): void {
   <h2>二、创建任务</h2>
   <p>可以从右上角插件菜单新建任务，也可以从当前文档或当前块创建任务。任务字段包括项目、状态、优先级、计划开始、计划结束、截止日期和父任务。</p>
 
-  <h2>三、任务追踪面板</h2>
+  <h2>三、任务追踪侧栏</h2>
   <p>“全部”显示所有未完成任务；“焦点”显示进行中、今天及以前需要关注的任务；“未安排”显示没有计划开始时间的任务；“今日”“逾期”“完成”分别显示对应状态。子任务会折叠在父任务下方，点击箭头展开或收起。</p>
 
-  <h2>四、日历视图</h2>
-  <p>日历按计划开始时间展示任务；没有计划开始时间的任务会进入右侧“未登记计划时间”。月份标题两侧按钮可切换前后月份，月份选择框可快速跳转。</p>
+  <h2>四、任务控制面板</h2>
+  <p>可以从右上角插件菜单或任务追踪侧栏打开任务控制面板。面板内提供表格、清单、时间轴、看板和日历五种视图；日历按计划开始时间展示任务，没有计划开始时间的任务会进入右侧“未安排”。月份标题两侧按钮可切换前后月份，月份选择框可快速跳转。</p>
 
-  <h2>五、删除任务</h2>
-  <p>删除思源任务文档后，插件会自动清理对应任务记录，也可以点击插件菜单或面板中的刷新按钮手动清理。任务卡片上的删除按钮只会从插件记录中移除任务，不会删除思源文档。</p>
+  <h2>五、任务维护</h2>
+  <p>删除思源任务文档后，插件会自动清理对应任务记录；如需手动处理，可在插件设置里的“任务维护”中点击“清理已删除任务记录”。任务卡片上的删除按钮只会从插件记录中移除任务，不会删除思源文档。</p>
 
   <h2>六、任务模板占位符</h2>
   <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>

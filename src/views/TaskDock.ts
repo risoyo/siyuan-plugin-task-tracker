@@ -22,7 +22,7 @@ export class TaskDock {
       newTask: () => void;
       createSubtask: (parentId: string) => void;
       openTask: (task: TaskItem) => void;
-      openCalendar: () => void;
+      openTaskManager: () => void;
       setCurrentDocAsRoot: () => void;
     }
   ) {
@@ -47,7 +47,7 @@ export class TaskDock {
     </div>
     <span class="fn__flex-1 fn__space"></span>
     <button class="block__icon ariaLabel" data-action="new" aria-label="新建任务" data-position="south"><svg><use xlink:href="#iconAdd"></use></svg></button>
-    <button class="block__icon ariaLabel" data-action="calendar" aria-label="任务日历" data-position="south"><svg><use xlink:href="#iconCalendar"></use></svg></button>
+    <button class="block__icon ariaLabel" data-action="manager" aria-label="打开任务控制面板" data-position="south"><svg><use xlink:href="#iconTaskTracker"></use></svg></button>
     <button class="block__icon ariaLabel" data-action="sync-deleted" aria-label="清理已删除文档" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
   </div>
   <div class="task-tracker-dock__body">
@@ -123,7 +123,7 @@ export class TaskDock {
 
   private bind(): void {
     this.container.querySelector("[data-action='new']")?.addEventListener("click", () => this.actions.newTask());
-    this.container.querySelector("[data-action='calendar']")?.addEventListener("click", () => this.actions.openCalendar());
+    this.container.querySelector("[data-action='manager']")?.addEventListener("click", () => this.actions.openTaskManager());
     this.container.querySelector("[data-action='sync-deleted']")?.addEventListener("click", () => {
       this.runUpdate(async () => {
         const count = await this.service.syncDeletedDocs();

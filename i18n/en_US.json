@@ -1,8 +1,6 @@
 {
   "newTask": "New Task",
-  "openCalendar": "Open Task Calendar",
-  "openTaskManager": "Open Task Manager",
+  "openTaskManager": "Open Task Control Panel",
   "setTaskRoot": "Use Current Document as Task Library",
-  "taskDock": "Task Tracker",
-  "taskCalendar": "Task Calendar"
+  "taskDock": "Task Tracker"
 }
