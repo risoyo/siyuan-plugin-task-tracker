@@ -312,9 +312,13 @@
   gap: 2px;
 }
 
-.task-manager--table .task-manager-task__row-actions,
-.task-manager-card__header .task-manager-task__row-actions {
+.task-manager--table .task-manager-task__row-actions {
   margin-left: 8px;
+  min-width: max-content;
+}
+
+.task-manager-card__header .task-manager-task__row-actions {
+  margin-left: 14px;
   min-width: max-content;
 }
 
@@ -491,36 +495,13 @@
 
 .task-manager-card__header--compact {
   align-items: center;
-  gap: 12px;
+  gap: 0;
   justify-content: flex-start;
 }
 
 .task-manager-card__header--compact .task-manager-task-title {
   flex: 0 1 auto;
   min-width: 0;
-}
-
-.task-manager-card__header-meta {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 1 auto;
-  gap: 4px;
-  min-width: 0;
-}
-
-.task-manager-card__header-meta--flow {
-  align-items: center;
-  display: inline-flex;
-  flex: 0 1 auto;
-  flex-wrap: nowrap;
-  gap: 4px;
-  margin-left: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.task-manager-card__header-meta .task-manager-task__pill {
-  max-width: 116px;
 }
 
 .task-manager-card__meta-chips {
@@ -534,29 +515,62 @@
 
 .task-manager-card__meta-chip {
   align-items: center;
-  background: color-mix(in srgb, var(--b3-theme-surface) 86%, var(--manager-bg));
-  border: 1px solid color-mix(in srgb, var(--manager-border) 82%, transparent);
+  background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
+  border: 1px solid color-mix(in srgb, var(--manager-border) 88%, transparent);
   border-radius: 999px;
+  color: var(--manager-muted);
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  font-size: 11px;
   gap: 0;
+  line-height: 1;
+  max-width: 140px;
   min-height: 22px;
   min-width: 0;
-  padding: 0 5px;
+  overflow: hidden;
+  padding: 3px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager-card__meta-chip--project {
+  color: var(--b3-theme-on-background);
+}
+
+.task-manager-card__meta-chip--source {
+  appearance: none;
+  background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
+  cursor: default;
+}
+
+.task-manager-card__meta-chip--source.is-manual {
+  color: var(--manager-muted);
+}
+
+.task-manager-card__meta-chip--source.is-note {
+  background: color-mix(in srgb, var(--manager-accent) 10%, var(--manager-surface) 90%);
+  border-color: color-mix(in srgb, var(--manager-accent) 24%, transparent);
+  color: var(--manager-accent);
+  cursor: pointer;
+}
+
+.task-manager-card__meta-chip--source.is-note:hover {
+  background: color-mix(in srgb, var(--manager-accent) 16%, var(--manager-surface) 84%);
 }
 
 .task-manager-card__meta-chip--date {
   cursor: pointer;
-  padding: 0 3px;
+  padding: 3px 7px;
   position: relative;
 }
 
-.task-manager-card__meta-chip--date:hover {
+.task-manager-card__meta-chip--date:hover,
+.task-manager-card__meta-chip--select:hover {
   background: color-mix(in srgb, var(--manager-accent) 6%, var(--b3-theme-surface) 94%);
 }
 
 .task-manager-card__meta-value {
-  color: var(--manager-muted);
+  color: inherit;
   font-size: 11px;
   line-height: 1;
 }
@@ -565,7 +579,7 @@
 .task-manager-card__meta-date-input {
   background: transparent;
   border: 0;
-  color: var(--b3-theme-on-background);
+  color: inherit;
   font-size: 11px;
   height: 18px;
   line-height: 18px;
@@ -577,7 +591,7 @@
   cursor: pointer;
   height: 16px;
   line-height: 16px;
-  max-width: 72px;
+  max-width: 84px;
 }
 
 .task-manager-card__meta-date-input {
@@ -900,27 +914,39 @@
   align-items: center;
   appearance: none;
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--manager-accent) 32%, var(--manager-border));
-  border-radius: 999px;
+  border: 0;
+  border-radius: 0;
   color: var(--manager-accent) !important;
   cursor: pointer;
   display: inline-flex;
-  font-size: 18px;
-  font-weight: 500;
-  height: 28px;
+  height: 22px;
   justify-content: center;
   line-height: 1;
-  min-width: 28px;
-  padding: 0 10px;
+  min-width: 22px;
+  padding: 0;
 }
 
 .task-manager-calendar__nav:hover {
   background: color-mix(in srgb, var(--manager-accent) 8%, transparent);
 }
 
+.task-manager-calendar__nav--chevron .task-tree-chevron {
+  height: 6px;
+  width: 6px;
+}
+
+.task-manager-calendar__nav--prev .task-tree-chevron {
+  transform: rotate(135deg);
+}
+
+.task-manager-calendar__nav--next .task-tree-chevron {
+  transform: rotate(-45deg);
+}
+
 .task-manager-calendar__nav--today {
   font-size: 13px;
   font-weight: 600;
+  min-width: 24px;
 }
 
 .task-manager-calendar__title {
@@ -936,8 +962,8 @@
 .task-manager-calendar__layout {
   display: grid;
   flex: 1;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 0;
+  grid-template-columns: minmax(0, 1fr) 8px 280px;
   min-height: 0;
   overflow: hidden;
   padding: 12px;
@@ -946,6 +972,28 @@
 .task-manager-calendar__main,
 .task-manager-calendar__aside {
   min-height: 0;
+}
+
+.task-manager-calendar__splitter {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: col-resize;
+  margin: 0 2px;
+  padding: 0;
+  position: relative;
+}
+
+.task-manager-calendar__splitter::before {
+  background: color-mix(in srgb, var(--manager-border) 88%, transparent);
+  border-radius: 999px;
+  content: "";
+  inset: 0 2px;
+  position: absolute;
+}
+
+.task-manager-calendar__splitter:hover::before {
+  background: color-mix(in srgb, var(--manager-accent) 42%, var(--manager-border));
 }
 
 .task-manager-calendar__weekdays,
@@ -1037,6 +1085,8 @@
   border-left: 1px solid var(--manager-border);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
   padding-left: 12px;
 }
 

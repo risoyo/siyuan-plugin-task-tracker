@@ -40,6 +40,7 @@ interface TaskManagerTabData {
   view?: TaskManagerView;
   month?: string;
   search?: string;
+  calendarAsideWidth?: number;
 }
 
 interface TaskTreeNode {
@@ -88,6 +89,7 @@ export class TaskManagerTab {
   private collapsedTaskIds = new Set<string>();
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths();
+  private calendarAsideWidth = DEFAULT_CALENDAR_ASIDE_WIDTH;
   private resizeCleanup?: () => void;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
@@ -111,7 +113,9 @@ export class TaskManagerTab {
         this.month = monthStart(date);
       }
     }
-    this.tableColumnWidths = normalizeTableColumnWidths(this.service.store.getSettings().tableColumnWidths);
+    const settings = this.service.store.getSettings();
+    this.tableColumnWidths = normalizeTableColumnWidths(settings.tableColumnWidths);
+    this.calendarAsideWidth = normalizeCalendarAsideWidth(data?.calendarAsideWidth ?? settings.calendarAsideWidth);
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
@@ -353,13 +357,13 @@ export class TaskManagerTab {
 
     return `<div class="task-manager-calendar">
   <div class="task-manager-calendar__toolbar">
-    <button class="task-manager-calendar__nav" data-action="prev-month" aria-label="上个月" title="上个月">‹</button>
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--prev" data-action="prev-month" aria-label="上个月" title="上个月">${renderChevron(true)}</button>
     <div class="task-manager-calendar__title">${monthTitle(this.month)}</div>
-    <button class="task-manager-calendar__nav" data-action="next-month" aria-label="下个月" title="下个月">›</button>
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--next" data-action="next-month" aria-label="下个月" title="下个月">${renderChevron(false)}</button>
     <input class="b3-text-field task-manager-calendar__month-input" data-field="month" type="month" value="${monthValue}" aria-label="选择月份" />
     <button class="task-manager-calendar__nav task-manager-calendar__nav--today" data-action="today-month" aria-label="回到本月" title="回到本月">今</button>
   </div>
-  <div class="task-manager-calendar__layout">
+  <div class="task-manager-calendar__layout" style="grid-template-columns: minmax(0, 1fr) 8px ${this.calendarAsideWidth}px;">
     <section class="task-manager-calendar__main">
       <div class="task-manager-calendar__weekdays">
         ${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<div>${day}</div>`).join("")}
@@ -368,7 +372,8 @@ export class TaskManagerTab {
         ${days.map((day) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
       </div>
     </section>
-    <aside class="task-manager-calendar__aside">
+    <button class="task-manager-calendar__splitter" data-calendar-aside-resize aria-label="调整未安排列宽" title="拖动调整未安排列宽"></button>
+    <aside class="task-manager-calendar__aside" style="width: ${this.calendarAsideWidth}px;">
       <div class="task-manager-calendar__aside-title">未安排</div>
       <div class="task-manager-calendar__unplanned">
         ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
@@ -396,19 +401,30 @@ export class TaskManagerTab {
     return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
   <div class="task-manager-card__header task-manager-card__header--compact">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-    <div class="task-manager-card__header-meta task-manager-card__header-meta--flow">
-      ${this.renderProjectPill(task)}
-      ${this.renderSourcePill(task)}
-      ${this.renderRowActions(task, { compact: true })}
-    </div>
+    ${this.renderRowActions(task, { compact: true })}
   </div>
   <div class="task-manager-card__meta-chips">
+    ${this.renderProjectMetaChip(task)}
+    ${this.renderSourceMetaChip(task)}
     ${this.renderSelectMetaChip("状态", "status", statusOptions(task.status))}
     ${this.renderPriorityMetaChip(task)}
     ${this.renderDateMetaChip("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
     ${this.renderDateMetaChip("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate || "")}
   </div>
 </article>`;
+  }
+
+  private renderProjectMetaChip(task: TaskItem): string {
+    return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--project" title="${escapeAttr(task.project || "无项目")}">${escapeHtml(task.project || "无项目")}</span>`;
+  }
+
+  private renderSourceMetaChip(task: TaskItem): string {
+    if (!task.sourceDocId) {
+      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-manual" title="手动创建">手动创建</span>`;
+    }
+
+    const label = task.sourceText?.trim() || "来源笔记";
+    return `<button class="task-manager-card__meta-chip task-manager-card__meta-chip--source is-note" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderPriorityMetaChip(task: TaskItem): string {
@@ -578,34 +594,68 @@ export class TaskManagerTab {
   private handlePointerDown(event: PointerEvent): void {
     const target = event.target as HTMLElement;
     const resizeHandle = target.closest<HTMLElement>("[data-column-resize]");
-    if (!resizeHandle) {
+    if (resizeHandle) {
+      const columnKey = resizeHandle.dataset.columnResize as TableColumnKey | undefined;
+      const column = columnKey ? TABLE_COLUMNS.find((item) => item.key === columnKey) : undefined;
+      if (!column) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startWidth = this.tableColumnWidths[column.key];
+      const move = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientX - startX;
+        this.tableColumnWidths = {
+          ...this.tableColumnWidths,
+          [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
+        };
+        this.applyTableColumnWidths();
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        this.resizeCleanup = undefined;
+        void this.persistTableColumnWidths();
+      };
+
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up, { once: true });
+      this.resizeCleanup = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        this.resizeCleanup = undefined;
+      };
       return;
     }
 
-    const columnKey = resizeHandle.dataset.columnResize as TableColumnKey | undefined;
-    const column = columnKey ? TABLE_COLUMNS.find((item) => item.key === columnKey) : undefined;
-    if (!column) {
+    const asideResizeHandle = target.closest<HTMLElement>("[data-calendar-aside-resize]");
+    if (!asideResizeHandle) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
 
+    const layout = this.container.querySelector<HTMLElement>(".task-manager-calendar__layout");
+    if (!layout) {
+      return;
+    }
+
     const startX = event.clientX;
-    const startWidth = this.tableColumnWidths[column.key];
+    const startWidth = this.calendarAsideWidth;
     const move = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientX - startX;
-      this.tableColumnWidths = {
-        ...this.tableColumnWidths,
-        [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
-      };
-      this.applyTableColumnWidths();
+      const delta = startX - moveEvent.clientX;
+      this.calendarAsideWidth = clampCalendarAsideWidth(startWidth + delta, layout.clientWidth);
+      this.applyCalendarAsideWidth();
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       this.resizeCleanup = undefined;
-      void this.persistTableColumnWidths();
+      void this.persistCalendarAsideWidth();
     };
 
     window.addEventListener("pointermove", move);
@@ -635,6 +685,23 @@ export class TaskManagerTab {
 
   private async persistTableColumnWidths(): Promise<void> {
     await this.service.store.setSettings({ tableColumnWidths: this.tableColumnWidths });
+  }
+
+  private applyCalendarAsideWidth(): void {
+    const layout = this.container.querySelector<HTMLElement>(".task-manager-calendar__layout");
+    const aside = this.container.querySelector<HTMLElement>(".task-manager-calendar__aside");
+    if (!layout || !aside) {
+      return;
+    }
+
+    const width = clampCalendarAsideWidth(this.calendarAsideWidth, layout.clientWidth);
+    this.calendarAsideWidth = width;
+    layout.style.gridTemplateColumns = `minmax(0, 1fr) 8px ${width}px`;
+    aside.style.width = `${width}px`;
+  }
+
+  private async persistCalendarAsideWidth(): Promise<void> {
+    await this.service.store.setSettings({ calendarAsideWidth: this.calendarAsideWidth });
   }
 
   private handleCompositionStart(event: CompositionEvent): void {
@@ -847,6 +914,24 @@ function normalizeTableColumnWidths(raw?: Partial<Record<TableColumnKey, number>
     }
   }
   return next;
+}
+
+const DEFAULT_CALENDAR_ASIDE_WIDTH = 280;
+const MIN_CALENDAR_ASIDE_WIDTH = 220;
+const MAX_CALENDAR_ASIDE_WIDTH = 520;
+
+function normalizeCalendarAsideWidth(raw?: number): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return DEFAULT_CALENDAR_ASIDE_WIDTH;
+  }
+  return clampCalendarAsideWidth(raw);
+}
+
+function clampCalendarAsideWidth(width: number, containerWidth = Number.POSITIVE_INFINITY): number {
+  const maxByContainer = Number.isFinite(containerWidth)
+    ? Math.max(MIN_CALENDAR_ASIDE_WIDTH, Math.min(MAX_CALENDAR_ASIDE_WIDTH, Math.round(containerWidth * 0.45)))
+    : MAX_CALENDAR_ASIDE_WIDTH;
+  return Math.max(MIN_CALENDAR_ASIDE_WIDTH, Math.min(maxByContainer, Math.round(width)));
 }
 
 function calendarDays(month: Date): Date[] {
