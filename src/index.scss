@@ -392,6 +392,29 @@
   gap: 4px;
 }
 
+.task-manager--list .task-manager-task__summary {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-manager--list .task-manager-task__header-meta {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  max-width: 52%;
+  min-width: 0;
+}
+
+.task-manager--list .task-manager-task__summary .task-manager-task-title {
+  flex: 0 1 auto;
+  max-width: min(56%, 420px);
+  min-width: 0;
+}
+
 .task-manager--list .task-manager-task__toggle,
 .task-manager--list .task-manager-task__toggle-placeholder {
   flex-basis: 18px;
@@ -454,7 +477,7 @@
 }
 
 .task-manager--list .task-manager-task__controls {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px 120px max-content;
+  grid-template-columns: repeat(4, minmax(0, 112px)) minmax(52px, max-content);
 }
 
 .task-manager--list .task-manager-actions {
@@ -463,7 +486,8 @@
   display: inline-flex;
   flex: 0 0 auto;
   gap: 2px;
-  justify-self: end;
+  justify-self: start;
+  min-width: 48px;
 }
 
 .task-manager--list .task-manager-actions .block__icon {

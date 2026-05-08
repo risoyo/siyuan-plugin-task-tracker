@@ -233,10 +233,14 @@ export class TaskManagerTab {
       ${childCount
         ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
         : `<span class="task-manager-task__toggle-placeholder"></span>`}
-      <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-      ${this.renderProjectPill(task)}
-      ${this.renderSourcePill(task)}
-      ${childCount ? `<span class="task-manager-task__child-count">${childCount}</span>` : ""}
+      <div class="task-manager-task__summary">
+        <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
+        <div class="task-manager-task__header-meta">
+          ${this.renderProjectPill(task)}
+          ${this.renderSourcePill(task)}
+          ${childCount ? `<span class="task-manager-task__child-count">${childCount}</span>` : ""}
+        </div>
+      </div>
     </div>
   </div>
   <div class="task-manager-task__controls">
