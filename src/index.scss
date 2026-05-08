@@ -501,9 +501,9 @@
   box-sizing: border-box;
   margin-left: var(--task-title-offset);
   margin-top: 8px;
-  max-width: var(--task-controls-max-width);
+  max-width: calc(100% - var(--task-title-offset));
   padding-right: var(--task-controls-right-padding);
-  width: calc(100% - var(--task-title-offset));
+  width: calc(var(--task-controls-max-width) - var(--task-title-offset));
 }
 
 .task-manager--list .task-manager-task__control-grid {
