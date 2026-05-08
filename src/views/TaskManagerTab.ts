@@ -244,10 +244,12 @@ export class TaskManagerTab {
     </div>
   </div>
   <div class="task-manager-task__controls">
-    <select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
-    <select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select>
-    <input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
-    <input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" />
+    <div class="task-manager-task__control-grid">
+      <select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
+      <select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select>
+      <input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" />
+      <input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" />
+    </div>
     ${this.renderRowActions(task)}
   </div>
   ${childCount && !collapsed ? `<div class="task-manager-task__children">${node.children.map((child) => this.renderTaskNode(child, depth + 1)).join("")}</div>` : ""}

@@ -477,7 +477,18 @@
 }
 
 .task-manager--list .task-manager-task__controls {
-  grid-template-columns: repeat(4, minmax(0, 112px)) minmax(52px, max-content);
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-right: 10px;
+}
+
+.task-manager--list .task-manager-task__control-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, 112px);
 }
 
 .task-manager--list .task-manager-actions {
@@ -486,7 +497,6 @@
   display: inline-flex;
   flex: 0 0 auto;
   gap: 2px;
-  justify-self: start;
   min-width: 48px;
 }
 
@@ -524,6 +534,7 @@
 .task-manager--list .task-manager-task--child .task-manager-task__controls {
   margin-left: 22px;
   margin-top: 6px;
+  padding-right: 0;
 }
 
 .task-manager--list .task-manager-task__children {
@@ -1416,8 +1427,19 @@
     order: 3;
   }
 
-  .task-manager-task__controls {
+  .task-manager--table .task-manager-task__controls,
+  .task-manager--timeline .task-manager-card__controls,
+  .task-manager--kanban .task-manager-card__controls,
+  .task-manager--calendar .task-manager-card__controls {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .task-manager--list .task-manager-task__controls {
+    gap: 6px;
+  }
+
+  .task-manager--list .task-manager-task__control-grid {
+    grid-template-columns: repeat(4, minmax(0, 104px));
   }
 
   .task-manager-timeline__group {
