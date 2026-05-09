@@ -202,8 +202,10 @@ export class TaskManagerTab {
   private renderCompletedView(tasks: TaskItem[]): string {
     const tree = buildCompletedTaskTree(tasks);
 
+    const tableWidth = this.completedTableWidth();
+
     return `<div class="task-manager-table-wrap">
-  <table class="task-manager-table task-manager-completed-table">
+  <table class="task-manager-table task-manager-completed-table" style="width: ${tableWidth}px; min-width: ${tableWidth}px;">
     <colgroup>
       ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.completedTableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
     </colgroup>
@@ -217,6 +219,10 @@ export class TaskManagerTab {
     </tbody>
   </table>
 </div>`;
+  }
+
+  private completedTableWidth(): number {
+    return COMPLETED_TABLE_COLUMNS.reduce((total, column) => total + this.completedTableColumnWidths[column.key], 0);
   }
 
   private renderCompletedTableNode(node: TaskTreeNode, depth: number): string {
@@ -791,6 +797,12 @@ export class TaskManagerTab {
     const cols = table?.querySelectorAll<HTMLTableColElement>("colgroup col");
     if (!table || !cols?.length) {
       return;
+    }
+
+    if (this.view === "completed") {
+      const tableWidth = this.completedTableWidth();
+      table.style.width = `${tableWidth}px`;
+      table.style.minWidth = `${tableWidth}px`;
     }
 
     const columns = this.currentTableColumns();
