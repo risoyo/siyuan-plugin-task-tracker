@@ -116,7 +116,8 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
     : fallbackTaskTitle(task);
   return {
     ...task,
-    title: normalizedTitle
+    title: normalizedTitle,
+    createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };
 }
 

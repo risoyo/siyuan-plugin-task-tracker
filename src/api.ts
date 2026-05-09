@@ -48,6 +48,10 @@ export async function renameDocById(id: string, title: string): Promise<string> 
   return request<string>("/api/filetree/renameDocByID", { id, title });
 }
 
+export async function moveDocs(fromPaths: string[], toNotebook: string, toPath: string): Promise<void> {
+  await request("/api/filetree/moveDocs", { fromPaths, toNotebook, toPath });
+}
+
 export async function updateBlock(id: string, markdown: string): Promise<void> {
   await request("/api/block/updateBlock", { id, dataType: "markdown", data: markdown });
 }

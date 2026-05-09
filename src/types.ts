@@ -23,7 +23,7 @@ export interface TaskItem {
   completedAt?: string;
 }
 
-export type TableColumnKey = "task" | "project" | "source" | "status" | "priority" | "plan" | "due" | "actions" | "completedAt";
+export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "completedAt";
 
 export interface TaskSettings {
   taskRootDocId?: string;
@@ -50,6 +50,7 @@ export interface TaskCreateInput {
   dueDate?: string;
   planStart?: string;
   planEnd?: string;
+  createdAt?: string;
 }
 
 export interface SourceContext {
@@ -82,6 +83,7 @@ export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 > 项目：{{project}}
 > 状态：{{status}}
 > 优先级：{{priority}}
+> 创建时间：{{createdAt}}
 > 截止时间：{{dueDate}}
 > 计划时间：{{planStart}}
 > 子任务：{{childTasks}}
@@ -127,6 +129,7 @@ export const TASK_ATTRS = {
   dueDate: "custom-task-tracker-due",
   planStart: "custom-task-tracker-plan-start",
   planEnd: "custom-task-tracker-plan-end",
+  createdAt: "custom-task-tracker-created-at",
   parentId: "custom-task-tracker-parent",
   sourceBlockId: "custom-task-tracker-source",
   sourceDocId: "custom-task-tracker-source-doc"

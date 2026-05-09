@@ -79,6 +79,7 @@ const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 140, minWidth: 110 },
   { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
+  { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 112 },
   { key: "status", label: "状态", defaultWidth: 120, minWidth: 96 },
   { key: "priority", label: "优先级", defaultWidth: 120, minWidth: 96 },
   { key: "plan", label: "计划", defaultWidth: 144, minWidth: 124 },
@@ -90,6 +91,7 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 160, minWidth: 80, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 70, minWidth: 36 },
   { key: "source", label: "来源", defaultWidth: 85, minWidth: 41 },
+  { key: "createdAt", label: "创建时间", defaultWidth: 72, minWidth: 48 },
   { key: "completedAt", label: "完成时间", defaultWidth: 72, minWidth: 48 }
 ];
 
@@ -256,6 +258,9 @@ export class TaskManagerTab {
     if (key === "source") {
       return `<td class="task-manager-table__cell">${this.renderCompletedSourceText(task)}</td>`;
     }
+    if (key === "createdAt") {
+      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
+    }
     return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
   }
 
@@ -342,6 +347,9 @@ export class TaskManagerTab {
     }
     if (key === "source") {
       return `<td class="task-manager-table__cell">${this.renderTableSourceText(task)}</td>`;
+    }
+    if (key === "createdAt") {
+      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
     }
     if (key === "status") {
       return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>`;
@@ -967,6 +975,7 @@ export class TaskManagerTab {
         task.sourceDocId ? "来源笔记" : "手动创建",
         TASK_STATUS_LABELS[task.status],
         TASK_PRIORITY_LABELS[task.priority],
+        task.createdAt,
         task.planStart,
         task.dueDate,
         task.completedAt,
@@ -1115,6 +1124,7 @@ function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumn
     task: 0,
     project: 0,
     source: 0,
+    createdAt: 0,
     status: 0,
     priority: 0,
     plan: 0,

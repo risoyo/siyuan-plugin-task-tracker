@@ -1,5 +1,5 @@
 import { Dialog, showMessage } from "siyuan";
-import { fromDatetimeLocal, toDatetimeLocal } from "../date";
+import { formatDateKey, fromDateInput, fromDatetimeLocal, toDateKey, toDatetimeLocal } from "../date";
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import {
@@ -54,6 +54,7 @@ export class TaskDialog {
     const defaultParentId = editingTask?.parentId || this.options.parentId || "";
     const defaultStatus = editingTask?.status || "todo";
     const defaultPriority = editingTask?.priority || "medium";
+    const defaultCreatedAt = editingTask?.createdAt ? toDateKey(editingTask.createdAt) : formatDateKey(new Date());
     const defaultPlanStart = editingTask?.planStart
       ? toDatetimeLocal(editingTask.planStart)
       : (this.options.presetPlanDate ? `${this.options.presetPlanDate}T09:00` : "");
@@ -98,6 +99,10 @@ export class TaskDialog {
         <select class="b3-select fn__block" name="priority">
           ${priorityOptions(defaultPriority)}
         </select>
+      </label>
+      <label class="task-tracker-field">
+        <span>创建时间</span>
+        <input class="b3-text-field fn__block" name="createdAt" type="date" value="${escapeAttr(defaultCreatedAt)}" />
       </label>
       <label class="task-tracker-field">
         <span>计划开始</span>
@@ -223,6 +228,7 @@ export class TaskDialog {
           status: String(data.get("status") || "todo") as TaskStatus,
           priority: String(data.get("priority") || "medium") as TaskPriority,
           dueDate: String(data.get("dueDate") || "") || undefined,
+          createdAt: fromDateInput(String(data.get("createdAt") || ""), 0),
           planStart: fromDatetimeLocal(String(data.get("planStart") || "")),
           planEnd: fromDatetimeLocal(String(data.get("planEnd") || ""))
         };

@@ -3,6 +3,7 @@ import {
   getBlockAttrs,
   getBlockById,
   getHPathById,
+  moveDocs,
   renameDocById,
   setBlockAttrs,
   sql,
@@ -66,6 +67,7 @@ export class TaskService {
     const notebookId = parent?.notebookId || settings.taskRootNotebookId;
     const parentHPath = await resolveParentHPath(settings, parent);
     const now = nowIso();
+    const createdAt = input.createdAt || now;
     const draftTask: TaskItem = {
       id: docId,
       title,
@@ -82,7 +84,7 @@ export class TaskService {
       dueDate: input.dueDate || undefined,
       planStart: input.planStart || undefined,
       planEnd: input.planEnd || undefined,
-      createdAt: now,
+      createdAt,
       updatedAt: now,
       completedAt: input.status === "completed" ? now : undefined
     };
@@ -90,10 +92,10 @@ export class TaskService {
     const created = await createTaskDocWithTitle(
       notebookId,
       parentHPath,
-      title,
+      taskDocumentTitle(draftTask),
       renderTaskMarkdown(draftTask, parent, [], settings)
     );
-    const actualTask: TaskItem = {
+    let actualTask: TaskItem = {
       ...draftTask,
       id: created.docId || docId,
       docId: created.docId || docId,
@@ -105,6 +107,9 @@ export class TaskService {
       await appendSourceTaskId(actualTask.sourceBlockId, actualTask.id);
     }
     await this.store.upsert(actualTask);
+    if (actualTask.status === "completed" && !actualTask.parentId) {
+      actualTask = await this.archiveCompletedParentTask(actualTask);
+    }
     await this.syncTaskDocument(actualTask.id);
     if (actualTask.parentId) {
       await this.syncTaskDocument(actualTask.parentId);
@@ -125,12 +130,25 @@ export class TaskService {
       throw new Error("请填写任务标题");
     }
 
-    if (title && title !== current.title) {
-      await renameDocById(current.docId, title);
+    const renamePreview = {
+      ...current,
+      ...normalizedPatch,
+      ...(title ? { title } : {})
+    };
+    const shouldRename = (title && title !== current.title) || (normalizedPatch.createdAt && normalizedPatch.createdAt !== current.createdAt);
+    if (shouldRename) {
+      await renameDocById(current.docId, taskDocumentTitle(renamePreview));
+      const refreshedPath = await getTaskPath(current.docId);
+      if (refreshedPath) {
+        normalizedPatch.path = refreshedPath;
+      }
     }
 
     const normalized = normalizeCompletion(current, title ? { ...normalizedPatch, title } : normalizedPatch);
-    const task = await this.store.update(id, normalized);
+    let task = await this.store.update(id, normalized);
+    if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
+      task = await this.archiveCompletedParentTask(task);
+    }
     await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
     await this.syncTaskDocument(task.id);
@@ -231,6 +249,44 @@ export class TaskService {
     return count;
   }
 
+  private async archiveCompletedParentTask(task: TaskItem): Promise<TaskItem> {
+    if (task.parentId) {
+      return task;
+    }
+
+    const settings = this.store.getSettings();
+    if (!settings.taskRootDocId || !settings.taskRootNotebookId || !task.path) {
+      return task;
+    }
+
+    const month = archiveMonth(task.createdAt);
+    const archivePath = await ensureArchiveMonthDoc(settings, month);
+    const taskPath = await getTaskPath(task.docId) || task.path;
+    if (!taskPath || isTaskUnderArchiveMonth(taskPath, archivePath)) {
+      return task;
+    }
+
+    await moveDocs([taskPath], settings.taskRootNotebookId, archivePath);
+    const ids = expandWithDescendants(this.store.all(), [task.id]);
+    let archivedTask = task;
+    for (const id of ids) {
+      const current = this.store.get(id);
+      if (!current) {
+        continue;
+      }
+      const path = await getTaskPath(current.docId);
+      if (!path || path === current.path) {
+        continue;
+      }
+      const updated = await this.store.update(id, { path });
+      if (id === task.id) {
+        archivedTask = updated;
+      }
+    }
+    await this.syncTaskDocuments(ids);
+    return archivedTask;
+  }
+
   private emit(): void {
     for (const listener of this.listeners) {
       listener();
@@ -267,6 +323,9 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   }
   if ("planEnd" in normalized && normalized.planEnd === "") {
     normalized.planEnd = undefined;
+  }
+  if ("createdAt" in normalized && normalized.createdAt === "") {
+    normalized.createdAt = undefined;
   }
 
   return normalized;
@@ -364,6 +423,67 @@ async function createTaskDocWithTitle(
   throw lastError instanceof Error ? lastError : new Error("创建任务文档失败");
 }
 
+function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string {
+  const dateKey = toDateKey(task.createdAt) || toDateKey(nowIso());
+  const prefix = dateKey.slice(5).replace("-", "");
+  return `${prefix}-${task.title}`;
+}
+
+async function getTaskPath(docId: string): Promise<string | undefined> {
+  const block = await getBlockById(docId).catch(() => undefined);
+  return block?.path;
+}
+
+async function getDocPathByHPath(notebookId: string, hpath: string): Promise<string | undefined> {
+  const rows = await sql<TaskMetadataBlock>(`select id, path from blocks
+where box = '${sqlText(notebookId)}'
+  and type = 'd'
+  and hpath = '${sqlText(normalizeHPath(hpath))}'
+limit 1`).catch(() => []);
+  return rows[0]?.path;
+}
+
+async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Promise<string> {
+  if (!settings.taskRootNotebookId) {
+    throw new Error("请先将一个文档设为事项库");
+  }
+
+  const rootHPath = await resolveParentHPath(settings);
+  const monthHPath = `${rootHPath === "/" ? "" : rootHPath}/${month}`;
+  const existingPath = await getDocPathByHPath(settings.taskRootNotebookId, monthHPath);
+  if (existingPath) {
+    return existingPath;
+  }
+
+  const path = `${monthHPath}.sy`;
+  try {
+    const docId = await createDocWithMd(settings.taskRootNotebookId, path, `# ${month}\n`);
+    const blockPath = await getTaskPath(docId);
+    return blockPath || path;
+  } catch (error) {
+    const message = String(error instanceof Error ? error.message : error).toLowerCase();
+    if (!message.includes("exist") && !message.includes("已存在") && !message.includes("duplicate")) {
+      throw error;
+    }
+    return await getDocPathByHPath(settings.taskRootNotebookId, monthHPath) || path;
+  }
+}
+
+function archiveMonth(createdAt: string): string {
+  const dateKey = toDateKey(createdAt) || toDateKey(nowIso());
+  return dateKey.slice(0, 7);
+}
+
+function isTaskUnderArchiveMonth(taskPath: string, archivePath: string): boolean {
+  const archiveKey = taskPathKey(archivePath);
+  const taskKey = taskPathKey(taskPath);
+  return Boolean(archiveKey && taskKey.startsWith(`${archiveKey}/`));
+}
+
+function taskPathKey(path?: string): string {
+  return (path || "").replace(/\.sy$/i, "").replace(/\/+$/g, "").replace(/^\/+/, "");
+}
+
 function sanitizeDocName(value: string): string {
   const name = value
     .replace(/[\\/:*?"<>|#\[\]]/g, " ")
@@ -424,6 +544,7 @@ function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: Ta
 > 项目：${task.project || "未设置"}
 > 状态：${TASK_STATUS_LABELS[task.status]}
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
+> 创建时间：${formatTaskDate(task.createdAt)}
 > 截止时间：${formatTaskDate(task.dueDate)}
 > 计划时间：${formatTaskDate(task.planStart)}
 > 子任务：${renderChildRefs(children, "inline")}
@@ -483,6 +604,7 @@ limit 1`);
 
 interface TaskMetadataBlock {
   id: string;
+  path?: string;
   markdown?: string;
   content?: string;
 }
@@ -496,6 +618,7 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.dueDate]: task.dueDate || "",
     [TASK_ATTRS.planStart]: task.planStart || "",
     [TASK_ATTRS.planEnd]: task.planEnd || "",
+    [TASK_ATTRS.createdAt]: task.createdAt || "",
     [TASK_ATTRS.parentId]: task.parentId || "",
     [TASK_ATTRS.sourceBlockId]: task.sourceBlockId || "",
     [TASK_ATTRS.sourceDocId]: task.sourceDocId || ""
