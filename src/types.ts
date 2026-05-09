@@ -34,6 +34,7 @@ export interface TaskSettings {
   defaultProject?: string;
   taskTemplate?: string;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
+  completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   calendarAsideWidth?: number;
 }
 

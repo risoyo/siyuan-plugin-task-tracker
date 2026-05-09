@@ -99,7 +99,8 @@ export class TaskManagerTab {
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
   private isComposingSearch = false;
-  private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths();
+  private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
+  private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
   private calendarAsideWidth = DEFAULT_CALENDAR_ASIDE_WIDTH;
   private resizeCleanup?: () => void;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
@@ -125,7 +126,8 @@ export class TaskManagerTab {
       }
     }
     const settings = this.service.store.getSettings();
-    this.tableColumnWidths = normalizeTableColumnWidths(settings.tableColumnWidths);
+    this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
+    this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
     this.calendarAsideWidth = normalizeCalendarAsideWidth(data?.calendarAsideWidth ?? settings.calendarAsideWidth);
     this.unsubscribe = this.service.onChange(() => this.render());
   }
@@ -203,7 +205,7 @@ export class TaskManagerTab {
     return `<div class="task-manager-table-wrap">
   <table class="task-manager-table task-manager-completed-table">
     <colgroup>
-      ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.tableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
+      ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.completedTableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
     </colgroup>
     <thead>
       <tr>
@@ -704,7 +706,8 @@ export class TaskManagerTab {
     const resizeHandle = target.closest<HTMLElement>("[data-column-resize]");
     if (resizeHandle) {
       const columnKey = resizeHandle.dataset.columnResize as TableColumnKey | undefined;
-      const column = columnKey ? TABLE_COLUMNS.find((item) => item.key === columnKey) : undefined;
+      const columns = this.currentTableColumns();
+      const column = columnKey ? columns.find((item) => item.key === columnKey) : undefined;
       if (!column) {
         return;
       }
@@ -713,13 +716,21 @@ export class TaskManagerTab {
       event.stopPropagation();
 
       const startX = event.clientX;
-      const startWidth = this.tableColumnWidths[column.key];
+      const widths = this.currentTableColumnWidths();
+      const startWidth = widths[column.key];
       const move = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
-        this.tableColumnWidths = {
-          ...this.tableColumnWidths,
-          [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
-        };
+        if (this.view === "completed") {
+          this.completedTableColumnWidths = {
+            ...this.completedTableColumnWidths,
+            [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
+          };
+        } else {
+          this.tableColumnWidths = {
+            ...this.tableColumnWidths,
+            [column.key]: Math.max(column.minWidth, Math.round(startWidth + delta))
+          };
+        }
         this.applyTableColumnWidths();
       };
       const up = () => {
@@ -782,17 +793,31 @@ export class TaskManagerTab {
       return;
     }
 
-    const columns = this.view === "completed" ? COMPLETED_TABLE_COLUMNS : TABLE_COLUMNS;
+    const columns = this.currentTableColumns();
+    const widths = this.currentTableColumnWidths();
     columns.forEach((column, index) => {
       const col = cols[index];
       if (col) {
-        col.style.width = `${this.tableColumnWidths[column.key]}px`;
+        col.style.width = `${widths[column.key]}px`;
         col.style.minWidth = `${column.minWidth}px`;
       }
     });
   }
 
+  private currentTableColumns(): TableColumnDef[] {
+    return this.view === "completed" ? COMPLETED_TABLE_COLUMNS : TABLE_COLUMNS;
+  }
+
+  private currentTableColumnWidths(): Record<TableColumnKey, number> {
+    return this.view === "completed" ? this.completedTableColumnWidths : this.tableColumnWidths;
+  }
+
   private async persistTableColumnWidths(): Promise<void> {
+    if (this.view === "completed") {
+      await this.service.store.setSettings({ completedTableColumnWidths: this.completedTableColumnWidths });
+      return;
+    }
+
     await this.service.store.setSettings({ tableColumnWidths: this.tableColumnWidths });
   }
 
@@ -1073,24 +1098,27 @@ function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean 
     }));
 }
 
-function defaultTableColumnWidths(): Record<TableColumnKey, number> {
-  return {
-    task: 320,
-    project: 140,
-    source: 170,
-    status: 120,
-    priority: 120,
-    plan: 144,
-    due: 144,
-    actions: 96,
-    completedAt: 144
+function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumnKey, number> {
+  const widths = {
+    task: 0,
+    project: 0,
+    source: 0,
+    status: 0,
+    priority: 0,
+    plan: 0,
+    due: 0,
+    actions: 0,
+    completedAt: 0
   };
+  for (const column of columns) {
+    widths[column.key] = column.defaultWidth;
+  }
+  return widths;
 }
 
-function normalizeTableColumnWidths(raw?: Partial<Record<TableColumnKey, number>>): Record<TableColumnKey, number> {
-  const defaults = defaultTableColumnWidths();
-  const next = { ...defaults };
-  for (const column of [...TABLE_COLUMNS, ...COMPLETED_TABLE_COLUMNS]) {
+function normalizeTableColumnWidths(columns: TableColumnDef[], raw?: Partial<Record<TableColumnKey, number>>): Record<TableColumnKey, number> {
+  const next = defaultTableColumnWidths(columns);
+  for (const column of columns) {
     const value = raw?.[column.key];
     if (typeof value === "number" && Number.isFinite(value)) {
       next[column.key] = Math.max(column.minWidth, Math.round(value));
