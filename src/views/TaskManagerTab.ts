@@ -87,10 +87,10 @@ const TABLE_COLUMNS: TableColumnDef[] = [
 ];
 
 const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
-  { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
-  { key: "project", label: "项目", defaultWidth: 140, minWidth: 110 },
-  { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
-  { key: "completedAt", label: "完成时间", defaultWidth: 144, minWidth: 124 }
+  { key: "task", label: "任务", defaultWidth: 320, minWidth: 160, className: "is-task" },
+  { key: "project", label: "项目", defaultWidth: 140, minWidth: 72 },
+  { key: "source", label: "来源", defaultWidth: 170, minWidth: 82 },
+  { key: "completedAt", label: "完成时间", defaultWidth: 144, minWidth: 96 }
 ];
 
 export class TaskManagerTab {

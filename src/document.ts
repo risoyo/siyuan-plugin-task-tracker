@@ -239,18 +239,37 @@ export class TaskService {
 }
 
 function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
-  return {
-    ...patch,
-    title: typeof patch.title === "string" ? patch.title.trim() : patch.title,
-    project: typeof patch.project === "string" ? patch.project.trim() || undefined : patch.project,
-    parentId: patch.parentId === "" ? undefined : patch.parentId,
-    sourceBlockId: patch.sourceBlockId === "" ? undefined : patch.sourceBlockId,
-    sourceDocId: patch.sourceDocId === "" ? undefined : patch.sourceDocId,
-    sourceText: typeof patch.sourceText === "string" ? patch.sourceText.trim() || undefined : patch.sourceText,
-    dueDate: patch.dueDate === "" ? undefined : patch.dueDate,
-    planStart: patch.planStart === "" ? undefined : patch.planStart,
-    planEnd: patch.planEnd === "" ? undefined : patch.planEnd
-  };
+  const normalized = { ...patch };
+
+  if ("title" in normalized && typeof normalized.title === "string") {
+    normalized.title = normalized.title.trim();
+  }
+  if ("project" in normalized && typeof normalized.project === "string") {
+    normalized.project = normalized.project.trim() || undefined;
+  }
+  if ("parentId" in normalized && normalized.parentId === "") {
+    normalized.parentId = undefined;
+  }
+  if ("sourceBlockId" in normalized && normalized.sourceBlockId === "") {
+    normalized.sourceBlockId = undefined;
+  }
+  if ("sourceDocId" in normalized && normalized.sourceDocId === "") {
+    normalized.sourceDocId = undefined;
+  }
+  if ("sourceText" in normalized && typeof normalized.sourceText === "string") {
+    normalized.sourceText = normalized.sourceText.trim() || undefined;
+  }
+  if ("dueDate" in normalized && normalized.dueDate === "") {
+    normalized.dueDate = undefined;
+  }
+  if ("planStart" in normalized && normalized.planStart === "") {
+    normalized.planStart = undefined;
+  }
+  if ("planEnd" in normalized && normalized.planEnd === "") {
+    normalized.planEnd = undefined;
+  }
+
+  return normalized;
 }
 
 function normalizeCompletion(current: TaskItem, patch: Partial<TaskItem>): Partial<TaskItem> {
