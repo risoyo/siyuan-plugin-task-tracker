@@ -1,5 +1,5 @@
 import { showMessage } from "siyuan";
-import { formatMonthDay, fromDateInput, isActiveDateBeforeToday, toDateKey } from "../date";
+import { formatMonthDay, fromDateInput, toDateKey } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml, statusOptions } from "../dialogs/TaskDialog";
 import {
@@ -8,7 +8,7 @@ import {
   type TaskStatus
 } from "../types";
 
-type DockFilter = "focus" | "unplanned" | "today" | "overdue" | "all" | "done";
+type DockFilter = "focus" | "today" | "all";
 
 export class TaskDock {
   private filter: DockFilter = "focus";
@@ -62,10 +62,7 @@ export class TaskDock {
     return `<div class="task-tracker-tabs">
   ${tabButton("all", "全部", counts.all, this.filter)}
   ${tabButton("focus", "焦点", counts.focus, this.filter)}
-  ${tabButton("unplanned", "未安排", counts.unplanned, this.filter)}
   ${tabButton("today", "今日", counts.today, this.filter)}
-  ${tabButton("overdue", "逾期", counts.overdue, this.filter)}
-  ${tabButton("done", "完成", counts.done, this.filter)}
 </div>
 <div class="task-tracker-list">
   ${tree.length ? tree.map((node) => this.renderTaskNode(node, 0)).join("") : `<div class="task-tracker-empty">这里暂时没有任务。</div>`}
@@ -220,16 +217,10 @@ export class TaskDock {
   private matchesFilter(task: TaskItem): boolean {
     const today = toDateKey(new Date().toISOString());
     switch (this.filter) {
-      case "unplanned":
-        return isActive(task) && !task.planStart;
       case "today":
         return isActive(task) && toDateKey(task.planStart || task.dueDate) === today;
-      case "overdue":
-        return isActive(task) && isActiveDateBeforeToday(task.planStart || task.dueDate);
       case "all":
         return isActive(task);
-      case "done":
-        return task.status === "completed";
       case "focus":
       default:
         return isActive(task) && (task.status === "doing" || toDateKey(task.planStart || task.dueDate) <= today);
@@ -241,11 +232,8 @@ export class TaskDock {
     const today = toDateKey(new Date().toISOString());
     return {
       focus: tasks.filter((task) => isActive(task) && (task.status === "doing" || toDateKey(task.planStart || task.dueDate) <= today)).length,
-      unplanned: tasks.filter((task) => isActive(task) && !task.planStart).length,
       today: tasks.filter((task) => isActive(task) && toDateKey(task.planStart || task.dueDate) === today).length,
-      overdue: tasks.filter((task) => isActive(task) && isActiveDateBeforeToday(task.planStart || task.dueDate)).length,
-      all: tasks.filter(isActive).length,
-      done: tasks.filter((task) => task.status === "completed").length
+      all: tasks.filter(isActive).length
     };
   }
 }

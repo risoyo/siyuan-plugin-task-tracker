@@ -41,7 +41,6 @@ interface TaskManagerTabData {
   view?: TaskManagerView;
   month?: string;
   search?: string;
-  calendarAsideWidth?: number;
 }
 
 interface TaskTreeNode {
@@ -61,6 +60,8 @@ interface TableColumnDef {
 interface RowActionOptions {
   compact?: boolean;
   showEdit?: boolean;
+  showDelete?: boolean;
+  deleteOnly?: boolean;
 }
 
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
@@ -92,7 +93,8 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "project", label: "项目", defaultWidth: 70, minWidth: 36 },
   { key: "source", label: "来源", defaultWidth: 85, minWidth: 41 },
   { key: "createdAt", label: "创建时间", defaultWidth: 72, minWidth: 48 },
-  { key: "completedAt", label: "完成时间", defaultWidth: 72, minWidth: 48 }
+  { key: "completedAt", label: "完成时间", defaultWidth: 72, minWidth: 48 },
+  { key: "actions", label: "操作", defaultWidth: 64, minWidth: 56, className: "is-actions" }
 ];
 
 export class TaskManagerTab {
@@ -103,7 +105,6 @@ export class TaskManagerTab {
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
-  private calendarAsideWidth = DEFAULT_CALENDAR_ASIDE_WIDTH;
   private resizeCleanup?: () => void;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
@@ -130,7 +131,6 @@ export class TaskManagerTab {
     const settings = this.service.store.getSettings();
     this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
     this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
-    this.calendarAsideWidth = normalizeCalendarAsideWidth(data?.calendarAsideWidth ?? settings.calendarAsideWidth);
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
@@ -261,6 +261,9 @@ export class TaskManagerTab {
     if (key === "createdAt") {
       return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
     }
+    if (key === "actions") {
+      return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, deleteOnly: true })}</td>`;
+    }
     return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
   }
 
@@ -366,7 +369,7 @@ export class TaskManagerTab {
     if (key === "completedAt") {
       return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
     }
-    return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true })}</td>`;
+    return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true, showDelete: true })}</td>`;
   }
 
   private renderListView(tasks: TaskItem[]): string {
@@ -471,7 +474,7 @@ export class TaskManagerTab {
   private renderCalendarView(tasks: TaskItem[]): string {
     const days = calendarDays(this.month);
     const tasksByDate = groupTasksByDate(tasks);
-    const unplanned = tasks.filter((task) => !task.planStart);
+    const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
     const monthValue = monthInputValue(this.month);
 
     return `<div class="task-manager-calendar">
@@ -482,7 +485,7 @@ export class TaskManagerTab {
     <input class="b3-text-field task-manager-calendar__month-input" data-field="month" type="month" value="${monthValue}" aria-label="选择月份" />
     <button class="task-manager-calendar__nav task-manager-calendar__nav--today" data-action="today-month" aria-label="回到本月" title="回到本月">今</button>
   </div>
-  <div class="task-manager-calendar__layout" style="grid-template-columns: minmax(0, 1fr) 8px ${this.calendarAsideWidth}px;">
+  <div class="task-manager-calendar__layout">
     <section class="task-manager-calendar__main">
       <div class="task-manager-calendar__weekdays">
         ${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<div>${day}</div>`).join("")}
@@ -491,13 +494,12 @@ export class TaskManagerTab {
         ${days.map((day) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
       </div>
     </section>
-    <button class="task-manager-calendar__splitter" data-calendar-aside-resize aria-label="调整未安排列宽" title="拖动调整未安排列宽"></button>
-    <aside class="task-manager-calendar__aside" style="width: ${this.calendarAsideWidth}px;">
+    <section class="task-manager-calendar__unplanned-strip">
       <div class="task-manager-calendar__aside-title">未安排</div>
       <div class="task-manager-calendar__unplanned">
         ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
       </div>
-    </aside>
+    </section>
   </div>
 </div>`;
   }
@@ -572,12 +574,20 @@ export class TaskManagerTab {
     const positionAttr = " data-position=\"north\"";
     const subtaskLabel = useCompact ? "添加子任务" : "创建子任务";
     const editLabel = "编辑任务";
+    const deleteLabel = "删除任务及子任务";
     const statusLabel = task.status === "completed"
       ? "重新打开"
       : "完成任务";
     const editButton = options.showEdit || !useCompact
       ? `<button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>`
       : "";
+    const deleteButton = options.showDelete || options.deleteOnly
+      ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconClose"></use></svg></button>`
+      : "";
+
+    if (options.deleteOnly) {
+      return `<span class="task-manager-actions${listClass}">${deleteButton}</span>`;
+    }
 
     return `<span class="task-manager-actions${listClass}">
   ${editButton}
@@ -585,6 +595,7 @@ export class TaskManagerTab {
   ${task.status === "completed"
     ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
     : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
+  ${deleteButton}
 </span>`;
   }
 
@@ -763,41 +774,6 @@ export class TaskManagerTab {
       };
       return;
     }
-
-    const asideResizeHandle = target.closest<HTMLElement>("[data-calendar-aside-resize]");
-    if (!asideResizeHandle) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const layout = this.container.querySelector<HTMLElement>(".task-manager-calendar__layout");
-    if (!layout) {
-      return;
-    }
-
-    const startX = event.clientX;
-    const startWidth = this.calendarAsideWidth;
-    const move = (moveEvent: PointerEvent) => {
-      const delta = startX - moveEvent.clientX;
-      this.calendarAsideWidth = clampCalendarAsideWidth(startWidth + delta, layout.clientWidth);
-      this.applyCalendarAsideWidth();
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      this.resizeCleanup = undefined;
-      void this.persistCalendarAsideWidth();
-    };
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
-    this.resizeCleanup = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      this.resizeCleanup = undefined;
-    };
   }
 
   private applyTableColumnWidths(): void {
@@ -841,22 +817,6 @@ export class TaskManagerTab {
     await this.service.store.setSettings({ tableColumnWidths: this.tableColumnWidths });
   }
 
-  private applyCalendarAsideWidth(): void {
-    const layout = this.container.querySelector<HTMLElement>(".task-manager-calendar__layout");
-    const aside = this.container.querySelector<HTMLElement>(".task-manager-calendar__aside");
-    if (!layout || !aside) {
-      return;
-    }
-
-    const width = clampCalendarAsideWidth(this.calendarAsideWidth, layout.clientWidth);
-    this.calendarAsideWidth = width;
-    layout.style.gridTemplateColumns = `minmax(0, 1fr) 8px ${width}px`;
-    aside.style.width = `${width}px`;
-  }
-
-  private async persistCalendarAsideWidth(): Promise<void> {
-    await this.service.store.setSettings({ calendarAsideWidth: this.calendarAsideWidth });
-  }
 
   private handleCompositionStart(event: CompositionEvent): void {
     const target = event.target as HTMLElement;
@@ -905,12 +865,29 @@ export class TaskManagerTab {
       void this.runUpdate(() => this.service.completeTask(task.id));
     } else if (action === "reopen") {
       void this.runUpdate(() => this.service.reopenTask(task.id));
+    } else if (action === "delete") {
+      void this.deleteTask(task);
     } else if (action === "toggle-children") {
       if (this.collapsedTaskIds.has(task.id)) {
         this.collapsedTaskIds.delete(task.id);
       } else {
         this.collapsedTaskIds.add(task.id);
       }
+      this.render();
+    }
+  }
+
+  private async deleteTask(task: TaskItem): Promise<void> {
+    const confirmed = window.confirm(`确定删除“${task.title}”及其所有子任务吗？对应的任务文档也会被删除。`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const count = await this.service.deleteTaskTree(task.id);
+      showMessage(count > 0 ? `已删除 ${count} 个任务` : "任务已不存在");
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : "删除任务失败", 5000, "error");
       this.render();
     }
   }
@@ -1149,23 +1126,6 @@ function normalizeTableColumnWidths(columns: TableColumnDef[], raw?: Partial<Rec
   return next;
 }
 
-const DEFAULT_CALENDAR_ASIDE_WIDTH = 280;
-const MIN_CALENDAR_ASIDE_WIDTH = 220;
-const MAX_CALENDAR_ASIDE_WIDTH = 520;
-
-function normalizeCalendarAsideWidth(raw?: number): number {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) {
-    return DEFAULT_CALENDAR_ASIDE_WIDTH;
-  }
-  return clampCalendarAsideWidth(raw);
-}
-
-function clampCalendarAsideWidth(width: number, containerWidth = Number.POSITIVE_INFINITY): number {
-  const maxByContainer = Number.isFinite(containerWidth)
-    ? Math.max(MIN_CALENDAR_ASIDE_WIDTH, Math.min(MAX_CALENDAR_ASIDE_WIDTH, Math.round(containerWidth * 0.45)))
-    : MAX_CALENDAR_ASIDE_WIDTH;
-  return Math.max(MIN_CALENDAR_ASIDE_WIDTH, Math.min(maxByContainer, Math.round(width)));
-}
 
 function calendarDays(month: Date): Date[] {
   const first = monthStart(month);

@@ -16,6 +16,7 @@ import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
+const MANAGER_DOCK_TYPE = "task_tracker_manager_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
 
 export default class TaskTrackerPlugin extends Plugin {
@@ -54,6 +55,7 @@ export default class TaskTrackerPlugin extends Plugin {
     });
 
     this.registerDock();
+    this.registerManagerDock();
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
@@ -89,7 +91,8 @@ export default class TaskTrackerPlugin extends Plugin {
         size: { width: 320, height: 0 },
         icon: "iconTaskTracker",
         title: "任务追踪",
-        hotkey: "⌥⌘T"
+        hotkey: "⌥⌘T",
+        index: 0
       },
       data: {},
       init: (dock) => {
@@ -108,6 +111,34 @@ export default class TaskTrackerPlugin extends Plugin {
       destroy: () => {
         this.taskDock?.destroy();
         this.taskDock = undefined;
+      }
+    });
+  }
+
+  private registerManagerDock(): void {
+    const plugin = this;
+    this.addDock({
+      type: MANAGER_DOCK_TYPE,
+      config: {
+        position: "LeftBottom",
+        size: { width: 220, height: 0 },
+        icon: "iconTaskManagerTable",
+        title: "任务控制面板",
+        index: 1
+      },
+      data: {},
+      init: (dock) => {
+        dock.element.innerHTML = `<div class="task-tracker task-tracker-empty task-tracker-empty--manager-shortcut">
+  <div class="task-tracker-empty__title">任务控制面板</div>
+  <div class="task-tracker-empty__text">点击按钮打开任务控制面板。</div>
+  <button class="b3-button b3-button--text" data-action="open-manager">打开任务控制面板</button>
+</div>`;
+        dock.element.querySelector("[data-action='open-manager']")?.addEventListener("click", () => void this.openTaskManager());
+        void this.openTaskManager();
+      },
+      update() {
+        const dock = this as any;
+        dock.element.querySelector("[data-action='open-manager']")?.addEventListener("click", () => void plugin.openTaskManager());
       }
     });
   }

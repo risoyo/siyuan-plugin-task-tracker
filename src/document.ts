@@ -4,6 +4,7 @@ import {
   getBlockById,
   getHPathById,
   moveDocs,
+  removeDoc,
   renameDocById,
   setBlockAttrs,
   sql,
@@ -190,6 +191,42 @@ export class TaskService {
     return removed;
   }
 
+  async deleteTaskTree(id: string): Promise<number> {
+    const task = this.store.get(id);
+    if (!task) {
+      return 0;
+    }
+
+    const tasks = this.store.all();
+    const ids = expandWithDescendantsAndPaths(tasks, [id]);
+    const idSet = new Set(ids);
+    const selectedTasks = tasks.filter((item) => idSet.has(item.id));
+    const parentIds = parentIdsForTasks(tasks, ids).filter((parentId) => !idSet.has(parentId));
+
+    for (const item of selectedTasks) {
+      if (!item.sourceBlockId) {
+        continue;
+      }
+      await removeSourceTaskId(item.sourceBlockId, item.id).catch((error) => {
+        console.warn("Task Tracker: failed to remove source task reference", item.id, error);
+      });
+    }
+
+    for (const item of topLevelDocumentTasks(selectedTasks)) {
+      const block = await getBlockById(item.docId).catch(() => undefined);
+      if (block) {
+        await removeDoc(item.notebookId, item.path);
+      }
+    }
+
+    const removed = await this.store.removeMany(ids);
+    if (removed > 0) {
+      await this.syncTaskDocuments(parentIds);
+      this.emit();
+    }
+    return removed;
+  }
+
   async syncDeletedDocs(): Promise<number> {
     const missingIds: string[] = [];
 
@@ -368,6 +405,52 @@ function expandWithDescendants(tasks: TaskItem[], ids: string[]): string[] {
   }
 
   return Array.from(selected);
+}
+
+function expandWithDescendantsAndPaths(tasks: TaskItem[], ids: string[]): string[] {
+  const selected = new Set(expandWithDescendants(tasks, ids));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const selectedPaths = tasks
+      .filter((task) => selected.has(task.id))
+      .map((task) => taskPathKey(task.path))
+      .filter(Boolean);
+
+    for (const task of tasks) {
+      if (selected.has(task.id)) {
+        continue;
+      }
+      const path = taskPathKey(task.path);
+      if (path && selectedPaths.some((parentPath) => isDescendantPath(path, parentPath))) {
+        selected.add(task.id);
+        changed = true;
+      }
+    }
+  }
+
+  return Array.from(selected);
+}
+
+function topLevelDocumentTasks(tasks: TaskItem[]): TaskItem[] {
+  return tasks.filter((task) => {
+    const path = taskPathKey(task.path);
+    if (!path) {
+      return false;
+    }
+    return !tasks.some((other) => {
+      if (other.id === task.id || other.notebookId !== task.notebookId) {
+        return false;
+      }
+      const otherPath = taskPathKey(other.path);
+      return otherPath ? isDescendantPath(path, otherPath) : false;
+    });
+  });
+}
+
+function isDescendantPath(path: string, parentPath: string): boolean {
+  return path.startsWith(`${parentPath}/`);
 }
 
 function parentIdsForTasks(tasks: TaskItem[], ids: string[]): string[] {

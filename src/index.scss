@@ -910,14 +910,23 @@
   padding: 0 10px;
 }
 
-.task-manager-kanban__items,
-.task-manager-calendar__unplanned {
+.task-manager-kanban__items {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
   overflow: auto;
   padding: 10px;
+}
+
+.task-manager-calendar__unplanned {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 0 2px;
 }
 
 .task-manager-card__header .task-manager-actions {
@@ -1006,40 +1015,18 @@
 }
 
 .task-manager-calendar__layout {
-  display: grid;
+  display: flex;
   flex: 1;
-  gap: 0;
-  grid-template-columns: minmax(0, 1fr) 8px 280px;
+  flex-direction: column;
+  gap: 12px;
   min-height: 0;
   overflow: hidden;
   padding: 12px;
 }
 
-.task-manager-calendar__main,
-.task-manager-calendar__aside {
+.task-manager-calendar__main {
+  flex: 1 1 auto;
   min-height: 0;
-}
-
-.task-manager-calendar__splitter {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  cursor: col-resize;
-  margin: 0 2px;
-  padding: 0;
-  position: relative;
-}
-
-.task-manager-calendar__splitter::before {
-  background: color-mix(in srgb, var(--manager-border) 88%, transparent);
-  border-radius: 999px;
-  content: "";
-  inset: 0 2px;
-  position: absolute;
-}
-
-.task-manager-calendar__splitter:hover::before {
-  background: color-mix(in srgb, var(--manager-accent) 42%, var(--manager-border));
 }
 
 .task-manager-calendar__weekdays,
@@ -1127,13 +1114,15 @@
   font-size: 12px;
 }
 
-.task-manager-calendar__aside {
-  border-left: 1px solid var(--manager-border);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  padding-left: 12px;
+.task-manager-calendar__unplanned-strip {
+  border-top: 1px solid var(--manager-border);
+  flex: 0 0 auto;
+  min-height: 0;
+  padding-top: 10px;
+}
+
+.task-manager--calendar .task-manager-calendar__unplanned .task-manager-card {
+  flex: 0 0 260px;
 }
 
 .task-manager-calendar__aside-title {
@@ -1809,16 +1798,6 @@
     justify-content: flex-start;
   }
 
-  .task-manager-calendar__layout {
-    grid-template-columns: 1fr;
-  }
-
-  .task-manager-calendar__aside {
-    border-left: 0;
-    border-top: 1px solid var(--manager-border);
-    padding-left: 0;
-    padding-top: 12px;
-  }
 
   .task-tracker-dialog__grid,
   .task-tracker-calendar__layout {

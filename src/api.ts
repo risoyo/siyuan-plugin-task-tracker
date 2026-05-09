@@ -52,6 +52,10 @@ export async function moveDocs(fromPaths: string[], toNotebook: string, toPath: 
   await request("/api/filetree/moveDocs", { fromPaths, toNotebook, toPath });
 }
 
+export async function removeDoc(notebook: string, path: string): Promise<void> {
+  await request("/api/filetree/removeDoc", { notebook, path });
+}
+
 export async function updateBlock(id: string, markdown: string): Promise<void> {
   await request("/api/block/updateBlock", { id, dataType: "markdown", data: markdown });
 }
