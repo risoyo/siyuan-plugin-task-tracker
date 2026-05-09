@@ -198,7 +198,71 @@ export class TaskManagerTab {
   }
 
   private renderCompletedView(tasks: TaskItem[]): string {
-    return this.renderTableLikeView(tasks, COMPLETED_TABLE_COLUMNS);
+    const tree = buildCompletedTaskTree(tasks);
+
+    return `<div class="task-manager-table-wrap">
+  <table class="task-manager-table task-manager-completed-table">
+    <colgroup>
+      ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.tableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
+    </colgroup>
+    <thead>
+      <tr>
+        ${COMPLETED_TABLE_COLUMNS.map((column) => this.renderTableHeaderCell(column)).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      ${tree.map((node) => this.renderCompletedTableNode(node, 0)).join("")}
+    </tbody>
+  </table>
+</div>`;
+  }
+
+  private renderCompletedTableNode(node: TaskTreeNode, depth: number): string {
+    const task = node.task;
+    const childCount = node.children.length;
+    const collapsed = this.collapsedTaskIds.has(task.id);
+    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+  ${COMPLETED_TABLE_COLUMNS.map((column) => this.renderCompletedTableCell(column.key, task, childCount, collapsed)).join("")}
+</tr>`;
+    const children = childCount && !collapsed
+      ? node.children.map((child) => this.renderCompletedTableNode(child, depth + 1)).join("")
+      : "";
+
+    return `${row}${children}`;
+  }
+
+  private renderCompletedTableCell(key: TableColumnKey, task: TaskItem, childCount: number, collapsed: boolean): string {
+    if (key === "task") {
+      return `<td class="task-manager-table__cell is-task">
+  <div class="task-manager-table__task-cell">
+    ${childCount
+      ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
+      : `<span class="task-manager-task__toggle-placeholder"></span>`}
+    <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
+  </div>
+</td>`;
+    }
+    if (key === "project") {
+      return `<td class="task-manager-table__cell">${this.renderCompletedProjectText(task)}</td>`;
+    }
+    if (key === "source") {
+      return `<td class="task-manager-table__cell">${this.renderCompletedSourceText(task)}</td>`;
+    }
+    return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
+  }
+
+  private renderCompletedProjectText(task: TaskItem): string {
+    const label = task.project || "无项目";
+    return `<span class="task-manager-table__text task-manager-table__text--plain" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+  }
+
+  private renderCompletedSourceText(task: TaskItem): string {
+    if (!task.sourceDocId) {
+      return `<span class="task-manager-table__text task-manager-table__text--plain" title="手动创建">手动创建</span>`;
+    }
+
+    const label = task.sourceText?.trim() || "来源笔记";
+    return `<button class="task-manager-task-title task-manager-table__text task-manager-table__text--interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`;
   }
 
   private renderTableLikeView(tasks: TaskItem[], columns: TableColumnDef[]): string {
@@ -930,6 +994,57 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
   }
 
   return roots;
+}
+
+function buildCompletedTaskTree(tasks: TaskItem[]): TaskTreeNode[] {
+  const nodes = new Map<string, TaskTreeNode>();
+  const nodesByPath = new Map<string, TaskTreeNode>();
+  for (const task of tasks) {
+    const node: TaskTreeNode = {
+      task,
+      children: [],
+      contextOnly: false
+    };
+    nodes.set(task.id, node);
+    const pathKey = taskPathKey(task.path);
+    if (pathKey) {
+      nodesByPath.set(pathKey, node);
+    }
+  }
+
+  const roots: TaskTreeNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = completedParentNode(node.task, nodes, nodesByPath);
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+function completedParentNode(task: TaskItem, nodes: Map<string, TaskTreeNode>, nodesByPath: Map<string, TaskTreeNode>): TaskTreeNode | undefined {
+  if (task.parentId) {
+    return nodes.get(task.parentId);
+  }
+
+  const parentPath = parentTaskPathKey(task.path);
+  return parentPath ? nodesByPath.get(parentPath) : undefined;
+}
+
+function taskPathKey(path?: string): string {
+  if (!path) {
+    return "";
+  }
+  return path.replace(/\.sy$/i, "").replace(/\/+$|^\/+/, "");
+}
+
+function parentTaskPathKey(path?: string): string {
+  const key = taskPathKey(path);
+  const lastSlash = key.lastIndexOf("/");
+  return lastSlash > 0 ? key.slice(0, lastSlash) : "";
 }
 
 function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean } = {}): Array<{ key: string; label: string; tasks: TaskItem[] }> {

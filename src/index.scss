@@ -314,12 +314,27 @@
   white-space: nowrap;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text--static {
+.task-manager--table .task-manager-table__cell .task-manager-table__text--static,
+.task-manager--completed .task-manager-table__cell .task-manager-table__text--plain {
+  color: var(--b3-theme-on-background);
   cursor: default;
+}
+
+.task-manager--table .task-manager-table__cell .task-manager-table__text--static {
   pointer-events: none;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text--static:hover {
+.task-manager--table .task-manager-table__cell .task-manager-table__text--static:hover,
+.task-manager--completed .task-manager-table__cell .task-manager-table__text--plain:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.task-manager--completed .task-manager-status-completed {
+  opacity: 1;
+}
+
+.task-manager--completed .task-manager-table__cell,
+.task-manager--completed .task-manager-table__completed-at {
   color: var(--b3-theme-on-background);
 }
 
