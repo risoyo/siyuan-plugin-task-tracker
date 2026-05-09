@@ -19,14 +19,17 @@ export class TaskStore {
       this.plugin.loadData(SETTINGS_DATA_FILE).catch(() => undefined)
     ]);
 
-    if (Array.isArray(tasksData)) {
-      this.tasks = tasksData;
-    } else if (Array.isArray((tasksData as any)?.tasks)) {
-      this.tasks = (tasksData as any).tasks;
-    }
+    const loadedTasks = Array.isArray(tasksData)
+      ? tasksData
+      : (Array.isArray((tasksData as any)?.tasks) ? (tasksData as any).tasks : []);
+    this.tasks = loadedTasks.map((task) => normalizeStoredTask(task));
 
     if (settingsData && typeof settingsData === "object") {
       this.settings = { ...DEFAULT_SETTINGS, ...(settingsData as TaskSettings) };
+    }
+
+    if (loadedTasks.length && loadedTasks.some((task, index) => this.tasks[index] !== task)) {
+      await this.saveTasks();
     }
   }
 
@@ -63,11 +66,12 @@ export class TaskStore {
   }
 
   async upsert(task: TaskItem): Promise<void> {
-    const index = this.tasks.findIndex((item) => item.id === task.id);
+    const normalizedTask = normalizeStoredTask(task);
+    const index = this.tasks.findIndex((item) => item.id === normalizedTask.id);
     if (index >= 0) {
-      this.tasks[index] = task;
+      this.tasks[index] = normalizedTask;
     } else {
-      this.tasks.push(task);
+      this.tasks.push(normalizedTask);
     }
     await this.saveTasks();
   }
@@ -104,4 +108,19 @@ export class TaskStore {
   private async saveTasks(): Promise<void> {
     await this.plugin.saveData(TASKS_DATA_FILE, { tasks: this.tasks });
   }
+}
+
+function normalizeStoredTask(task: TaskItem): TaskItem {
+  const normalizedTitle = typeof task.title === "string" && task.title.trim()
+    ? task.title.trim()
+    : fallbackTaskTitle(task);
+  return {
+    ...task,
+    title: normalizedTitle
+  };
+}
+
+function fallbackTaskTitle(task: Pick<TaskItem, "path" | "docId">): string {
+  const fromPath = task.path.split("/").pop()?.replace(/\.sy$/i, "").trim();
+  return fromPath || task.docId;
 }
