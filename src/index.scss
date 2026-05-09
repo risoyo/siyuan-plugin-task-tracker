@@ -116,8 +116,9 @@
 .task-manager-toolbar__search {
   align-items: center;
   display: flex;
-  flex: 0 1 168px;
-  min-width: 120px;
+  flex: 0 1 152px;
+  margin-left: 6px;
+  min-width: 112px;
   position: relative;
 }
 
@@ -300,7 +301,9 @@
   min-width: 0;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text {
+.task-manager--table .task-manager-table__cell .task-manager-table__text,
+.task-manager--completed .task-manager-table__cell .task-manager-table__text,
+.task-manager--completed .task-manager-table__cell .task-manager-table__completed-at {
   display: block;
   margin: 0;
   max-width: 100%;
@@ -308,6 +311,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+  white-space: nowrap;
 }
 
 .task-manager--table .task-manager-table__cell .task-manager-table__text--static {

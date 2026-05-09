@@ -21,7 +21,7 @@ import {
   type TaskStatus
 } from "../types";
 
-export type TaskManagerView = "table" | "list" | "timeline" | "kanban" | "calendar";
+export type TaskManagerView = "table" | "list" | "timeline" | "kanban" | "calendar" | "completed";
 
 export interface TaskManagerNewTaskOptions {
   parentId?: string;
@@ -68,10 +68,12 @@ const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
   { value: "list", label: "清单" },
   { value: "timeline", label: "时间轴" },
   { value: "kanban", label: "看板" },
-  { value: "calendar", label: "日历" }
+  { value: "calendar", label: "日历" },
+  { value: "completed", label: "已完成" }
 ];
 
 const STATUSES = Object.keys(TASK_STATUS_LABELS) as TaskStatus[];
+const KANBAN_STATUSES = STATUSES.filter((status) => status !== "completed");
 
 const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
@@ -82,6 +84,13 @@ const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "plan", label: "计划", defaultWidth: 144, minWidth: 124 },
   { key: "due", label: "截止", defaultWidth: 144, minWidth: 124 },
   { key: "actions", label: "操作", defaultWidth: 96, minWidth: 84, className: "is-actions" }
+];
+
+const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
+  { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
+  { key: "project", label: "项目", defaultWidth: 140, minWidth: 110 },
+  { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
+  { key: "completedAt", label: "完成时间", defaultWidth: 144, minWidth: 124 }
 ];
 
 export class TaskManagerTab {
@@ -134,7 +143,7 @@ export class TaskManagerTab {
   }
 
   render(): void {
-    const tasks = this.filteredTasks();
+    const tasks = this.tasksForCurrentView();
 
     this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
   ${this.renderToolbar(tasks.length)}
@@ -176,6 +185,8 @@ export class TaskManagerTab {
         return this.renderKanbanView(tasks);
       case "calendar":
         return this.renderCalendarView(tasks);
+      case "completed":
+        return this.renderCompletedView(tasks);
       case "table":
       default:
         return this.renderTableView(tasks);
@@ -183,54 +194,63 @@ export class TaskManagerTab {
   }
 
   private renderTableView(tasks: TaskItem[]): string {
-    const childCounts = countChildren(this.service.store.all());
+    return this.renderTableLikeView(tasks, TABLE_COLUMNS);
+  }
+
+  private renderCompletedView(tasks: TaskItem[]): string {
+    return this.renderTableLikeView(tasks, COMPLETED_TABLE_COLUMNS);
+  }
+
+  private renderTableLikeView(tasks: TaskItem[], columns: TableColumnDef[]): string {
+    const childCounts = countChildren(tasks);
     const matched = new Set(tasks.map((task) => task.id));
-    const visible = includeAncestors(this.service.store.all(), matched);
-    const tree = buildTaskTree(this.service.store.all(), visible, matched);
+    const visible = includeAncestors(tasks, matched);
+    const tree = buildTaskTree(tasks, visible, matched);
 
     return `<div class="task-manager-table-wrap">
   <table class="task-manager-table">
     <colgroup>
-      ${TABLE_COLUMNS.map((column) => `<col style="width: ${this.tableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
+      ${columns.map((column) => `<col style="width: ${this.tableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
     </colgroup>
     <thead>
       <tr>
-        ${TABLE_COLUMNS.map((column) => this.renderTableHeaderCell(column)).join("")}
+        ${columns.map((column) => this.renderTableHeaderCell(column)).join("")}
       </tr>
     </thead>
     <tbody>
-      ${tree.map((node) => this.renderTableNode(node, 0, childCounts)).join("")}
+      ${tree.map((node) => this.renderTableNode(node, 0, childCounts, columns)).join("")}
     </tbody>
   </table>
 </div>`;
   }
 
   private renderTableHeaderCell(column: TableColumnDef): string {
+    const resizable = column.key !== "actions";
     return `<th class="task-manager-table__head ${column.className || ""}" data-column-key="${column.key}">
   <div class="task-manager-table__head-content">
     <span>${column.label}</span>
-    <button class="task-manager-table__resize-handle" data-column-resize="${column.key}" aria-label="调整${column.label || "操作"}列宽" title="拖动调整列宽"></button>
+    ${resizable ? `<button class="task-manager-table__resize-handle" data-column-resize="${column.key}" aria-label="调整${column.label || "操作"}列宽" title="拖动调整列宽"></button>` : ""}
   </div>
 </th>`;
   }
 
-  private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>): string {
+  private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>, columns: TableColumnDef[]): string {
     const task = node.task;
     const childCount = childCounts.get(task.id) || 0;
     const collapsed = this.collapsedTaskIds.has(task.id);
-    const row = this.renderTableRow(node, depth, childCount, collapsed);
+    const row = this.renderTableRow(node, depth, childCount, collapsed, columns);
     const children = node.children.length && !collapsed
-      ? node.children.map((child) => this.renderTableNode(child, depth + 1, childCounts)).join("")
+      ? node.children.map((child) => this.renderTableNode(child, depth + 1, childCounts, columns)).join("")
       : "";
 
     return `${row}${children}`;
   }
 
-  private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean): string {
+  private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean, columns: TableColumnDef[]): string {
     const task = node.task;
     const contextClass = node.contextOnly ? " task-manager-table__row--context" : "";
     return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
-  ${TABLE_COLUMNS.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
+  ${columns.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
   }
 
@@ -263,13 +283,16 @@ export class TaskManagerTab {
     if (key === "due") {
       return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" /></td>`;
     }
+    if (key === "completedAt") {
+      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
+    }
     return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true })}</td>`;
   }
 
   private renderListView(tasks: TaskItem[]): string {
     const matched = new Set(tasks.map((task) => task.id));
-    const visible = includeAncestors(this.service.store.all(), matched);
-    const tree = buildTaskTree(this.service.store.all(), visible, matched);
+    const visible = includeAncestors(tasks, matched);
+    const tree = buildTaskTree(tasks, visible, matched);
 
     return `<div class="task-manager-list">
   ${tree.length ? tree.map((node) => this.renderTaskNode(node, 0)).join("") : `<div class="task-manager-empty">这里暂时没有任务。</div>`}
@@ -353,7 +376,7 @@ export class TaskManagerTab {
 
   private renderKanbanView(tasks: TaskItem[]): string {
     return `<div class="task-manager-kanban">
-  ${STATUSES.map((status) => {
+  ${KANBAN_STATUSES.map((status) => {
     const columnTasks = tasks.filter((task) => task.status === status);
     return `<section class="task-manager-kanban__column task-manager-status-${status}">
       <div class="task-manager-kanban__header">${TASK_STATUS_LABELS[status]}<span>${columnTasks.length}</span></div>
@@ -695,7 +718,8 @@ export class TaskManagerTab {
       return;
     }
 
-    TABLE_COLUMNS.forEach((column, index) => {
+    const columns = this.view === "completed" ? COMPLETED_TABLE_COLUMNS : TABLE_COLUMNS;
+    columns.forEach((column, index) => {
       const col = cols[index];
       if (col) {
         col.style.width = `${this.tableColumnWidths[column.key]}px`;
@@ -807,9 +831,28 @@ export class TaskManagerTab {
     }
   }
 
-  private filteredTasks(): TaskItem[] {
+  private tasksForCurrentView(): TaskItem[] {
+    const collections = this.getTaskCollections();
+    if (this.view === "calendar") {
+      return this.filterTasksBySearch(collections.allTasks);
+    }
+    if (this.view === "completed") {
+      return this.filterTasksBySearch(collections.completedTasks);
+    }
+    return this.filterTasksBySearch(collections.activeTasks);
+  }
+
+  private getTaskCollections(): { allTasks: TaskItem[]; activeTasks: TaskItem[]; completedTasks: TaskItem[] } {
+    const allTasks = this.service.store.all();
+    return {
+      allTasks,
+      activeTasks: allTasks.filter((task) => task.status !== "completed"),
+      completedTasks: allTasks.filter((task) => task.status === "completed")
+    };
+  }
+
+  private filterTasksBySearch(tasks: TaskItem[]): TaskItem[] {
     const query = normalizeSearch(this.search);
-    const tasks = this.service.store.all();
     if (!query) {
       return tasks;
     }
@@ -825,6 +868,7 @@ export class TaskManagerTab {
         TASK_PRIORITY_LABELS[task.priority],
         task.planStart,
         task.dueDate,
+        task.completedAt,
         parent?.title
       ].filter(Boolean).join(" ");
       return normalizeSearch(haystack).includes(query);
@@ -923,14 +967,15 @@ function defaultTableColumnWidths(): Record<TableColumnKey, number> {
     priority: 120,
     plan: 144,
     due: 144,
-    actions: 96
+    actions: 96,
+    completedAt: 144
   };
 }
 
 function normalizeTableColumnWidths(raw?: Partial<Record<TableColumnKey, number>>): Record<TableColumnKey, number> {
   const defaults = defaultTableColumnWidths();
   const next = { ...defaults };
-  for (const column of TABLE_COLUMNS) {
+  for (const column of [...TABLE_COLUMNS, ...COMPLETED_TABLE_COLUMNS]) {
     const value = raw?.[column.key];
     if (typeof value === "number" && Number.isFinite(value)) {
       next[column.key] = Math.max(column.minWidth, Math.round(value));

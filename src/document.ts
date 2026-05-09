@@ -146,15 +146,13 @@ export class TaskService {
 
   async completeTask(id: string): Promise<TaskItem> {
     return this.updateTask(id, {
-      status: "completed",
-      completedAt: nowIso()
+      status: "completed"
     });
   }
 
   async reopenTask(id: string): Promise<TaskItem> {
     return this.updateTask(id, {
-      status: "todo",
-      completedAt: undefined
+      status: "todo"
     });
   }
 
@@ -256,11 +254,19 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
 }
 
 function normalizeCompletion(current: TaskItem, patch: Partial<TaskItem>): Partial<TaskItem> {
-  if (patch.status === "completed" && !patch.completedAt) {
-    return { ...patch, completedAt: nowIso() };
+  if (patch.status === "completed") {
+    if (current.status !== "completed") {
+      return { ...patch, completedAt: patch.completedAt || nowIso() };
+    }
+    if (patch.completedAt === undefined) {
+      return patch;
+    }
+    return { ...patch, completedAt: current.completedAt ?? patch.completedAt };
   }
-  if (current.status === "completed" && patch.status && patch.status !== "completed") {
-    return { ...patch, completedAt: undefined };
+  if (current.status === "completed") {
+    if (patch.status) {
+      return { ...patch, completedAt: undefined };
+    }
   }
   return patch;
 }

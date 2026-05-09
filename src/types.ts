@@ -23,7 +23,7 @@ export interface TaskItem {
   completedAt?: string;
 }
 
-export type TableColumnKey = "task" | "project" | "source" | "status" | "priority" | "plan" | "due" | "actions";
+export type TableColumnKey = "task" | "project" | "source" | "status" | "priority" | "plan" | "due" | "actions" | "completedAt";
 
 export interface TaskSettings {
   taskRootDocId?: string;
