@@ -23,6 +23,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private ready: Promise<void>;
   private taskDock?: TaskDock;
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
+  private startupRetryTimers = new Set<number>();
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
   private wsMainHandler = this.handleWsMain.bind(this);
@@ -51,8 +52,8 @@ export default class TaskTrackerPlugin extends Plugin {
     this.service = new TaskService(this.store);
     this.ready = this.store.load().then(async () => {
       this.setting = this.createSettingPanel();
-      await this.service.syncDeletedDocs();
-      await this.service.syncAllTaskDocuments();
+      await this.service.startupSync();
+      this.scheduleStartupRecoveryRetries();
     });
 
     this.registerDock();
@@ -71,6 +72,10 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   onunload(): void {
+    for (const timer of this.startupRetryTimers) {
+      window.clearTimeout(timer);
+    }
+    this.startupRetryTimers.clear();
     this.taskDock?.destroy();
     for (const view of this.managerViews.values()) {
       view.destroy();
@@ -173,6 +178,7 @@ export default class TaskTrackerPlugin extends Plugin {
       setCurrentDocAsRoot: () => this.setCurrentDocAsRoot(),
       setRootDocId: (docId: string) => this.setRootDocId(docId),
       syncDeletedTasks: () => this.syncDeletedTasks(),
+      rebuildTaskIndex: () => this.rebuildTaskIndex(),
       refreshViews: () => this.refreshViews()
     }, pluginManifest.version);
   }
@@ -220,13 +226,18 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleWsMain({ detail }: any): void {
-    if (detail?.cmd !== "removeDoc") {
+    if (detail?.cmd === "removeDoc") {
+      void this.ready
+        .then(() => this.service.syncDeletedDocs())
+        .catch((error) => console.warn("Task Tracker: failed to sync deleted docs", error));
       return;
     }
 
-    void this.ready
-      .then(() => this.service.syncDeletedDocs())
-      .catch((error) => console.warn("Task Tracker: failed to sync deleted docs", error));
+    if (detail?.cmd === "sync-end" || detail?.cmd === "syncFinish" || detail?.cmd === "sync-finish") {
+      void this.ready
+        .then(() => this.service.startupSync({ skipDeletedCleanup: true }))
+        .catch((error) => console.warn("Task Tracker: failed to refresh after sync", error));
+    }
   }
 
   private async showTaskDialog(options: {
@@ -344,6 +355,13 @@ export default class TaskTrackerPlugin extends Plugin {
     showMessage(count > 0 ? `已清理 ${count} 个已删除任务记录` : "没有需要清理的任务记录");
   }
 
+  private async rebuildTaskIndex(): Promise<void> {
+    await this.ready;
+    const count = await this.service.rebuildTaskIndex();
+    showMessage(count > 0 ? `已重建 ${count} 个任务索引` : "事项库中没有可重建的任务文档");
+    this.refreshViews();
+  }
+
   private refreshViews(): void {
     this.taskDock?.render();
     for (const view of this.managerViews.values()) {
@@ -351,8 +369,24 @@ export default class TaskTrackerPlugin extends Plugin {
     }
   }
 
+  private scheduleStartupRecoveryRetries(): void {
+    if (!this.store.getSettings().taskRootDocId) {
+      return;
+    }
+
+    const delays = [5000, 12000, 20000];
+    for (const delayMs of delays) {
+      const timer = window.setTimeout(() => {
+        this.startupRetryTimers.delete(timer);
+        void this.service.startupSync({ skipDeletedCleanup: true })
+          .then(() => this.refreshViews())
+          .catch((error) => console.warn("Task Tracker: deferred startup recovery failed", error));
+      }, delayMs);
+      this.startupRetryTimers.add(timer);
+    }
+  }
+
   private getCurrentProtyle(): any {
     return (this as any).getEditor?.()?.protyle;
   }
 }
-

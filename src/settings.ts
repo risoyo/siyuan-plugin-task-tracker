@@ -8,6 +8,7 @@ export function createTaskSettings(
     setCurrentDocAsRoot: () => Promise<void>;
     setRootDocId: (docId: string) => Promise<void>;
     syncDeletedTasks: () => Promise<void>;
+    rebuildTaskIndex: () => Promise<void>;
     refreshViews: () => void;
   },
   version: string
@@ -75,15 +76,28 @@ export function createTaskSettings(
 
   setting.addItem({
     title: "任务维护",
-    description: "手动清理已经从思源删除、但仍残留在插件索引中的任务记录。",
+    description: "清理失效索引，或在换设备/同步异常后从事项库文档重建任务索引。",
     createActionElement: () => {
-      const button = document.createElement("button");
-      button.className = "b3-button b3-button--outline fn__size200";
-      button.textContent = "清理已删除任务记录";
-      button.addEventListener("click", () => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "fn__flex task-tracker-setting__root";
+
+      const cleanupButton = document.createElement("button");
+      cleanupButton.className = "b3-button b3-button--outline fn__size200";
+      cleanupButton.textContent = "清理已删除任务记录";
+      cleanupButton.addEventListener("click", () => {
         void actions.syncDeletedTasks();
       });
-      return button;
+
+      const rebuildButton = document.createElement("button");
+      rebuildButton.className = "b3-button b3-button--outline fn__size200";
+      rebuildButton.textContent = "从事项库重建任务索引";
+      rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
+      rebuildButton.addEventListener("click", () => {
+        void actions.rebuildTaskIndex();
+      });
+
+      wrapper.append(cleanupButton, rebuildButton);
+      return wrapper;
     }
   });
 

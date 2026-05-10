@@ -76,6 +76,11 @@ export class TaskStore {
     await this.saveTasks();
   }
 
+  async replaceAll(tasks: TaskItem[]): Promise<void> {
+    this.tasks = tasks.map((task) => normalizeStoredTask(task));
+    await this.saveTasks();
+  }
+
   async update(id: string, patch: Partial<TaskItem>): Promise<TaskItem> {
     const current = this.get(id);
     if (!current) {

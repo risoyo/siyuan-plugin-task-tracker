@@ -35,6 +35,7 @@ export interface TaskSettings {
   taskTemplate?: string;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
+  startupSyncGraceMs?: number;
 }
 
 export interface TaskCreateInput {
@@ -68,6 +69,7 @@ export interface BlockRow {
   root_id?: string;
   type?: string;
   hpath?: string;
+  updated?: string;
 }
 
 export const TASKS_DATA_FILE = "tasks.json";
@@ -129,9 +131,11 @@ export const TASK_ATTRS = {
   planStart: "custom-task-tracker-plan-start",
   planEnd: "custom-task-tracker-plan-end",
   createdAt: "custom-task-tracker-created-at",
+  completedAt: "custom-task-tracker-completed-at",
   parentId: "custom-task-tracker-parent",
   sourceBlockId: "custom-task-tracker-source",
-  sourceDocId: "custom-task-tracker-source-doc"
+  sourceDocId: "custom-task-tracker-source-doc",
+  sourceText: "custom-task-tracker-source-text"
 } as const;
 
 export const SOURCE_TASK_IDS_ATTR = "custom-task-tracker-task-ids";

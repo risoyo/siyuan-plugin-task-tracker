@@ -67,3 +67,18 @@ export async function setBlockAttrs(id: string, attrs: Record<string, string>): 
 export async function getBlockAttrs(id: string): Promise<Record<string, string>> {
   return request<Record<string, string>>("/api/attr/getBlockAttrs", { id });
 }
+
+export interface SyncInfo {
+  syncing?: boolean;
+  stat?: string;
+  kernel?: string;
+  [key: string]: unknown;
+}
+
+export async function getSyncInfo(): Promise<SyncInfo | undefined> {
+  try {
+    return await request<SyncInfo>("/api/sync/getSyncInfo");
+  } catch {
+    return undefined;
+  }
+}

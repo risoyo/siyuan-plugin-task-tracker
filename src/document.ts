@@ -2,6 +2,7 @@ import {
   createDocWithMd,
   getBlockAttrs,
   getBlockById,
+  getSyncInfo,
   getHPathById,
   moveDocs,
   removeDoc,
@@ -20,6 +21,7 @@ import {
   TASK_ATTRS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  type BlockRow,
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
@@ -254,6 +256,58 @@ export class TaskService {
     return this.store.all().filter((task) => ACTIVE_TASK_STATUSES.includes(task.status));
   }
 
+  async waitForStartupSync(options: { maxWaitMs?: number; pollMs?: number } = {}): Promise<void> {
+    const maxWaitMs = options.maxWaitMs ?? 12000;
+    const pollMs = options.pollMs ?? 800;
+    const startedAt = Date.now();
+
+    while ((Date.now() - startedAt) < maxWaitMs) {
+      const syncInfo = await getSyncInfo();
+      if (!syncInfo?.syncing) {
+        return;
+      }
+      await delay(pollMs);
+    }
+  }
+
+  async startupSync(options: { skipDeletedCleanup?: boolean } = {}): Promise<{ removed: number; synced: number }> {
+    await this.waitForStartupSync({
+      maxWaitMs: this.store.getSettings().startupSyncGraceMs ?? 12000
+    });
+
+    let removed = 0;
+    const indexedTasks = this.store.all();
+    const discoveredTasks = await this.collectTasksFromRoot();
+    if (indexedTasks.length === 0) {
+      if (discoveredTasks.length > 0) {
+        await this.store.replaceAll(discoveredTasks);
+        this.emit();
+      }
+    } else {
+      const discoveredIds = new Set(discoveredTasks.map((task) => task.id));
+      const indexedIds = new Set(indexedTasks.map((task) => task.id));
+      const missingCount = Array.from(discoveredIds).filter((id) => !indexedIds.has(id)).length;
+      if (missingCount > 0) {
+        const rebuilt = mergeRecoveredTasks(indexedTasks, discoveredTasks);
+        await this.store.replaceAll(rebuilt);
+        this.emit();
+      } else if (!options.skipDeletedCleanup && discoveredTasks.length >= indexedTasks.length) {
+        removed = await this.syncDeletedDocs();
+      }
+    }
+
+    const synced = await this.syncAllTaskDocuments();
+    return { removed, synced };
+  }
+
+  async rebuildTaskIndex(): Promise<number> {
+    const tasks = await this.collectTasksFromRoot();
+    await this.store.replaceAll(tasks);
+    await this.syncAllTaskDocuments();
+    this.emit();
+    return tasks.length;
+  }
+
   private async syncTaskDocument(id: string): Promise<boolean> {
     const task = this.store.get(id);
     if (!task) {
@@ -317,6 +371,51 @@ export class TaskService {
     }
     await this.syncTaskDocuments(ids);
     return archivedTask;
+  }
+
+  private async collectTasksFromRoot(): Promise<TaskItem[]> {
+    const settings = this.store.getSettings();
+    const candidates = await listTaskDocCandidates(settings);
+    if (!candidates.length) {
+      return [];
+    }
+
+    const tasks: TaskItem[] = [];
+    const taskByDocId = new Map<string, TaskItem>();
+    const batchSize = 12;
+
+    for (let start = 0; start < candidates.length; start += batchSize) {
+      const batch = candidates.slice(start, start + batchSize);
+      const batchTasks = await Promise.all(batch.map(async (doc) => {
+        const attrs = await getBlockAttrs(doc.id).catch(() => ({}));
+        const taskId = attrs[TASK_ATTRS.id]?.trim();
+        if (!taskId) {
+          return undefined;
+        }
+
+        const task = taskFromDoc(doc, attrs);
+        taskByDocId.set(doc.id, task);
+        return task;
+      }));
+
+      for (const task of batchTasks) {
+        if (task) {
+          tasks.push(task);
+        }
+      }
+    }
+
+    for (const task of tasks) {
+      if (task.parentId) {
+        continue;
+      }
+      const parent = parentTaskFromPath(task, taskByDocId);
+      if (parent) {
+        task.parentId = parent.id;
+      }
+    }
+
+    return tasks.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
   }
 
   private emit(): void {
@@ -502,6 +601,131 @@ function isDescendantPath(path: string, parentPath: string): boolean {
 function parentIdsForTasks(tasks: TaskItem[], ids: string[]): string[] {
   const idSet = new Set(ids);
   return Array.from(new Set(tasks.filter((task) => idSet.has(task.id) && task.parentId).map((task) => task.parentId as string)));
+}
+
+async function listTaskDocCandidates(settings: TaskSettings): Promise<BlockRow[]> {
+  if (!settings.taskRootNotebookId || !settings.taskRootPath || !settings.taskRootDocId) {
+    return [];
+  }
+
+  const rootPath = stripDocSuffix(settings.taskRootPath);
+  const rows = await sql<BlockRow>(`select id, box, path, content, hpath, updated from blocks
+where box = '${sqlText(settings.taskRootNotebookId)}'
+  and type = 'd'
+  and id != '${sqlText(settings.taskRootDocId)}'
+  and path like '${sqlText(rootPath)}/%'
+order by path asc`);
+  return rows;
+}
+
+function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
+  const status = normalizeTaskStatus(attrs[TASK_ATTRS.status]);
+  const priority = normalizeTaskPriority(attrs[TASK_ATTRS.priority]);
+  const sourceText = attrs[TASK_ATTRS.sourceText]?.trim() || undefined;
+  return {
+    id: attrs[TASK_ATTRS.id] || doc.id,
+    title: normalizeRecoveredTitle(doc),
+    docId: doc.id,
+    notebookId: doc.box,
+    path: doc.path,
+    parentId: attrs[TASK_ATTRS.parentId] || undefined,
+    sourceBlockId: attrs[TASK_ATTRS.sourceBlockId] || undefined,
+    sourceDocId: attrs[TASK_ATTRS.sourceDocId] || undefined,
+    sourceText,
+    project: attrs[TASK_ATTRS.project]?.trim() || undefined,
+    priority,
+    status,
+    dueDate: attrs[TASK_ATTRS.dueDate] || undefined,
+    planStart: attrs[TASK_ATTRS.planStart] || undefined,
+    planEnd: attrs[TASK_ATTRS.planEnd] || undefined,
+    createdAt: attrs[TASK_ATTRS.createdAt] || updatedToIso(doc.updated) || nowIso(),
+    updatedAt: updatedToIso(doc.updated) || nowIso(),
+    completedAt: attrs[TASK_ATTRS.completedAt] || undefined
+  };
+}
+
+function normalizeRecoveredTitle(doc: BlockRow): string {
+  const title = doc.content?.trim();
+  if (title) {
+    return title;
+  }
+  const fromPath = doc.path.split("/").pop()?.replace(/\.sy$/i, "").trim();
+  if (!fromPath) {
+    return doc.id;
+  }
+  return fromPath.replace(/^\d{4}-/u, "").trim() || fromPath;
+}
+
+function normalizeTaskStatus(value?: string): TaskItem["status"] {
+  switch (value) {
+    case "doing":
+    case "waiting":
+    case "completed":
+    case "cancelled":
+    case "todo":
+      return value;
+    default:
+      return "todo";
+  }
+}
+
+function normalizeTaskPriority(value?: string): TaskItem["priority"] {
+  switch (value) {
+    case "none":
+    case "low":
+    case "medium":
+    case "high":
+      return value;
+    default:
+      return "medium";
+  }
+}
+
+function updatedToIso(value?: string): string | undefined {
+  if (!value || !/^\d{14}$/.test(value)) {
+    return undefined;
+  }
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+  const hour = value.slice(8, 10);
+  const minute = value.slice(10, 12);
+  const second = value.slice(12, 14);
+  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function parentTaskFromPath(task: TaskItem, byDocId: Map<string, TaskItem>): TaskItem | undefined {
+  const parentPath = parentTaskPath(task.path);
+  if (!parentPath) {
+    return undefined;
+  }
+  for (const candidate of byDocId.values()) {
+    if (task.docId !== candidate.docId && candidate.path === parentPath) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function parentTaskPath(path?: string): string | undefined {
+  const normalized = path?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash > 0 ? `${normalized.slice(0, lastSlash)}.sy` : undefined;
+}
+
+function mergeRecoveredTasks(currentTasks: TaskItem[], recoveredTasks: TaskItem[]): TaskItem[] {
+  const merged = [...currentTasks];
+  const currentIds = new Set(currentTasks.map((task) => task.id));
+  for (const task of recoveredTasks) {
+    if (!currentIds.has(task.id)) {
+      merged.push(task);
+    }
+  }
+  return merged.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
 }
 
 async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
@@ -759,9 +983,11 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.planStart]: task.planStart || "",
     [TASK_ATTRS.planEnd]: task.planEnd || "",
     [TASK_ATTRS.createdAt]: task.createdAt || "",
+    [TASK_ATTRS.completedAt]: task.completedAt || "",
     [TASK_ATTRS.parentId]: task.parentId || "",
     [TASK_ATTRS.sourceBlockId]: task.sourceBlockId || "",
-    [TASK_ATTRS.sourceDocId]: task.sourceDocId || ""
+    [TASK_ATTRS.sourceDocId]: task.sourceDocId || "",
+    [TASK_ATTRS.sourceText]: task.sourceText || ""
   });
 }
 

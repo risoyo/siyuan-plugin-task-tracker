@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -13,6 +13,7 @@ const zipName = `siyuan-plugin-task-tracker-v${version}.zip`;
 const zipPath = join(releaseDir, zipName);
 
 await run("node", [join(root, "scripts", "build.mjs")], root);
+await mkdir(releaseDir, { recursive: true });
 await rm(zipPath, { force: true });
 await run("zip", ["-r", zipPath, "."], dist);
 
