@@ -2,7 +2,7 @@
   "name": "siyuan-plugin-task-tracker",
   "author": "risoyo",
   "url": "https://github.com/risoyo/siyuan-plugin-task-tracker",
-  "version": "2.0.0",
+  "version": "2.0.0-hotfix",
   "minAppVersion": "3.6.4",
   "backends": [
     "windows",

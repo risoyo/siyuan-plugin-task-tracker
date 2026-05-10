@@ -1,11 +1,12 @@
 {
   "name": "siyuan-plugin-task-tracker",
-  "version": "2.0.0",
+  "version": "2.0.0-hotfix",
   "description": "A SiYuan plugin for task tracking with task-note documents and calendar views.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "node scripts/build.mjs",
+    "build:local": "node scripts/build.local.mjs",
     "build:vite": "vite build",
     "typecheck": "tsc --noEmit",
     "release": "node scripts/release.mjs"

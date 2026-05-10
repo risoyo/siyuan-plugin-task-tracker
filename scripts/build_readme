@@ -1,0 +1,71 @@
+Task Tracker build scripts
+
+This directory intentionally contains separate build scripts for different environments.
+
+1. Common release build
+
+File:
+- scripts/build.mjs
+
+Purpose:
+- Build the plugin into dist/
+- Include plugin.json, README.md, README_zh_CN.md, and i18n/
+- Do not sync to any local SiYuan plugin directory
+
+Use when:
+- preparing GitHub release artifacts
+- building on another computer
+- you only want dist/ output
+
+Command:
+- npm run build
+
+
+2. Local Mac mini build
+
+File:
+- scripts/build.local.mjs
+
+Purpose:
+- Build the plugin into dist/
+- Sync the built plugin to the local SiYuan plugin directory on this Mac mini
+- Keep README and i18n in the local plugin directory so the plugin remains fully usable locally
+
+Current local target priority:
+- /Users/risoyo/LocalHDD/SiYuan/data/plugins/siyuan-plugin-task-tracker
+- /Users/risoyo/SiYuan/data/plugins/siyuan-plugin-task-tracker
+
+Command:
+- npm run build:local
+
+
+3. Release packaging
+
+File:
+- scripts/release.mjs
+
+Purpose:
+- Run the common release build
+- Create release/siyuan-plugin-task-tracker-v<version>.zip from dist/
+
+Command:
+- npm run release
+
+
+4. When another machine has packaging issues
+
+Suggested troubleshooting order:
+- first read this file
+- run npm run typecheck
+- run npm run build
+- confirm dist/ contains:
+  - index.js
+  - index.css
+  - plugin.json
+  - README.md
+  - README_zh_CN.md
+  - i18n/
+
+Important rule:
+- do not force one script to support every machine
+- if a machine has a different local SiYuan path, create or adjust a dedicated local build script for that machine instead of polluting scripts/build.mjs

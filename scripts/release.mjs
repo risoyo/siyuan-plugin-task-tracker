@@ -37,3 +37,30 @@ function run(command, args, cwd) {
     });
   });
 }
+
+function releaseNotesFor(version) {
+  if (version === "2.0.0-hotfix") {
+    return `Task Tracker 2.0.0-hotfix
+
+Hotfix changes
+- added scripts/build_readme to explain release build, local build, and packaging flows
+- split local packaging into a dedicated Mac mini build script: scripts/build.local.mjs
+- restored scripts/build.mjs as the clean GitHub/release build script
+- fixed local Mac mini sync to keep complete plugin files, including README and i18n
+
+2.0.0 baseline changes
+- reworked startup sync recovery to avoid clearing task indexes before SiYuan sync finishes
+- added automatic and manual rebuild of tasks.json from task documents in the task root
+- persisted completedAt and sourceText into task document attributes for more reliable recovery`;
+  }
+
+  if (version === "2.0.0") {
+    return `Task Tracker 2.0.0
+
+- reworked startup sync recovery to avoid clearing task indexes before SiYuan sync finishes
+- added automatic and manual rebuild of tasks.json from task documents in the task root
+- persisted completedAt and sourceText into task document attributes for more reliable recovery`;
+  }
+
+  return `Task Tracker ${version}`;
+}
