@@ -572,21 +572,20 @@ limit 1`).catch(() => []);
   return rows[0]?.path;
 }
 
-async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Promise<string> {
+async function ensureArchiveDoc(settings: TaskSettings, parentHPath: string, name: string): Promise<string> {
   if (!settings.taskRootNotebookId) {
     throw new Error("请先将一个文档设为事项库");
   }
 
-  const rootHPath = await resolveParentHPath(settings);
-  const monthHPath = `${rootHPath === "/" ? "" : rootHPath}/${month}`;
-  const existingPath = await getDocPathByHPath(settings.taskRootNotebookId, monthHPath);
+  const docHPath = `${parentHPath === "/" ? "" : parentHPath}/${name}`;
+  const existingPath = await getDocPathByHPath(settings.taskRootNotebookId, docHPath);
   if (existingPath) {
     return existingPath;
   }
 
-  const path = `${monthHPath}.sy`;
+  const path = `${docHPath}.sy`;
   try {
-    const docId = await createDocWithMd(settings.taskRootNotebookId, path, `# ${month}\n`);
+    const docId = await createDocWithMd(settings.taskRootNotebookId, path, `# ${name}\n`);
     const blockPath = await getTaskPath(docId);
     return blockPath || path;
   } catch (error) {
@@ -594,8 +593,19 @@ async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Pro
     if (!message.includes("exist") && !message.includes("已存在") && !message.includes("duplicate")) {
       throw error;
     }
-    return await getDocPathByHPath(settings.taskRootNotebookId, monthHPath) || path;
+    return await getDocPathByHPath(settings.taskRootNotebookId, docHPath) || path;
   }
+}
+
+async function ensureArchiveRootDoc(settings: TaskSettings): Promise<string> {
+  const rootHPath = await resolveParentHPath(settings);
+  return ensureArchiveDoc(settings, rootHPath, "已完成");
+}
+
+async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Promise<string> {
+  const archiveRootPath = await ensureArchiveRootDoc(settings);
+  const archiveRootHPath = stripDocSuffix(archiveRootPath);
+  return ensureArchiveDoc(settings, archiveRootHPath, month);
 }
 
 function archiveMonth(createdAt: string): string {

@@ -189,6 +189,79 @@
   overflow: auto;
 }
 
+.task-manager-completed-groups {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.task-manager-completed-group {
+  background: var(--manager-surface);
+  border: 1px solid var(--manager-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.task-manager-completed-group__header {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.task-manager-completed-group__header:hover {
+  background: color-mix(in srgb, var(--manager-accent) 6%, transparent);
+}
+
+.task-manager-completed-group__header-main {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-manager-completed-group__chevron {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+}
+
+.task-manager-completed-group__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.task-manager-completed-group__count {
+  background: var(--b3-theme-primary-light);
+  border-radius: 999px;
+  color: var(--manager-accent);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  min-width: 20px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.task-manager-completed-group__body {
+  border-top: 1px solid var(--manager-border);
+}
+
+.task-manager-completed-group__body .task-manager-table-wrap,
+.task-manager-completed-group__body .task-manager-table {
+  border-radius: 0;
+}
+
 .task-manager-table {
   border-collapse: separate;
   border-spacing: 0;

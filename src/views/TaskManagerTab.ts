@@ -43,6 +43,13 @@ interface TaskManagerTabData {
   search?: string;
 }
 
+interface CompletedMonthGroup {
+  key: string;
+  label: string;
+  tasks: TaskItem[];
+  tree: TaskTreeNode[];
+}
+
 interface TaskTreeNode {
   task: TaskItem;
   children: TaskTreeNode[];
@@ -102,6 +109,8 @@ export class TaskManagerTab {
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
+  private expandedCompletedMonths = new Set<string>();
+  private completedMonthStateInitialized = false;
   private calendarUnplannedVisible = false;
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
@@ -203,24 +212,38 @@ export class TaskManagerTab {
   }
 
   private renderCompletedView(tasks: TaskItem[]): string {
-    const tree = buildCompletedTaskTree(tasks);
-
+    const groups = groupCompletedTasksByCreatedMonth(tasks);
+    this.initializeCompletedMonthState(groups);
     const tableWidth = this.completedTableWidth();
 
-    return `<div class="task-manager-table-wrap">
-  <table class="task-manager-table task-manager-completed-table" style="width: ${tableWidth}px; min-width: ${tableWidth}px;">
-    <colgroup>
-      ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.completedTableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
-    </colgroup>
-    <thead>
-      <tr>
-        ${COMPLETED_TABLE_COLUMNS.map((column) => this.renderTableHeaderCell(column)).join("")}
-      </tr>
-    </thead>
-    <tbody>
-      ${tree.map((node) => this.renderCompletedTableNode(node, 0)).join("")}
-    </tbody>
-  </table>
+    return `<div class="task-manager-completed-groups task-manager-table-wrap">
+  ${groups.map((group) => {
+    const expanded = this.expandedCompletedMonths.has(group.key);
+    return `<section class="task-manager-completed-group">
+      <button class="task-manager-completed-group__header" data-action="toggle-completed-month" data-month="${escapeAttr(group.key)}" aria-expanded="${expanded}" title="${expanded ? "折叠月份" : "展开月份"}">
+        <span class="task-manager-completed-group__header-main">
+          <span class="task-manager-completed-group__chevron">${renderChevron(expanded)}</span>
+          <span class="task-manager-completed-group__title">${escapeHtml(group.label)}</span>
+        </span>
+        <span class="task-manager-completed-group__count">${group.tasks.length}</span>
+      </button>
+      ${expanded ? `<div class="task-manager-completed-group__body">
+        <table class="task-manager-table task-manager-completed-table" style="width: ${tableWidth}px; min-width: ${tableWidth}px;">
+          <colgroup>
+            ${COMPLETED_TABLE_COLUMNS.map((column) => `<col style="width: ${this.completedTableColumnWidths[column.key]}px; min-width: ${column.minWidth}px;" />`).join("")}
+          </colgroup>
+          <thead>
+            <tr>
+              ${COMPLETED_TABLE_COLUMNS.map((column) => this.renderTableHeaderCell(column)).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${group.tree.map((node) => this.renderCompletedTableNode(node, 0)).join("")}
+          </tbody>
+        </table>
+      </div>` : ""}
+    </section>`;
+  }).join("")}
 </div>`;
   }
 
@@ -654,6 +677,20 @@ export class TaskManagerTab {
         this.render();
         return;
       }
+      if (action === "toggle-completed-month") {
+        const monthKey = actionButton.dataset.month;
+        if (!monthKey) {
+          return;
+        }
+        if (this.expandedCompletedMonths.has(monthKey)) {
+          this.expandedCompletedMonths.delete(monthKey);
+        } else {
+          this.expandedCompletedMonths.add(monthKey);
+        }
+        this.completedMonthStateInitialized = true;
+        this.render();
+        return;
+      }
     }
 
     const taskAction = target.closest<HTMLElement>("[data-task-action]");
@@ -785,27 +822,33 @@ export class TaskManagerTab {
   }
 
   private applyTableColumnWidths(): void {
-    const table = this.container.querySelector<HTMLTableElement>(".task-manager-table");
-    const cols = table?.querySelectorAll<HTMLTableColElement>("colgroup col");
-    if (!table || !cols?.length) {
+    const tables = Array.from(this.container.querySelectorAll<HTMLTableElement>(".task-manager-table"));
+    if (!tables.length) {
       return;
-    }
-
-    if (this.view === "completed") {
-      const tableWidth = this.completedTableWidth();
-      table.style.width = `${tableWidth}px`;
-      table.style.minWidth = `${tableWidth}px`;
     }
 
     const columns = this.currentTableColumns();
     const widths = this.currentTableColumnWidths();
-    columns.forEach((column, index) => {
-      const col = cols[index];
-      if (col) {
-        col.style.width = `${widths[column.key]}px`;
-        col.style.minWidth = `${column.minWidth}px`;
+    for (const table of tables) {
+      const cols = table.querySelectorAll<HTMLTableColElement>("colgroup col");
+      if (!cols.length) {
+        continue;
       }
-    });
+
+      if (this.view === "completed") {
+        const tableWidth = this.completedTableWidth();
+        table.style.width = `${tableWidth}px`;
+        table.style.minWidth = `${tableWidth}px`;
+      }
+
+      columns.forEach((column, index) => {
+        const col = cols[index];
+        if (col) {
+          col.style.width = `${widths[column.key]}px`;
+          col.style.minWidth = `${column.minWidth}px`;
+        }
+      });
+    }
   }
 
   private currentTableColumns(): TableColumnDef[] {
@@ -923,6 +966,14 @@ export class TaskManagerTab {
       showMessage(error instanceof Error ? error.message : "更新任务失败", 5000, "error");
       this.render();
     }
+  }
+
+  private initializeCompletedMonthState(groups: CompletedMonthGroup[]): void {
+    if (this.completedMonthStateInitialized || !groups.length) {
+      return;
+    }
+    this.expandedCompletedMonths = new Set(groups.slice(0, 2).map((group) => group.key));
+    this.completedMonthStateInitialized = true;
   }
 
   private tasksForCurrentView(): TaskItem[] {
@@ -1056,6 +1107,25 @@ function buildCompletedTaskTree(tasks: TaskItem[]): TaskTreeNode[] {
   return roots;
 }
 
+function groupCompletedTasksByCreatedMonth(tasks: TaskItem[]): CompletedMonthGroup[] {
+  const groups = new Map<string, TaskItem[]>();
+  for (const task of tasks) {
+    const key = createdMonthKey(task.createdAt);
+    const group = groups.get(key) || [];
+    group.push(task);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, groupTasks]) => ({
+      key,
+      label: formatCompletedMonthLabel(key),
+      tasks: groupTasks,
+      tree: buildCompletedTaskTree(groupTasks)
+    }));
+}
+
 function completedParentNode(task: TaskItem, nodes: Map<string, TaskTreeNode>, nodesByPath: Map<string, TaskTreeNode>): TaskTreeNode | undefined {
   if (task.parentId) {
     return nodes.get(task.parentId);
@@ -1063,6 +1133,19 @@ function completedParentNode(task: TaskItem, nodes: Map<string, TaskTreeNode>, n
 
   const parentPath = parentTaskPathKey(task.path);
   return parentPath ? nodesByPath.get(parentPath) : undefined;
+}
+
+function createdMonthKey(value?: string): string {
+  const dateKey = toDateKey(value);
+  return dateKey ? dateKey.slice(0, 7) : "未分组";
+}
+
+function formatCompletedMonthLabel(monthKey: string): string {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    return monthKey;
+  }
+  const [year, month] = monthKey.split("-");
+  return `${year}年${Number(month)}月`;
 }
 
 function taskPathKey(path?: string): string {
