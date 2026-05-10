@@ -212,11 +212,8 @@ export class TaskService {
       });
     }
 
-    for (const item of topLevelDocumentTasks(selectedTasks)) {
-      const block = await getBlockById(item.docId).catch(() => undefined);
-      if (block?.box && block.path) {
-        await removeDoc(block.box, block.path);
-      }
+    for (const doc of await resolveTopLevelTaskDocuments(selectedTasks)) {
+      await removeDoc(doc.notebookId, doc.path);
     }
 
     const removed = await this.store.removeMany(ids);
@@ -433,20 +430,36 @@ function expandWithDescendantsAndPaths(tasks: TaskItem[], ids: string[]): string
   return Array.from(selected);
 }
 
-function topLevelDocumentTasks(tasks: TaskItem[]): TaskItem[] {
-  return tasks.filter((task) => {
-    const path = taskPathKey(task.path);
-    if (!path) {
-      return false;
+async function resolveTopLevelTaskDocuments(tasks: TaskItem[]): Promise<Array<{ notebookId: string; path: string }>> {
+  const documents: Array<{ taskId: string; notebookId: string; path: string; key: string }> = [];
+  for (const task of tasks) {
+    const doc = await resolveTaskDocument(task);
+    const key = taskPathKey(doc?.path);
+    if (doc && key) {
+      documents.push({ taskId: task.id, notebookId: doc.notebookId, path: doc.path, key });
     }
-    return !tasks.some((other) => {
-      if (other.id === task.id || other.notebookId !== task.notebookId) {
+  }
+
+  return documents
+    .filter((doc) => !documents.some((other) => {
+      if (other.taskId === doc.taskId || other.notebookId !== doc.notebookId) {
         return false;
       }
-      const otherPath = taskPathKey(other.path);
-      return otherPath ? isDescendantPath(path, otherPath) : false;
-    });
-  });
+      return isDescendantPath(doc.key, other.key);
+    }))
+    .map(({ notebookId, path }) => ({ notebookId, path }));
+}
+
+async function resolveTaskDocument(task: TaskItem): Promise<{ notebookId: string; path: string } | undefined> {
+  if (task.notebookId && taskPathKey(task.path)) {
+    return { notebookId: task.notebookId, path: task.path };
+  }
+
+  const block = await getBlockById(task.docId).catch(() => undefined);
+  if (block?.box && block.path) {
+    return { notebookId: block.box, path: block.path };
+  }
+  return undefined;
 }
 
 function isDescendantPath(path: string, parentPath: string): boolean {

@@ -16,7 +16,6 @@ import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
-const MANAGER_DOCK_TYPE = "task_tracker_manager_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
 
 export default class TaskTrackerPlugin extends Plugin {
@@ -25,6 +24,8 @@ export default class TaskTrackerPlugin extends Plugin {
   private ready: Promise<void>;
   private taskDock?: TaskDock;
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
+  private managerShortcutElement?: HTMLElement;
+  private managerShortcutObserver?: MutationObserver;
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
   private wsMainHandler = this.handleWsMain.bind(this);
@@ -58,7 +59,6 @@ export default class TaskTrackerPlugin extends Plugin {
     });
 
     this.registerDock();
-    this.registerManagerDockShortcut();
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
@@ -74,9 +74,14 @@ export default class TaskTrackerPlugin extends Plugin {
         this.openTopBarMenu(rect);
       }
     });
+    this.createManagerShortcut();
   }
 
   onunload(): void {
+    this.managerShortcutObserver?.disconnect();
+    this.managerShortcutObserver = undefined;
+    this.managerShortcutElement?.remove();
+    this.managerShortcutElement = undefined;
     this.taskDock?.destroy();
     for (const view of this.managerViews.values()) {
       view.destroy();
@@ -118,27 +123,27 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
-  private registerManagerDockShortcut(): void {
-    const plugin = this;
-    this.addDock({
-      type: MANAGER_DOCK_TYPE,
-      config: {
-        position: "LeftBottom",
-        size: { width: 0, height: 0 },
-        icon: "iconTaskManagerTable",
-        title: "任务控制面板",
-        index: 1
-      },
-      data: {},
-      init() {
-        const dock = this as any;
-        void plugin.openTaskManager().finally(() => dock.tab?.close?.());
-      },
-      update() {
-        const dock = this as any;
-        void plugin.openTaskManager().finally(() => dock.tab?.close?.());
+  private createManagerShortcut(): void {
+    const button = document.createElement("button");
+    button.className = "dock__item ariaLabel task-tracker-manager-shortcut";
+    button.type = "button";
+    button.setAttribute("aria-label", "任务控制面板");
+    button.setAttribute("data-position", "east");
+    button.innerHTML = `<svg><use xlink:href="#iconTaskManagerTable"></use></svg>`;
+    button.addEventListener("click", () => void this.openTaskManager());
+    this.managerShortcutElement = button;
+
+    const insert = () => {
+      if (!this.managerShortcutElement || this.managerShortcutElement.isConnected) {
+        return;
       }
-    });
+      const taskDockButton = document.querySelector<HTMLElement>(`.dock__item[data-type="${DOCK_TYPE}"]`);
+      taskDockButton?.parentElement?.insertBefore(this.managerShortcutElement, taskDockButton.nextSibling);
+    };
+
+    insert();
+    this.managerShortcutObserver = new MutationObserver(insert);
+    this.managerShortcutObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   private registerManagerTab(): void {
