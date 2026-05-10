@@ -212,9 +212,7 @@ export class TaskService {
       });
     }
 
-    for (const doc of await resolveTopLevelTaskDocuments(selectedTasks)) {
-      await removeDoc(doc.notebookId, doc.path);
-    }
+    await deleteTaskDocuments(selectedTasks);
 
     const removed = await this.store.removeMany(ids);
     if (removed > 0) {
@@ -430,36 +428,43 @@ function expandWithDescendantsAndPaths(tasks: TaskItem[], ids: string[]): string
   return Array.from(selected);
 }
 
-async function resolveTopLevelTaskDocuments(tasks: TaskItem[]): Promise<Array<{ notebookId: string; path: string }>> {
-  const documents: Array<{ taskId: string; notebookId: string; path: string; key: string }> = [];
-  for (const task of tasks) {
-    const doc = await resolveTaskDocument(task);
-    const key = taskPathKey(doc?.path);
-    if (doc && key) {
-      documents.push({ taskId: task.id, notebookId: doc.notebookId, path: doc.path, key });
+async function deleteTaskDocuments(tasks: TaskItem[]): Promise<void> {
+  const documents = await resolveTaskDocuments(tasks);
+  const topLevelDocs = documents.filter((doc) => !documents.some((other) => {
+    if (other.taskId === doc.taskId || other.notebookId !== doc.notebookId) {
+      return false;
     }
+    return isDescendantPath(doc.key, other.key);
+  }));
+
+  for (const doc of topLevelDocs) {
+    await removeDoc(doc.notebookId, doc.path);
   }
 
-  return documents
-    .filter((doc) => !documents.some((other) => {
-      if (other.taskId === doc.taskId || other.notebookId !== doc.notebookId) {
-        return false;
-      }
-      return isDescendantPath(doc.key, other.key);
-    }))
-    .map(({ notebookId, path }) => ({ notebookId, path }));
+  const existingDocs = await Promise.all(documents.map(async (doc) => ({
+    ...doc,
+    exists: Boolean(await getBlockById(doc.docId).catch(() => undefined))
+  })));
+  const remaining = existingDocs.filter((doc) => doc.exists);
+  if (remaining.length > 0) {
+    throw new Error(`任务文档删除失败：${remaining.map((doc) => doc.title).join("、")}`);
+  }
 }
 
-async function resolveTaskDocument(task: TaskItem): Promise<{ notebookId: string; path: string } | undefined> {
-  if (task.notebookId && taskPathKey(task.path)) {
-    return { notebookId: task.notebookId, path: task.path };
+async function resolveTaskDocuments(tasks: TaskItem[]): Promise<Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string }>> {
+  const documents: Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string }> = [];
+  for (const task of tasks) {
+    const block = await getBlockById(task.docId);
+    if (!block?.box || !block.path) {
+      throw new Error(`无法读取任务文档：${task.title}`);
+    }
+    const key = taskPathKey(block.path);
+    if (!key) {
+      throw new Error(`无法读取任务文档路径：${task.title}`);
+    }
+    documents.push({ taskId: task.id, docId: task.docId, title: task.title, notebookId: block.box, path: block.path, key });
   }
-
-  const block = await getBlockById(task.docId).catch(() => undefined);
-  if (block?.box && block.path) {
-    return { notebookId: block.box, path: block.path };
-  }
-  return undefined;
+  return documents;
 }
 
 function isDescendantPath(path: string, parentPath: string): boolean {

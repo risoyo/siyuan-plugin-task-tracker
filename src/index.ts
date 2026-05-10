@@ -1,5 +1,4 @@
 import {
-  Menu,
   Plugin,
   Setting,
   openTab,
@@ -24,8 +23,6 @@ export default class TaskTrackerPlugin extends Plugin {
   private ready: Promise<void>;
   private taskDock?: TaskDock;
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
-  private managerShortcutElement?: HTMLElement;
-  private managerShortcutObserver?: MutationObserver;
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
   private wsMainHandler = this.handleWsMain.bind(this);
@@ -69,19 +66,11 @@ export default class TaskTrackerPlugin extends Plugin {
       icon: "iconTaskTracker",
       title: "任务追踪",
       position: "right",
-      callback: (event) => {
-        const rect = (event.target as HTMLElement).getBoundingClientRect();
-        this.openTopBarMenu(rect);
-      }
+      callback: () => void this.openTaskManager()
     });
-    this.createManagerShortcut();
   }
 
   onunload(): void {
-    this.managerShortcutObserver?.disconnect();
-    this.managerShortcutObserver = undefined;
-    this.managerShortcutElement?.remove();
-    this.managerShortcutElement = undefined;
     this.taskDock?.destroy();
     for (const view of this.managerViews.values()) {
       view.destroy();
@@ -121,29 +110,6 @@ export default class TaskTrackerPlugin extends Plugin {
         this.taskDock = undefined;
       }
     });
-  }
-
-  private createManagerShortcut(): void {
-    const button = document.createElement("button");
-    button.className = "dock__item ariaLabel task-tracker-manager-shortcut";
-    button.type = "button";
-    button.setAttribute("aria-label", "任务控制面板");
-    button.setAttribute("data-position", "east");
-    button.innerHTML = `<svg><use xlink:href="#iconTaskManagerTable"></use></svg>`;
-    button.addEventListener("click", () => void this.openTaskManager());
-    this.managerShortcutElement = button;
-
-    const insert = () => {
-      if (!this.managerShortcutElement || this.managerShortcutElement.isConnected) {
-        return;
-      }
-      const taskDockButton = document.querySelector<HTMLElement>(`.dock__item[data-type="${DOCK_TYPE}"]`);
-      taskDockButton?.parentElement?.insertBefore(this.managerShortcutElement, taskDockButton.nextSibling);
-    };
-
-    insert();
-    this.managerShortcutObserver = new MutationObserver(insert);
-    this.managerShortcutObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   private registerManagerTab(): void {
@@ -219,32 +185,6 @@ export default class TaskTrackerPlugin extends Plugin {
       openTaskManager: () => void this.openTaskManager(),
       setCurrentDocAsRoot: () => void this.setCurrentDocAsRoot()
     };
-  }
-
-  private openTopBarMenu(rect: DOMRect): void {
-    const menu = new Menu("taskTrackerTopBar");
-    menu.addItem({
-      icon: "iconAdd",
-      label: "新建任务",
-      click: () => void this.showTaskDialog()
-    });
-    menu.addItem({
-      icon: "iconTaskTracker",
-      label: "打开任务控制面板",
-      click: () => void this.openTaskManager()
-    });
-    menu.addItem({
-      icon: "iconSettings",
-      label: "插件设置",
-      click: () => {
-        this.openSetting();
-      }
-    });
-    menu.open({
-      x: rect.right,
-      y: rect.bottom,
-      isLeft: true
-    });
   }
 
   private handleDocumentMenu({ detail }: any): void {
