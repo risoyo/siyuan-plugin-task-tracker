@@ -69,6 +69,7 @@ interface RowActionOptions {
   showEdit?: boolean;
   showDelete?: boolean;
   deleteOnly?: boolean;
+  completedView?: boolean;
 }
 
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
@@ -286,7 +287,7 @@ export class TaskManagerTab {
       return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
     }
     if (key === "actions") {
-      return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, deleteOnly: true })}</td>`;
+      return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, completedView: true })}</td>`;
     }
     return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
   }
@@ -607,12 +608,19 @@ export class TaskManagerTab {
     const editButton = options.showEdit || !useCompact
       ? `<button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>`
       : "";
-    const deleteButton = options.showDelete || options.deleteOnly
+    const deleteButton = (options.showDelete || options.deleteOnly || options.completedView)
       ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconTaskTrackerTrash"></use></svg></button>`
       : "";
 
     if (options.deleteOnly) {
       return `<span class="task-manager-actions${listClass}">${deleteButton}</span>`;
+    }
+
+    if (options.completedView) {
+      return `<span class="task-manager-actions${listClass}">
+        <button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>
+        ${deleteButton}
+      </span>`;
     }
 
     return `<span class="task-manager-actions${listClass}">

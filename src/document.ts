@@ -603,9 +603,10 @@ async function ensureArchiveRootDoc(settings: TaskSettings): Promise<string> {
 }
 
 async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Promise<string> {
-  const archiveRootPath = await ensureArchiveRootDoc(settings);
-  const archiveRootHPath = stripDocSuffix(archiveRootPath);
-  return ensureArchiveDoc(settings, archiveRootHPath, month);
+  const rootHPath = await resolveParentHPath(settings);
+  const archiveHPath = normalizeHPath(`${rootHPath === "/" ? "" : rootHPath}/已完成`);
+  await ensureArchiveRootDoc(settings);
+  return ensureArchiveDoc(settings, archiveHPath, month);
 }
 
 function archiveMonth(createdAt: string): string {
