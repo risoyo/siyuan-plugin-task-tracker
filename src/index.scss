@@ -339,6 +339,7 @@
 }
 
 .task-manager--table .task-manager-actions,
+.task-manager--completed .task-manager-actions,
 .task-manager-card__header .task-manager-actions {
   align-items: center;
   display: inline-flex;
@@ -346,7 +347,8 @@
   gap: 2px;
 }
 
-.task-manager--table .task-manager-task__row-actions {
+.task-manager--table .task-manager-task__row-actions,
+.task-manager--completed .task-manager-task__row-actions {
   margin-left: 8px;
   min-width: max-content;
 }
@@ -357,6 +359,7 @@
 }
 
 .task-manager--table .task-manager-task__action-button,
+.task-manager--completed .task-manager-task__action-button,
 .task-manager-card__header .task-manager-task__action-button {
   align-items: center;
   appearance: none;
@@ -375,18 +378,27 @@
 }
 
 .task-manager--table .task-manager-task__action-button:hover,
+.task-manager--completed .task-manager-task__action-button:hover,
 .task-manager-card__header .task-manager-task__action-button:hover {
   background: color-mix(in srgb, var(--manager-accent) 8%, transparent);
   color: var(--manager-accent);
 }
 
 .task-manager--table .task-manager-task__action-button svg,
+.task-manager--completed .task-manager-task__action-button svg,
 .task-manager-card__header .task-manager-task__action-button svg {
   color: currentColor;
   fill: currentColor;
   height: 12px;
   pointer-events: none;
   width: 12px;
+}
+
+.task-manager--table .task-manager-task__action-button[data-task-action="delete"] svg,
+.task-manager--completed .task-manager-task__action-button[data-task-action="delete"] svg,
+.task-manager-card__header .task-manager-task__action-button[data-task-action="delete"] svg {
+  height: 16px;
+  width: 16px;
 }
 
 .task-manager-list,
@@ -1123,6 +1135,7 @@
   min-height: 0;
   overflow: hidden;
   padding-left: 12px;
+  padding-top: 12px;
   position: absolute;
   right: 12px;
   top: 12px;
@@ -1136,8 +1149,11 @@
 }
 
 .task-manager-calendar__aside-title {
+  color: var(--b3-theme-on-background);
+  font-size: 18px;
   font-weight: 700;
-  margin-bottom: 8px;
+  line-height: 1.35;
+  margin-bottom: 10px;
 }
 
 /* Task Tracker Settings & Dialog */

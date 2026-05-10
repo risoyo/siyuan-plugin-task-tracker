@@ -16,6 +16,7 @@ import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
+const MANAGER_DOCK_TYPE = "task_tracker_manager_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
 
 export default class TaskTrackerPlugin extends Plugin {
@@ -57,6 +58,7 @@ export default class TaskTrackerPlugin extends Plugin {
     });
 
     this.registerDock();
+    this.registerManagerDockShortcut();
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
@@ -116,6 +118,28 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
+  private registerManagerDockShortcut(): void {
+    const plugin = this;
+    this.addDock({
+      type: MANAGER_DOCK_TYPE,
+      config: {
+        position: "LeftBottom",
+        size: { width: 0, height: 0 },
+        icon: "iconTaskManagerTable",
+        title: "任务控制面板",
+        index: 1
+      },
+      data: {},
+      init() {
+        const dock = this as any;
+        void plugin.openTaskManager().finally(() => dock.tab?.close?.());
+      },
+      update() {
+        const dock = this as any;
+        void plugin.openTaskManager().finally(() => dock.tab?.close?.());
+      }
+    });
+  }
 
   private registerManagerTab(): void {
     const plugin = this;

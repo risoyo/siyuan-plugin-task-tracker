@@ -214,8 +214,8 @@ export class TaskService {
 
     for (const item of topLevelDocumentTasks(selectedTasks)) {
       const block = await getBlockById(item.docId).catch(() => undefined);
-      if (block) {
-        await removeDoc(item.notebookId, item.path);
+      if (block?.box && block.path) {
+        await removeDoc(block.box, block.path);
       }
     }
 
