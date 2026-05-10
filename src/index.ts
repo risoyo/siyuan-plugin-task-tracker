@@ -16,7 +16,6 @@ import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
-const MANAGER_DOCK_TYPE = "task_tracker_manager_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
 
 export default class TaskTrackerPlugin extends Plugin {
@@ -44,6 +43,9 @@ export default class TaskTrackerPlugin extends Plugin {
 </symbol>
 <symbol id="iconTaskManagerKanban" viewBox="0 0 32 32">
 <path d="M6 6h20c1.105 0 2 .895 2 2v16c0 1.105-.895 2-2 2h-20c-1.105 0-2-.895-2-2v-16c0-1.105.895-2 2-2zM6.667 8.667v14.667h5.333v-14.667h-5.333zM14.667 8.667v14.667h4.667v-14.667h-4.667zM22 8.667v14.667h3.333v-14.667h-3.333z"></path>
+</symbol>
+<symbol id="iconTaskTrackerTrash" viewBox="0 0 32 32">
+<path d="M11.333 5.333h9.333l1.333 2.667h4.667v2.667h-21.333v-2.667h4.667l1.333-2.667zM8 13.333h16l-1.333 13.333c-.073.752-.705 1.333-1.46 1.333h-10.413c-.755 0-1.387-.581-1.46-1.333l-1.333-13.333zM12 16v8h2.667v-8h-2.667zM17.333 16v8h2.667v-8h-2.667z"></path>
 </symbol>`);
 
     this.store = new TaskStore(this);
@@ -55,7 +57,6 @@ export default class TaskTrackerPlugin extends Plugin {
     });
 
     this.registerDock();
-    this.registerManagerDock();
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
@@ -115,33 +116,6 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
-  private registerManagerDock(): void {
-    const plugin = this;
-    this.addDock({
-      type: MANAGER_DOCK_TYPE,
-      config: {
-        position: "LeftBottom",
-        size: { width: 220, height: 0 },
-        icon: "iconTaskManagerTable",
-        title: "任务控制面板",
-        index: 1
-      },
-      data: {},
-      init: (dock) => {
-        dock.element.innerHTML = `<div class="task-tracker task-tracker-empty task-tracker-empty--manager-shortcut">
-  <div class="task-tracker-empty__title">任务控制面板</div>
-  <div class="task-tracker-empty__text">点击按钮打开任务控制面板。</div>
-  <button class="b3-button b3-button--text" data-action="open-manager">打开任务控制面板</button>
-</div>`;
-        dock.element.querySelector("[data-action='open-manager']")?.addEventListener("click", () => void this.openTaskManager());
-        void this.openTaskManager();
-      },
-      update() {
-        const dock = this as any;
-        dock.element.querySelector("[data-action='open-manager']")?.addEventListener("click", () => void plugin.openTaskManager());
-      }
-    });
-  }
 
   private registerManagerTab(): void {
     const plugin = this;

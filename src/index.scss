@@ -921,12 +921,11 @@
 
 .task-manager-calendar__unplanned {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   gap: 8px;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 8px 0 2px;
+  overflow: auto;
+  padding: 10px;
 }
 
 .task-manager-card__header .task-manager-actions {
@@ -1017,16 +1016,16 @@
 .task-manager-calendar__layout {
   display: flex;
   flex: 1;
-  flex-direction: column;
-  gap: 12px;
   min-height: 0;
   overflow: hidden;
   padding: 12px;
+  position: relative;
 }
 
 .task-manager-calendar__main {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
 }
 
 .task-manager-calendar__weekdays,
@@ -1114,15 +1113,26 @@
   font-size: 12px;
 }
 
-.task-manager-calendar__unplanned-strip {
-  border-top: 1px solid var(--manager-border);
-  flex: 0 0 auto;
+.task-manager-calendar__floating-aside {
+  background: var(--manager-bg);
+  border-left: 1px solid var(--manager-border);
+  bottom: 12px;
+  box-shadow: -8px 0 18px color-mix(in srgb, var(--b3-theme-on-background) 12%, transparent);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  padding-top: 10px;
+  overflow: hidden;
+  padding-left: 12px;
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 300px;
+  z-index: 2;
 }
 
-.task-manager--calendar .task-manager-calendar__unplanned .task-manager-card {
-  flex: 0 0 260px;
+.task-manager-calendar__unplanned-toggle.is-active {
+  background: color-mix(in srgb, var(--manager-accent) 12%, transparent);
+  color: var(--manager-accent);
 }
 
 .task-manager-calendar__aside-title {

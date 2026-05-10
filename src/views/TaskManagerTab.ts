@@ -102,6 +102,7 @@ export class TaskManagerTab {
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
+  private calendarUnplannedVisible = false;
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
@@ -484,6 +485,8 @@ export class TaskManagerTab {
     <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--next" data-action="next-month" aria-label="下个月" title="下个月">${renderChevron(false)}</button>
     <input class="b3-text-field task-manager-calendar__month-input" data-field="month" type="month" value="${monthValue}" aria-label="选择月份" />
     <button class="task-manager-calendar__nav task-manager-calendar__nav--today" data-action="today-month" aria-label="回到本月" title="回到本月">今</button>
+    <span class="fn__flex-1"></span>
+    <button class="b3-button b3-button--text task-manager-calendar__unplanned-toggle ${this.calendarUnplannedVisible ? "is-active" : ""}" data-action="toggle-unplanned" aria-label="未安排任务" aria-pressed="${this.calendarUnplannedVisible}" title="未安排任务">未安排任务</button>
   </div>
   <div class="task-manager-calendar__layout">
     <section class="task-manager-calendar__main">
@@ -494,12 +497,12 @@ export class TaskManagerTab {
         ${days.map((day) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
       </div>
     </section>
-    <section class="task-manager-calendar__unplanned-strip">
-      <div class="task-manager-calendar__aside-title">未安排</div>
+    ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
+      <div class="task-manager-calendar__aside-title">未安排任务</div>
       <div class="task-manager-calendar__unplanned">
         ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
       </div>
-    </section>
+    </aside>` : ""}
   </div>
 </div>`;
   }
@@ -574,7 +577,7 @@ export class TaskManagerTab {
     const positionAttr = " data-position=\"north\"";
     const subtaskLabel = useCompact ? "添加子任务" : "创建子任务";
     const editLabel = "编辑任务";
-    const deleteLabel = "删除任务及子任务";
+    const deleteLabel = "删除任务";
     const statusLabel = task.status === "completed"
       ? "重新打开"
       : "完成任务";
@@ -582,7 +585,7 @@ export class TaskManagerTab {
       ? `<button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>`
       : "";
     const deleteButton = options.showDelete || options.deleteOnly
-      ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconClose"></use></svg></button>`
+      ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconTaskTrackerTrash"></use></svg></button>`
       : "";
 
     if (options.deleteOnly) {
@@ -643,6 +646,11 @@ export class TaskManagerTab {
       }
       if (action === "today-month") {
         this.month = monthStart(new Date());
+        this.render();
+        return;
+      }
+      if (action === "toggle-unplanned") {
+        this.calendarUnplannedVisible = !this.calendarUnplannedVisible;
         this.render();
         return;
       }
