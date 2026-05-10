@@ -21,22 +21,24 @@ Command:
 - npm run build
 
 
-2. Local Mac mini build
+2. Local machine build
 
 File:
 - scripts/build.local.mjs
 
 Purpose:
 - Build the plugin into dist/
-- Sync the built plugin to the local SiYuan plugin directory on this Mac mini
+- Sync the built plugin to the local SiYuan plugin directory on this machine
 - Keep README and i18n in the local plugin directory so the plugin remains fully usable locally
 
-Current local target priority:
+Local target priority:
+- SIYUAN_PLUGIN_DIR environment variable, if set
 - /Users/risoyo/LocalHDD/SiYuan/data/plugins/siyuan-plugin-task-tracker
 - /Users/risoyo/SiYuan/data/plugins/siyuan-plugin-task-tracker
 
 Command:
-- npm run build:local
+- SIYUAN_PLUGIN_DIR=/path/to/data/plugins/siyuan-plugin-task-tracker npm run build:local
+- or just npm run build:local if one of the known local paths exists
 
 
 3. Release packaging
@@ -52,7 +54,7 @@ Command:
 - npm run release
 
 
-4. When another machine has packaging issues
+4. When another machine has packaging or local sync issues
 
 Suggested troubleshooting order:
 - first read this file
@@ -65,7 +67,9 @@ Suggested troubleshooting order:
   - README.md
   - README_zh_CN.md
   - i18n/
+- for local sync issues, set SIYUAN_PLUGIN_DIR to that machine's plugin directory and run npm run build:local
 
 Important rule:
-- do not force one script to support every machine
-- if a machine has a different local SiYuan path, create or adjust a dedicated local build script for that machine instead of polluting scripts/build.mjs
+- do not force the release build script to support every machine
+- keep scripts/build.mjs machine-independent for release packaging
+- put machine-specific local sync configuration in SIYUAN_PLUGIN_DIR instead of polluting scripts/build.mjs

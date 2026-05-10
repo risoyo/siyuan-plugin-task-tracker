@@ -70,6 +70,11 @@ async function copyTree(sourceDir, targetDir, options = { skipReadme: true }) {
 }
 
 function resolveLocalPluginDir() {
+  const configured = process.env.SIYUAN_PLUGIN_DIR?.trim();
+  if (configured) {
+    return configured;
+  }
+
   const candidates = [
     "/Users/risoyo/LocalHDD/SiYuan/data/plugins/siyuan-plugin-task-tracker",
     "/Users/risoyo/SiYuan/data/plugins/siyuan-plugin-task-tracker"
