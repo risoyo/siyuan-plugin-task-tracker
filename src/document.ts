@@ -430,41 +430,69 @@ function expandWithDescendantsAndPaths(tasks: TaskItem[], ids: string[]): string
 
 async function deleteTaskDocuments(tasks: TaskItem[]): Promise<void> {
   const documents = await resolveTaskDocuments(tasks);
-  const topLevelDocs = documents.filter((doc) => !documents.some((other) => {
+  const topLevelDocs = documents.filter((doc) => doc.exists && !documents.some((other) => {
     if (other.taskId === doc.taskId || other.notebookId !== doc.notebookId) {
       return false;
     }
-    return isDescendantPath(doc.key, other.key);
+    return other.exists && other.key ? isDescendantPath(doc.key, other.key) : false;
   }));
 
   for (const doc of topLevelDocs) {
-    await removeDoc(doc.notebookId, doc.path);
+    await removeDoc(doc.notebookId, doc.path).catch(async (error) => {
+      if (!await taskDocumentExists(doc.docId)) {
+        return;
+      }
+      throw error;
+    });
   }
 
-  const existingDocs = await Promise.all(documents.map(async (doc) => ({
-    ...doc,
-    exists: Boolean(await getBlockById(doc.docId).catch(() => undefined))
-  })));
-  const remaining = existingDocs.filter((doc) => doc.exists);
-  if (remaining.length > 0) {
-    throw new Error(`任务文档删除失败：${remaining.map((doc) => doc.title).join("、")}`);
-  }
+  await waitForTaskDocumentsRemoved(documents.map((doc) => doc.docId));
 }
 
-async function resolveTaskDocuments(tasks: TaskItem[]): Promise<Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string }>> {
-  const documents: Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string }> = [];
+async function resolveTaskDocuments(tasks: TaskItem[]): Promise<Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string; exists: boolean }>> {
+  const documents: Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string; exists: boolean }> = [];
   for (const task of tasks) {
-    const block = await getBlockById(task.docId);
-    if (!block?.box || !block.path) {
-      throw new Error(`无法读取任务文档：${task.title}`);
+    const block = await getBlockById(task.docId).catch(() => undefined);
+    if (!block) {
+      documents.push({
+        taskId: task.id,
+        docId: task.docId,
+        title: task.title,
+        notebookId: task.notebookId,
+        path: task.path,
+        key: taskPathKey(task.path),
+        exists: false
+      });
+      continue;
+    }
+    if (!block.box || !block.path) {
+      throw new Error(`无法读取任务文档路径：${task.title}`);
     }
     const key = taskPathKey(block.path);
     if (!key) {
       throw new Error(`无法读取任务文档路径：${task.title}`);
     }
-    documents.push({ taskId: task.id, docId: task.docId, title: task.title, notebookId: block.box, path: block.path, key });
+    documents.push({ taskId: task.id, docId: task.docId, title: task.title, notebookId: block.box, path: block.path, key, exists: true });
   }
   return documents;
+}
+
+async function waitForTaskDocumentsRemoved(docIds: string[]): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const exists = await Promise.all(docIds.map(taskDocumentExists));
+    if (exists.every((value) => !value)) {
+      return;
+    }
+    await delay(80);
+  }
+}
+
+async function taskDocumentExists(docId: string): Promise<boolean> {
+  return Boolean(await getBlockById(docId).catch(() => undefined));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isDescendantPath(path: string, parentPath: string): boolean {
