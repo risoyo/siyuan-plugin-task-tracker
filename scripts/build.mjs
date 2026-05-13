@@ -39,4 +39,8 @@ if (existsSync(join(root, "i18n"))) {
   await cp(join(root, "i18n"), join(dist, "i18n"), { recursive: true });
 }
 
+if (existsSync(join(root, "docs"))) {
+  await cp(join(root, "docs"), join(dist, "docs"), { recursive: true });
+}
+
 console.log("Built SiYuan plugin to dist/");

@@ -1269,6 +1269,16 @@
   line-height: 1.7;
 }
 
+.task-tracker-help ol,
+.task-tracker-help ul {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.task-tracker-help li {
+  margin: 2px 0;
+}
+
 .task-tracker-help h2 {
   font-size: 15px;
   margin: 16px 0 6px;
@@ -1280,6 +1290,12 @@
 
 .task-tracker-help p {
   margin: 0 0 8px;
+}
+
+.task-tracker-help__warning {
+  background: color-mix(in srgb, var(--b3-card-warning-color) 10%, var(--b3-theme-surface));
+  border-left: 3px solid var(--b3-card-warning-color);
+  padding: 8px 10px;
 }
 
 .task-tracker-source {

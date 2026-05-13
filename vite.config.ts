@@ -8,7 +8,8 @@ export default defineConfig({
       targets: [
         { src: "./plugin.json", dest: "./" },
         { src: "./README*.md", dest: "./" },
-        { src: "./i18n/*", dest: "./i18n/" }
+        { src: "./i18n/*", dest: "./i18n/" },
+        { src: "./docs/*", dest: "./docs/" }
       ]
     })
   ],

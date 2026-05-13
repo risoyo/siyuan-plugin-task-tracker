@@ -9,7 +9,7 @@ File:
 
 Purpose:
 - Build the plugin into dist/
-- Include plugin.json, README.md, README_zh_CN.md, and i18n/
+- Include plugin.json, README.md, README_zh_CN.md, docs/, and i18n/
 - Do not sync to any local SiYuan plugin directory
 
 Use when:
@@ -66,6 +66,7 @@ Suggested troubleshooting order:
   - plugin.json
   - README.md
   - README_zh_CN.md
+  - docs/
   - i18n/
 - for local sync issues, set SIYUAN_PLUGIN_DIR to that machine's plugin directory and run npm run build:local
 

@@ -40,6 +40,10 @@ if (existsSync(join(root, "i18n"))) {
   await copyTree(join(root, "i18n"), join(dist, "i18n"));
 }
 
+if (existsSync(join(root, "docs"))) {
+  await copyTree(join(root, "docs"), join(dist, "docs"));
+}
+
 await syncToLocalPluginDir();
 
 console.log("Built SiYuan plugin to dist/");
