@@ -1,12 +1,13 @@
 import { Dialog, showMessage } from "siyuan";
 import {
   addMonths,
+  formatCompletedWeekLabel,
   formatDateKey,
   formatHumanDate,
   formatHumanDatetimeOrEmpty,
+  formatLocalDateTimeOrEmpty,
   formatMonthDay,
-  formatWeekLabel,
-  fromDateInput,
+  mergeDateInputWithExisting,
   monthStart,
   monthTitle,
   sameMonth,
@@ -260,13 +261,18 @@ export class TaskManagerTab {
   ${groups.map((group) => {
     const expanded = this.expandedCompletedGroups.has(group.key);
     return `<section class="task-manager-completed-group">
-      <button class="task-manager-completed-group__header" data-action="toggle-completed-group" data-group-key="${escapeAttr(group.key)}" aria-expanded="${expanded}" title="${expanded ? "折叠分组" : "展开分组"}">
-        <span class="task-manager-completed-group__header-main">
-          <span class="task-manager-completed-group__chevron">${renderChevron(expanded)}</span>
-          <span class="task-manager-completed-group__title">${escapeHtml(group.label)}</span>
+      <div class="task-manager-completed-group__header">
+        <button class="task-manager-completed-group__toggle" data-action="toggle-completed-group" data-group-key="${escapeAttr(group.key)}" aria-expanded="${expanded}" title="${expanded ? "折叠分组" : "展开分组"}" type="button">
+          <span class="task-manager-completed-group__header-main">
+            <span class="task-manager-completed-group__chevron">${renderChevron(expanded)}</span>
+            <span class="task-manager-completed-group__title">${escapeHtml(group.label)}</span>
+          </span>
+        </button>
+        <span class="task-manager-completed-group__header-side">
+          <button class="b3-button b3-button--outline task-manager-completed-group__export" data-action="export-completed-group" data-group-key="${escapeAttr(group.key)}" type="button">导出</button>
+          <span class="task-manager-completed-group__count">${group.tasks.length}</span>
         </span>
-        <span class="task-manager-completed-group__count">${group.tasks.length}</span>
-      </button>
+      </div>
       ${expanded ? `<div class="task-manager-completed-group__body">
         <table class="task-manager-table task-manager-completed-table" style="width: ${tableWidth}px; min-width: ${tableWidth}px;">
           <colgroup>
@@ -324,12 +330,12 @@ export class TaskManagerTab {
       return `<td class="task-manager-table__cell">${this.renderCompletedSourceText(task)}</td>`;
     }
     if (key === "createdAt") {
-      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
+      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.createdAt))}">${escapeHtml(formatLocalDateTimeOrEmpty(task.createdAt) || "未设置")}</span></td>`;
     }
     if (key === "actions") {
       return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, completedView: true })}</td>`;
     }
-    return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
+    return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.completedAt))}">${escapeHtml(formatLocalDateTimeOrEmpty(task.completedAt) || "未设置")}</span></td>`;
   }
 
   private renderCompletedProjectText(task: TaskItem): string {
@@ -417,7 +423,7 @@ export class TaskManagerTab {
       return `<td class="task-manager-table__cell">${this.renderTableSourceText(task)}</td>`;
     }
     if (key === "createdAt") {
-      return this.renderTableReadonlyCell(task.createdAt);
+      return this.renderTableReadonlyCell(formatLocalDateTimeOrEmpty(task.createdAt) || "未设置", formatLocalDateTimeOrEmpty(task.createdAt));
     }
     if (key === "status") {
       return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>`;
@@ -426,13 +432,13 @@ export class TaskManagerTab {
       return this.renderTableReadonlyCell(TASK_PRIORITY_LABELS[task.priority] || "");
     }
     if (key === "plan") {
-      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.planStart), task.planStart || "");
+      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.planStart), formatHumanDatetimeOrEmpty(task.planStart));
     }
     if (key === "due") {
-      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.dueDate), task.dueDate || "");
+      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.dueDate), formatHumanDatetimeOrEmpty(task.dueDate));
     }
     if (key === "completedAt") {
-      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
+      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.completedAt))}">${escapeHtml(formatLocalDateTimeOrEmpty(task.completedAt) || "未设置")}</span></td>`;
     }
     return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true, showDelete: true })}</td>`;
   }
@@ -785,6 +791,7 @@ export class TaskManagerTab {
 
   private renderCalendarView(tasks: TaskItem[]): string {
     const days = calendarDays(this.month);
+    const weekRows = Math.ceil(days.length / 7);
     const tasksByDate = groupTasksByDate(tasks);
     const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
     const monthValue = monthInputValue(this.month);
@@ -804,7 +811,7 @@ export class TaskManagerTab {
       <div class="task-manager-calendar__weekdays">
         ${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<div>${day}</div>`).join("")}
       </div>
-      <div class="task-manager-calendar__grid">
+      <div class="task-manager-calendar__grid" data-week-rows="${weekRows}">
         ${days.map((day) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
       </div>
     </section>
@@ -822,12 +829,13 @@ export class TaskManagerTab {
     const dateKey = formatDateKey(day);
     const isToday = dateKey === formatDateKey(new Date());
     const outside = !sameMonth(day, this.month);
+    const visibleTasks = tasks.slice(0, 4);
 
     return `<div class="task-manager-calendar-day ${outside ? "is-outside" : ""} ${isToday ? "is-today" : ""}" data-date="${dateKey}" role="button" tabindex="0">
   <span class="task-manager-calendar-day__num">${day.getDate()}</span>
   <div class="task-manager-calendar-day__tasks">
-    ${tasks.slice(0, 5).map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>`).join("")}
-    ${tasks.length > 5 ? `<span class="task-manager-calendar-day__more">+${tasks.length - 5}</span>` : ""}
+    ${visibleTasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>`).join("")}
+    ${tasks.length > visibleTasks.length ? `<span class="task-manager-calendar-day__more">+${tasks.length - visibleTasks.length}</span>` : ""}
   </div>
 </div>`;
   }
@@ -976,6 +984,19 @@ export class TaskManagerTab {
         this.render();
         return;
       }
+      if (action === "export-completed-group") {
+        event.preventDefault();
+        event.stopPropagation();
+        const groupKey = actionButton.dataset.groupKey;
+        if (!groupKey) {
+          return;
+        }
+        void this.runUpdate(async () => {
+          const report = await this.service.exportCompletedWeekReport(groupKey);
+          showMessage(`已导出周报：${report.title}`);
+        });
+        return;
+      }
       if (action === "toggle-completed-group") {
         const groupKey = actionButton.dataset.groupKey;
         if (!groupKey) {
@@ -1046,7 +1067,9 @@ export class TaskManagerTab {
     } else if (field.dataset.field === "priority") {
       void this.runUpdate(() => this.service.updateTask(task.id, { priority: (field as HTMLSelectElement).value as TaskPriority }));
     } else if (field.dataset.field === "planDate") {
-      void this.runUpdate(() => this.service.updateTask(task.id, { planStart: fromDateInput((field as HTMLInputElement).value) }));
+      void this.runUpdate(() => this.service.updateTask(task.id, {
+        planStart: mergeDateInputWithExisting((field as HTMLInputElement).value, task.planStart)
+      }));
     } else if (field.dataset.field === "dueDate") {
       void this.runUpdate(() => this.service.updateTask(task.id, { dueDate: (field as HTMLInputElement).value || undefined }));
     }
@@ -1424,7 +1447,7 @@ function groupCompletedTasksByWeek(tasks: TaskItem[]): CompletedGroup[] {
       const orderedTasks = [...groupTasks].sort(compareCompletedTaskDisplayOrder);
       return {
         key,
-        label: formatWeekLabel(key),
+        label: formatCompletedWeekLabel(key),
         tasks: orderedTasks,
         tree: buildCompletedTaskTree(orderedTasks)
       };
@@ -1592,9 +1615,14 @@ function normalizeTableColumnWidths(columns: TableColumnDef[], raw?: Partial<Rec
 
 function calendarDays(month: Date): Date[] {
   const first = monthStart(month);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
   const startOffset = (first.getDay() + 6) % 7;
+  const endOffset = (7 - last.getDay()) % 7;
+  const normalizedEndOffset = endOffset === 7 ? 0 : endOffset;
   const start = new Date(first.getFullYear(), first.getMonth(), first.getDate() - startOffset);
-  return Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
+  const end = new Date(last.getFullYear(), last.getMonth(), last.getDate() + normalizedEndOffset);
+  const dayCount = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  return Array.from({ length: dayCount }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
 }
 
 function groupTasksByDate(tasks: TaskItem[]): Record<string, TaskItem[]> {

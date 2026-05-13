@@ -162,4 +162,10 @@ export const TASK_ATTRS = {
   sourceText: "custom-task-tracker-source-text"
 } as const;
 
+export const REPORT_ATTRS = {
+  kind: "custom-task-tracker-doc-kind"
+} as const;
+
+export const WEEKLY_REPORT_KIND = "weekly-report";
+
 export const SOURCE_TASK_IDS_ATTR = "custom-task-tracker-task-ids";

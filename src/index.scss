@@ -209,19 +209,28 @@
 
 .task-manager-completed-group__header {
   align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.task-manager-completed-group__toggle {
+  align-items: center;
   appearance: none;
   background: transparent;
   border: 0;
   color: var(--b3-theme-on-background);
   cursor: pointer;
   display: flex;
-  justify-content: space-between;
-  padding: 12px 14px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
 }
 
-.task-manager-completed-group__header:hover {
-  background: color-mix(in srgb, var(--manager-accent) 6%, transparent);
+.task-manager-completed-group__toggle:hover {
+  color: var(--manager-accent);
 }
 
 .task-manager-completed-group__header-main {
@@ -241,6 +250,22 @@
 .task-manager-completed-group__title {
   font-size: 14px;
   font-weight: 600;
+}
+
+.task-manager-completed-group__header-side {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.task-manager-completed-group__export {
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.task-manager-completed-group__export:hover {
+  color: var(--manager-accent);
 }
 
 .task-manager-completed-group__count {
@@ -1206,8 +1231,15 @@
 .task-manager-calendar__grid {
   border-left: 1px solid var(--manager-border);
   border-top: 1px solid var(--manager-border);
-  height: calc(100% - 24px);
   min-height: 520px;
+}
+
+.task-manager-calendar__grid[data-week-rows="5"] {
+  grid-template-rows: repeat(5, minmax(112px, 1fr));
+}
+
+.task-manager-calendar__grid[data-week-rows="6"] {
+  grid-template-rows: repeat(6, minmax(92px, 1fr));
 }
 
 .task-manager-calendar-day {
@@ -1219,8 +1251,9 @@
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  min-height: 88px;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   padding: 6px;
   text-align: left;
 }
@@ -1246,10 +1279,13 @@
 
 .task-manager-calendar-day__tasks {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 4px;
   margin-top: 6px;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .task-manager-calendar-pill {
@@ -1260,7 +1296,7 @@
   color: var(--b3-theme-on-background);
   cursor: pointer;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.35;
   min-width: 0;
   overflow: hidden;
   padding: 2px 5px;

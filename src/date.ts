@@ -76,6 +76,27 @@ export function fromDateInput(value?: string, hour = 9): string | undefined {
   return date.toISOString();
 }
 
+export function mergeDateInputWithExisting(value: string | undefined, existing?: string, defaultHour = 9): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const existingDate = existing ? new Date(existing) : undefined;
+  if (!existingDate || Number.isNaN(existingDate.getTime())) {
+    return fromDateInput(value, defaultHour);
+  }
+  const nextDate = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(nextDate.getTime())) {
+    return undefined;
+  }
+  nextDate.setHours(
+    existingDate.getHours(),
+    existingDate.getMinutes(),
+    existingDate.getSeconds(),
+    existingDate.getMilliseconds()
+  );
+  return nextDate.toISOString();
+}
+
 export function isActiveDateBeforeToday(value?: string): boolean {
   const key = toDateKey(value);
   if (!key) {
@@ -118,6 +139,31 @@ export function weekKey(value?: string): string {
   return formatDateKey(startOfWeek(new Date(`${key}T00:00:00`)));
 }
 
+export function weekNumber(value: string | Date): number | undefined {
+  const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  const weekStart = startOfWeek(date);
+  const firstWeekStart = startOfWeek(new Date(weekStart.getFullYear(), 0, 1));
+  const diffMs = weekStart.getTime() - firstWeekStart.getTime();
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
+}
+
+export function formatWeekRangeCompact(key: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    return key;
+  }
+  const start = new Date(`${key}T00:00:00`);
+  if (Number.isNaN(start.getTime())) {
+    return key;
+  }
+  const end = endOfWeek(start);
+  const startLabel = `${(start.getMonth() + 1).toString().padStart(2, "0")}.${start.getDate().toString().padStart(2, "0")}`;
+  const endLabel = `${(end.getMonth() + 1).toString().padStart(2, "0")}.${end.getDate().toString().padStart(2, "0")}`;
+  return `${startLabel}~${endLabel}`;
+}
+
 export function formatWeekLabel(key: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
     return key;
@@ -129,24 +175,35 @@ export function formatWeekLabel(key: string): string {
   return `${formatDateKey(start)} 至 ${formatDateKey(endOfWeek(start))}`;
 }
 
-export function formatHumanDate(value?: string): string {
-  const key = toDateKey(value);
-  return key || "未设置";
+export function formatCompletedWeekLabel(key: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    return key;
+  }
+  const start = new Date(`${key}T00:00:00`);
+  if (Number.isNaN(start.getTime())) {
+    return key;
+  }
+  const number = weekNumber(start);
+  if (!number) {
+    return key;
+  }
+  return `${start.getFullYear()}年Week${number}(${formatWeekRangeCompact(key)})`;
 }
 
-export function formatHumanDatetime(value?: string): string {
-  return formatHumanDatetimeOrEmpty(value) || "未设置";
+export function formatLocalDateOrEmpty(value?: string): string {
+  return toDateKey(value);
 }
 
-export function formatHumanDatetimeOrEmpty(value?: string): string {
+export function formatLocalDate(value?: string): string {
+  return formatLocalDateOrEmpty(value) || "未设置";
+}
+
+export function formatLocalDateTimeOrEmpty(value?: string): string {
   if (!value) {
     return "";
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value;
-  }
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
-    return value.slice(0, 16).replace("T", " ");
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -154,6 +211,22 @@ export function formatHumanDatetimeOrEmpty(value?: string): string {
   }
   const pad = (input: number) => input.toString().padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function formatLocalDateTime(value?: string): string {
+  return formatLocalDateTimeOrEmpty(value) || "未设置";
+}
+
+export function formatHumanDate(value?: string): string {
+  return formatLocalDate(value);
+}
+
+export function formatHumanDatetime(value?: string): string {
+  return formatLocalDateTime(value);
+}
+
+export function formatHumanDatetimeOrEmpty(value?: string): string {
+  return formatLocalDateTimeOrEmpty(value);
 }
 
 export function formatMonthDay(value?: string): string {

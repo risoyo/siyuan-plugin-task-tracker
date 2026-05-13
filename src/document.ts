@@ -2,6 +2,7 @@ import {
   createDocWithMd,
   getBlockAttrs,
   getBlockById,
+  getDocMarkdown,
   getSyncInfo,
   getHPathById,
   moveDocs,
@@ -12,21 +13,33 @@ import {
   sqlText,
   updateBlock
 } from "./api";
-import { newSiyuanId, nowIso, toDateKey, weekKey } from "./date";
+import {
+  formatCompletedWeekLabel,
+  formatLocalDateTimeOrEmpty,
+  newSiyuanId,
+  nowIso,
+  startOfWeek,
+  toDateKey,
+  weekKey
+} from "./date";
 import { TaskStore } from "./taskStore";
 import {
   ACTIVE_TASK_STATUSES,
   DEFAULT_TASK_TEMPLATE,
+  REPORT_ATTRS,
   SOURCE_TASK_IDS_ATTR,
   TASK_ATTRS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  WEEKLY_REPORT_KIND,
   type BlockRow,
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
   type TaskSettings
 } from "./types";
+
+const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"] as const;
 
 type ChangeListener = () => void;
 
@@ -308,6 +321,39 @@ export class TaskService {
     return tasks.length;
   }
 
+  async exportCompletedWeekReport(week: string): Promise<{ docId: string; title: string }> {
+    const settings = this.store.getSettings();
+    if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
+      throw new Error("请先将一个文档设为事项库");
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
+      throw new Error("无效的周标识");
+    }
+
+    const tasks = this.store.all()
+      .filter((task) => task.status === "completed" && weekKey(task.completedAt || task.createdAt) === week)
+      .sort(compareWeeklyReportTaskOrder);
+    const weekLabel = formatCompletedWeekLabel(week);
+    const title = `${weekLabel}工作`;
+    const reportRootPath = await ensureWeeklyReportRootDoc(settings);
+    const reportRootHPath = stripDocSuffix(reportRootPath);
+    const existing = await getDocRefByHPath(settings.taskRootNotebookId, `${reportRootHPath}/${title}`);
+    const itemsBody = renderWeeklyReportItemsBody(week, tasks);
+
+    if (!existing) {
+      const markdown = renderWeeklyReportMarkdown(title, itemsBody);
+      const created = await createNamedDoc(settings.taskRootNotebookId, reportRootHPath, title, markdown);
+      await markWeeklyReportDoc(created.docId);
+      return { docId: created.docId, title };
+    }
+
+    const currentMarkdown = await readDocMarkdown(existing.id);
+    const nextMarkdown = updateWeeklyReportMarkdown(currentMarkdown, title, itemsBody);
+    await updateBlock(existing.id, nextMarkdown);
+    await markWeeklyReportDoc(existing.id);
+    return { docId: existing.id, title };
+  }
+
   private async syncTaskDocument(id: string): Promise<boolean> {
     const task = this.store.get(id);
     if (!task) {
@@ -388,6 +434,9 @@ export class TaskService {
       const batch = candidates.slice(start, start + batchSize);
       const batchTasks = await Promise.all(batch.map(async (doc) => {
         const attrs = await getBlockAttrs(doc.id).catch(() => ({}));
+        if (attrs[REPORT_ATTRS.kind] === WEEKLY_REPORT_KIND || isWeeklyReportPath(doc.path, settings)) {
+          return undefined;
+        }
         const taskId = attrs[TASK_ATTRS.id]?.trim();
         if (!taskId) {
           return undefined;
@@ -615,7 +664,7 @@ where box = '${sqlText(settings.taskRootNotebookId)}'
   and id != '${sqlText(settings.taskRootDocId)}'
   and path like '${sqlText(rootPath)}/%'
 order by path asc`);
-  return rows;
+  return rows.filter((row) => !isWeeklyReportPath(row.path, settings));
 }
 
 function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
@@ -833,6 +882,57 @@ async function ensureArchiveWeekDoc(settings: TaskSettings, week: string): Promi
   return ensureArchiveDoc(settings, archiveHPath, week);
 }
 
+async function ensureWeeklyReportRootDoc(settings: TaskSettings): Promise<string> {
+  const rootHPath = await resolveParentHPath(settings);
+  return ensureArchiveDoc(settings, rootHPath, "周报");
+}
+
+async function createNamedDoc(
+  notebookId: string,
+  parentHPath: string,
+  title: string,
+  markdown: string
+): Promise<{ docId: string; path: string }> {
+  return createTaskDocWithTitle(notebookId, parentHPath, title, markdown);
+}
+
+async function getDocRefByHPath(notebookId: string, hpath: string): Promise<{ id: string; path: string } | undefined> {
+  const rows = await sql<{ id: string; path: string }>(`select id, path from blocks
+where box = '${sqlText(notebookId)}'
+  and type = 'd'
+  and hpath = '${sqlText(normalizeHPath(hpath))}'
+limit 1`).catch(() => []);
+  return rows[0];
+}
+
+async function readDocMarkdown(docId: string): Promise<string> {
+  try {
+    const markdown = await getDocMarkdown(docId);
+    if (markdown.trim()) {
+      return markdown;
+    }
+  } catch {
+    // fall through to block markdown
+  }
+  const block = await getBlockById(docId).catch(() => undefined);
+  return block?.markdown || "";
+}
+
+async function markWeeklyReportDoc(docId: string): Promise<void> {
+  await setBlockAttrs(docId, {
+    [REPORT_ATTRS.kind]: WEEKLY_REPORT_KIND
+  });
+}
+
+function isWeeklyReportPath(path: string | undefined, settings: TaskSettings): boolean {
+  if (!path || !settings.taskRootPath) {
+    return false;
+  }
+  const rootPath = stripDocSuffix(settings.taskRootPath);
+  const reportRoot = `${rootPath}/周报`;
+  return stripDocSuffix(path).startsWith(reportRoot);
+}
+
 function archiveWeek(value?: string): string {
   return weekKey(value || nowIso());
 }
@@ -935,25 +1035,103 @@ function renderChildRefs(children: TaskItem[], mode: "inline" | "list"): string 
 }
 
 function formatTaskDate(value?: string): string {
-  const dateKey = toDateKey(value);
-  if (!dateKey) {
-    return "未设置";
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value || "")) {
-    return dateKey;
-  }
+  return formatLocalDateTimeOrEmpty(value) || "未设置";
+}
 
-  const date = new Date(value || "");
-  if (Number.isNaN(date.getTime())) {
-    return dateKey;
-  }
+function renderWeeklyReportMarkdown(title: string, itemsBody: string): string {
+  return `# ${title}
 
-  const hours = date.getHours().toString().padStart(2, "0");
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  if (hours === "00" && minutes === "00") {
-    return dateKey;
+## 本周工作事项
+${itemsBody}
+
+## 本周工作总结
+
+
+## 下周工作计划
+
+`;
+}
+
+function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
+  const weekStart = startOfWeek(new Date(`${week}T00:00:00`));
+  const groups = new Map<string, TaskItem[]>();
+  for (let offset = 0; offset < 7; offset += 1) {
+    const day = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + offset);
+    groups.set(toDateKey(day.toISOString()), []);
   }
-  return `${dateKey} ${hours}:${minutes}`;
+  for (const task of tasks) {
+    const key = toDateKey(task.completedAt || task.createdAt);
+    if (!key || !groups.has(key)) {
+      continue;
+    }
+    groups.get(key)?.push(task);
+  }
+  return WEEKDAY_LABELS.map((label, index) => {
+    const day = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + index);
+    const key = toDateKey(day.toISOString());
+    const refs = (groups.get(key) || []).map((task) => `- ${blockRef(task.docId, task.title)}`).join("\n");
+    return `### ${label}\n${refs}`.trimEnd();
+  }).join("\n\n");
+}
+
+function updateWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string): string {
+  const base = markdown.trim() ? markdown.replace(/^# .*$/m, `# ${title}`) : `# ${title}`;
+  const withItems = replaceNamedSection(base, "本周工作事项", itemsBody);
+  const withSummary = ensureNamedSection(withItems, "本周工作总结");
+  return ensureNamedSection(withSummary, "下周工作计划").trimEnd() + "\n";
+}
+
+function replaceNamedSection(markdown: string, heading: string, body: string): string {
+  const sections = findNamedSectionBounds(markdown, heading);
+  if (sections.length !== 1) {
+    if (sections.length === 0) {
+      return appendNamedSection(markdown, heading, body);
+    }
+    throw new Error(`周报结构异常：无法唯一定位“${heading}”`);
+  }
+  const section = sections[0];
+  return `${markdown.slice(0, section.bodyStart)}${body.trimEnd()}\n\n${markdown.slice(section.nextHeadingStart)}`;
+}
+
+function ensureNamedSection(markdown: string, heading: string): string {
+  const sections = findNamedSectionBounds(markdown, heading);
+  if (sections.length > 1) {
+    throw new Error(`周报结构异常：无法唯一定位“${heading}”`);
+  }
+  if (sections.length === 1) {
+    return markdown;
+  }
+  return appendNamedSection(markdown, heading, "");
+}
+
+function appendNamedSection(markdown: string, heading: string, body: string): string {
+  const trimmed = markdown.trimEnd();
+  const bodyContent = body.trimEnd();
+  return `${trimmed}\n\n## ${heading}\n${bodyContent}${bodyContent ? "\n" : "\n\n"}`;
+}
+
+function findNamedSectionBounds(markdown: string, heading: string): Array<{ bodyStart: number; nextHeadingStart: number }> {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`^## ${escapedHeading}$`, "gm");
+  const matches = Array.from(markdown.matchAll(regex));
+  return matches.map((match) => {
+    const headingStart = match.index || 0;
+    const headingEnd = headingStart + match[0].length;
+    const bodyStart = headingEnd < markdown.length && markdown[headingEnd] === "\n" ? headingEnd + 1 : headingEnd;
+    const nextHeadingMatch = /^## /gm;
+    nextHeadingMatch.lastIndex = bodyStart;
+    const next = nextHeadingMatch.exec(markdown);
+    return {
+      bodyStart,
+      nextHeadingStart: next?.index ?? markdown.length
+    };
+  });
+}
+
+function compareWeeklyReportTaskOrder(a: TaskItem, b: TaskItem): number {
+  return (a.completedAt || a.createdAt || "").localeCompare(b.completedAt || b.createdAt || "")
+    || (a.createdAt || "").localeCompare(b.createdAt || "")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
 }
 
 async function findTaskMetadataBlock(docId: string): Promise<TaskMetadataBlock | undefined> {

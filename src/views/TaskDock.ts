@@ -1,5 +1,5 @@
 import { showMessage } from "siyuan";
-import { formatMonthDay, fromDateInput, toDateKey } from "../date";
+import { formatMonthDay, mergeDateInputWithExisting, toDateKey } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml, statusOptions } from "../dialogs/TaskDialog";
 import {
@@ -187,7 +187,9 @@ export class TaskDock {
     if (field.dataset.field === "status") {
       void this.runUpdate(() => this.service.updateTask(task.id, { status: (field as HTMLSelectElement).value as TaskStatus }));
     } else if (field.dataset.field === "planDate") {
-      void this.runUpdate(() => this.service.updateTask(task.id, { planStart: fromDateInput((field as HTMLInputElement).value) }));
+      void this.runUpdate(() => this.service.updateTask(task.id, {
+        planStart: mergeDateInputWithExisting((field as HTMLInputElement).value, task.planStart)
+      }));
     } else if (field.dataset.field === "dueDate") {
       void this.runUpdate(() => this.service.updateTask(task.id, { dueDate: (field as HTMLInputElement).value || undefined }));
     }

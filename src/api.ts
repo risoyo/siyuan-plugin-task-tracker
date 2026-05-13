@@ -40,6 +40,14 @@ export async function getHPathById(id: string): Promise<string> {
   return request<string>("/api/filetree/getHPathByID", { id });
 }
 
+export async function getDocMarkdown(id: string): Promise<string> {
+  const result = await request<string | { markdown?: string; content?: string }>("/api/export/exportMdContent", { id });
+  if (typeof result === "string") {
+    return result;
+  }
+  return result?.markdown || result?.content || "";
+}
+
 export async function createDocWithMd(notebook: string, path: string, markdown: string): Promise<string> {
   return request<string>("/api/filetree/createDocWithMd", { notebook, path, markdown });
 }
