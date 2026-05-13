@@ -1,21 +1,29 @@
-import { showMessage } from "siyuan";
+import { Dialog, showMessage } from "siyuan";
 import {
   addMonths,
   formatDateKey,
   formatHumanDate,
+  formatHumanDatetimeOrEmpty,
   formatMonthDay,
+  formatWeekLabel,
   fromDateInput,
   monthStart,
   monthTitle,
   sameMonth,
-  toDateKey
+  toDateKey,
+  weekKey
 } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialog";
 import {
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  type SortDirection,
   type TableColumnKey,
+  type TablePageColumnKey,
+  type TablePageConfig,
+  type TableSortColumn,
+  type TableSortSpec,
   type TaskItem,
   type TaskPriority,
   type TaskStatus
@@ -43,11 +51,21 @@ interface TaskManagerTabData {
   search?: string;
 }
 
-interface CompletedMonthGroup {
+interface CompletedGroup {
   key: string;
   label: string;
   tasks: TaskItem[];
   tree: TaskTreeNode[];
+}
+
+interface TableConfigDialogState {
+  visibleColumns: TablePageColumnKey[];
+  columnOrder: TablePageColumnKey[];
+  currentSort: TableSortSpec;
+  defaultSort?: {
+    column: TableSortColumn;
+    direction: SortDirection;
+  };
 }
 
 interface TaskTreeNode {
@@ -96,6 +114,23 @@ const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "actions", label: "操作", defaultWidth: 96, minWidth: 84, className: "is-actions" }
 ];
 
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "createdAt", "status", "priority", "plan", "due"];
+const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default"; label: string }> = [
+  { value: "default", label: "默认" },
+  { value: "task", label: "任务" },
+  { value: "project", label: "项目" },
+  { value: "source", label: "来源" },
+  { value: "createdAt", label: "创建时间" },
+  { value: "status", label: "状态" },
+  { value: "priority", label: "优先级" },
+  { value: "plan", label: "计划" },
+  { value: "due", label: "截止" }
+];
+const SORT_DIRECTIONS: Array<{ value: SortDirection; label: string }> = [
+  { value: "asc", label: "正序" },
+  { value: "desc", label: "倒序" }
+];
+
 const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 160, minWidth: 80, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 70, minWidth: 36 },
@@ -110,8 +145,8 @@ export class TaskManagerTab {
   private search = "";
   private month = monthStart(new Date());
   private collapsedTaskIds = new Set<string>();
-  private expandedCompletedMonths = new Set<string>();
-  private completedMonthStateInitialized = false;
+  private expandedCompletedGroups = new Set<string>();
+  private completedGroupStateInitialized = false;
   private calendarUnplannedVisible = false;
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
@@ -171,6 +206,7 @@ export class TaskManagerTab {
   }
 
   private renderToolbar(count: number): string {
+    const isTableView = this.view === "table";
     return `<div class="task-manager-toolbar">
   <div class="task-manager-toolbar__title">
     <svg class="task-manager-toolbar__icon"><use xlink:href="#iconTaskTracker"></use></svg>
@@ -185,8 +221,9 @@ export class TaskManagerTab {
     <input class="b3-text-field" data-field="search" value="${escapeAttr(this.search)}" placeholder="搜索任务、项目等" />
   </label>
   <span class="fn__flex-1"></span>
+  ${isTableView ? `<button class="b3-button b3-button--outline" data-action="open-table-config"><span>字段 / 排序</span></button>` : ""}
   <button class="b3-button b3-button--text" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>新建</span></button>
-  <button class="block__icon ariaLabel" data-action="sync" aria-label="同步任务文档" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
+  ${isTableView ? "" : `<button class="block__icon ariaLabel" data-action="sync" aria-label="同步任务文档" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>`}
 </div>`;
   }
 
@@ -209,19 +246,21 @@ export class TaskManagerTab {
   }
 
   private renderTableView(tasks: TaskItem[]): string {
-    return this.renderTableLikeView(tasks, TABLE_COLUMNS);
+    const columns = this.effectiveTableColumns();
+    const sortedTasks = this.sortTasksForTable(tasks);
+    return this.renderTableLikeView(sortedTasks, columns);
   }
 
   private renderCompletedView(tasks: TaskItem[]): string {
-    const groups = groupCompletedTasksByCreatedMonth(tasks);
-    this.initializeCompletedMonthState(groups);
+    const groups = groupCompletedTasksByWeek(tasks);
+    this.initializeCompletedGroupState(groups);
     const tableWidth = this.completedTableWidth();
 
     return `<div class="task-manager-completed-groups task-manager-table-wrap">
   ${groups.map((group) => {
-    const expanded = this.expandedCompletedMonths.has(group.key);
+    const expanded = this.expandedCompletedGroups.has(group.key);
     return `<section class="task-manager-completed-group">
-      <button class="task-manager-completed-group__header" data-action="toggle-completed-month" data-month="${escapeAttr(group.key)}" aria-expanded="${expanded}" title="${expanded ? "折叠月份" : "展开月份"}">
+      <button class="task-manager-completed-group__header" data-action="toggle-completed-group" data-group-key="${escapeAttr(group.key)}" aria-expanded="${expanded}" title="${expanded ? "折叠分组" : "展开分组"}">
         <span class="task-manager-completed-group__header-main">
           <span class="task-manager-completed-group__chevron">${renderChevron(expanded)}</span>
           <span class="task-manager-completed-group__title">${escapeHtml(group.label)}</span>
@@ -247,6 +286,7 @@ export class TaskManagerTab {
   }).join("")}
 </div>`;
   }
+
 
   private completedTableWidth(): number {
     return COMPLETED_TABLE_COLUMNS.reduce((total, column) => total + this.completedTableColumnWidths[column.key], 0);
@@ -310,7 +350,7 @@ export class TaskManagerTab {
     const childCounts = countChildren(tasks);
     const matched = new Set(tasks.map((task) => task.id));
     const visible = includeAncestors(tasks, matched);
-    const tree = buildTaskTree(tasks, visible, matched);
+    const tree = sortTaskTree(buildTaskTree(tasks, visible, matched), this.tableComparator());
 
     return `<div class="task-manager-table-wrap">
   <table class="task-manager-table">
@@ -377,24 +417,271 @@ export class TaskManagerTab {
       return `<td class="task-manager-table__cell">${this.renderTableSourceText(task)}</td>`;
     }
     if (key === "createdAt") {
-      return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.createdAt || "")}">${escapeHtml(formatHumanDate(task.createdAt))}</span></td>`;
+      return this.renderTableReadonlyCell(task.createdAt);
     }
     if (key === "status") {
       return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select></td>`;
     }
     if (key === "priority") {
-      return `<td class="task-manager-table__cell"><select class="b3-select task-manager-field" data-field="priority" aria-label="任务优先级">${priorityOptions(task.priority)}</select></td>`;
+      return this.renderTableReadonlyCell(TASK_PRIORITY_LABELS[task.priority] || "");
     }
     if (key === "plan") {
-      return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="planDate" type="date" value="${toDateKey(task.planStart)}" aria-label="计划日期" /></td>`;
+      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.planStart), task.planStart || "");
     }
     if (key === "due") {
-      return `<td class="task-manager-table__cell"><input class="b3-text-field task-manager-field" data-field="dueDate" type="date" value="${task.dueDate || ""}" aria-label="截止日期" /></td>`;
+      return this.renderTableReadonlyCell(formatHumanDatetimeOrEmpty(task.dueDate), task.dueDate || "");
     }
     if (key === "completedAt") {
       return `<td class="task-manager-table__cell"><span class="task-manager-table__completed-at" title="${escapeAttr(task.completedAt || "")}">${escapeHtml(formatHumanDate(task.completedAt))}</span></td>`;
     }
     return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, showEdit: true, showDelete: true })}</td>`;
+  }
+
+  private renderTableReadonlyCell(value: string, title?: string): string {
+    return `<td class="task-manager-table__cell"><span class="task-manager-table__text task-manager-table__text--plain" title="${escapeAttr(title ?? value)}">${escapeHtml(value)}</span></td>`;
+  }
+
+  private effectiveTableColumns(): TableColumnDef[] {
+    const config = this.getTablePageConfig();
+    const visible = new Set(config.visibleColumns || TABLE_PAGE_COLUMNS);
+    const configured = (config.columnOrder || TABLE_PAGE_COLUMNS)
+      .map((key) => TABLE_COLUMNS.find((column) => column.key === key))
+      .filter((column): column is TableColumnDef => Boolean(column && visible.has(column.key as TablePageColumnKey)));
+    const fallback = TABLE_COLUMNS.filter((column) => column.key !== "actions" && visible.has(column.key as TablePageColumnKey));
+    const ordered = configured.length ? configured : fallback;
+    return [...ordered, ...TABLE_COLUMNS.filter((column) => column.key === "actions")];
+  }
+
+  private getTablePageConfig(): TablePageConfig {
+    return this.service.store.getSettings().pageConfigs?.table || {
+      visibleColumns: [...TABLE_PAGE_COLUMNS],
+      columnOrder: [...TABLE_PAGE_COLUMNS],
+      currentSort: { column: "default" }
+    };
+  }
+
+  private async updateTablePageConfig(patch: Partial<TablePageConfig>): Promise<void> {
+    const settings = this.service.store.getSettings();
+    await this.service.store.setSettings({
+      pageConfigs: {
+        ...settings.pageConfigs,
+        table: {
+          ...this.getTablePageConfig(),
+          ...patch
+        }
+      }
+    });
+  }
+
+  private tableConfigDialogState(): TableConfigDialogState {
+    const config = this.getTablePageConfig();
+    return {
+      visibleColumns: [...(config.visibleColumns || TABLE_PAGE_COLUMNS)],
+      columnOrder: [...(config.columnOrder || TABLE_PAGE_COLUMNS)],
+      currentSort: config.currentSort || { column: "default" },
+      defaultSort: config.defaultSort
+        ? { ...config.defaultSort }
+        : undefined
+    };
+  }
+
+  private async openTableConfigDialog(): Promise<void> {
+    const state = this.tableConfigDialogState();
+    const dialog = new Dialog({
+      title: "字段 / 排序",
+      content: this.renderTableConfigDialog(state),
+      width: "520px"
+    });
+
+    const content = dialog.element.querySelector<HTMLElement>(".task-manager-config");
+    if (!content) {
+      return;
+    }
+
+    const renderColumns = () => {
+      const list = content.querySelector<HTMLElement>("[data-role='column-order']");
+      if (!list) {
+        return;
+      }
+      list.innerHTML = state.columnOrder.map((column, index) => {
+        const visible = state.visibleColumns.includes(column);
+        const label = TABLE_SORT_OPTIONS.find((option) => option.value === column)?.label || column;
+        return `<div class="task-manager-config__column-row" data-column="${column}">
+  <label class="task-manager-config__column-label">
+    <input type="checkbox" data-column-visibility="${column}" ${visible ? "checked" : ""} />
+    <span>${label}</span>
+  </label>
+  <div class="task-manager-config__column-actions">
+    <button type="button" class="b3-button b3-button--outline" data-column-move="up" data-column="${column}" ${index === 0 ? "disabled" : ""}>上移</button>
+    <button type="button" class="b3-button b3-button--outline" data-column-move="down" data-column="${column}" ${index === state.columnOrder.length - 1 ? "disabled" : ""}>下移</button>
+  </div>
+</div>`;
+      }).join("");
+    };
+
+    const sortColumn = content.querySelector<HTMLSelectElement>("[name='sort-column']");
+    const sortDirection = content.querySelector<HTMLSelectElement>("[name='sort-direction']");
+    const defaultSummary = content.querySelector<HTMLElement>("[data-role='default-sort-summary']");
+
+    const renderDefaultSummary = () => {
+      if (!defaultSummary) {
+        return;
+      }
+      if (!state.defaultSort) {
+        defaultSummary.textContent = "当前未保存默认排序，将回退系统默认顺序。";
+        return;
+      }
+      const columnLabel = TABLE_SORT_OPTIONS.find((option) => option.value === state.defaultSort?.column)?.label || state.defaultSort.column;
+      const directionLabel = SORT_DIRECTIONS.find((option) => option.value === state.defaultSort?.direction)?.label || state.defaultSort.direction;
+      defaultSummary.textContent = `已保存默认排序：${columnLabel} / ${directionLabel}`;
+    };
+
+    renderColumns();
+    renderDefaultSummary();
+
+    content.addEventListener("change", (event) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLInputElement && target.dataset.columnVisibility) {
+        const column = target.dataset.columnVisibility as TablePageColumnKey;
+        if (target.checked) {
+          if (!state.visibleColumns.includes(column)) {
+            state.visibleColumns.push(column);
+          }
+        } else {
+          state.visibleColumns = state.visibleColumns.filter((item) => item !== column);
+        }
+        if (!state.visibleColumns.length) {
+          state.visibleColumns = ["task"];
+        }
+        renderColumns();
+        return;
+      }
+      if (target === sortColumn) {
+        state.currentSort = {
+          column: (sortColumn?.value || "default") as TableSortColumn | "default",
+          direction: sortDirection?.value as SortDirection | undefined
+        };
+      }
+      if (target === sortDirection && state.currentSort.column !== "default") {
+        state.currentSort = {
+          column: state.currentSort.column,
+          direction: (sortDirection?.value || "asc") as SortDirection
+        };
+      }
+    });
+
+    content.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const moveButton = target.closest<HTMLElement>("[data-column-move]");
+      if (moveButton?.dataset.column && moveButton.dataset.columnMove) {
+        const column = moveButton.dataset.column as TablePageColumnKey;
+        const delta = moveButton.dataset.columnMove === "up" ? -1 : 1;
+        const index = state.columnOrder.indexOf(column);
+        const nextIndex = index + delta;
+        if (index >= 0 && nextIndex >= 0 && nextIndex < state.columnOrder.length) {
+          const next = [...state.columnOrder];
+          next.splice(index, 1);
+          next.splice(nextIndex, 0, column);
+          state.columnOrder = next;
+          renderColumns();
+        }
+        return;
+      }
+      const action = target.closest<HTMLElement>("[data-config-action]")?.dataset.configAction;
+      if (action === "save-default") {
+        if (state.currentSort.column === "default") {
+          state.defaultSort = undefined;
+        } else {
+          state.defaultSort = {
+            column: state.currentSort.column,
+            direction: state.currentSort.direction || "asc"
+          };
+        }
+        renderDefaultSummary();
+        return;
+      }
+      if (action === "cancel") {
+        dialog.destroy();
+        return;
+      }
+      if (action === "save") {
+        void this.runUpdate(async () => {
+          await this.updateTablePageConfig({
+            visibleColumns: state.visibleColumns,
+            columnOrder: state.columnOrder,
+            currentSort: state.currentSort.column === "default"
+              ? { column: "default" }
+              : { column: state.currentSort.column, direction: state.currentSort.direction || "asc" },
+            defaultSort: state.defaultSort
+          });
+          dialog.destroy();
+          this.render();
+        });
+      }
+    });
+  }
+
+  private renderTableConfigDialog(state: TableConfigDialogState): string {
+    return `<div class="task-manager-config">
+  <div class="b3-dialog__content task-manager-config__content">
+    <section class="task-manager-config__section">
+      <div class="task-manager-config__title">字段显示与顺序</div>
+      <div class="task-manager-config__hint">勾选控制显示，使用上移/下移调整表格列顺序。</div>
+      <div class="task-manager-config__column-list" data-role="column-order"></div>
+    </section>
+    <section class="task-manager-config__section">
+      <div class="task-manager-config__title">排序</div>
+      <div class="task-manager-config__grid">
+        <label>
+          <span>当前排序</span>
+          <select class="b3-select fn__block" name="sort-column">
+            ${TABLE_SORT_OPTIONS.map((option) => `<option value="${option.value}" ${state.currentSort.column === option.value ? "selected" : ""}>${option.label}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          <span>方向</span>
+          <select class="b3-select fn__block" name="sort-direction">
+            ${SORT_DIRECTIONS.map((option) => `<option value="${option.value}" ${((state.currentSort.direction || "asc") === option.value) ? "selected" : ""}>${option.label}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="task-manager-config__default-sort" data-role="default-sort-summary"></div>
+      <div class="task-manager-config__actions-inline">
+        <button type="button" class="b3-button b3-button--outline" data-config-action="save-default">保存当前排序为默认</button>
+      </div>
+    </section>
+  </div>
+  <div class="b3-dialog__action">
+    <button type="button" class="b3-button b3-button--cancel" data-config-action="cancel">取消</button>
+    <div class="fn__space"></div>
+    <button type="button" class="b3-button b3-button--text" data-config-action="save">保存</button>
+  </div>
+</div>`;
+  }
+
+  private tableComparator(): ((a: TaskItem, b: TaskItem) => number) | undefined {
+    const sort = this.getEffectiveTableSort();
+    if (!sort) {
+      return undefined;
+    }
+    const direction = sort.direction === "desc" ? -1 : 1;
+    return (a, b) => compareTasksByColumn(a, b, sort.column) * direction;
+  }
+
+  private getEffectiveTableSort(): { column: TableSortColumn; direction: SortDirection } | undefined {
+    const config = this.getTablePageConfig();
+    const currentSort = config.currentSort;
+    if (!currentSort || currentSort.column === "default") {
+      return config.defaultSort;
+    }
+    return {
+      column: currentSort.column,
+      direction: currentSort.direction || "asc"
+    };
+  }
+
+  private sortTasksForTable(tasks: TaskItem[]): TaskItem[] {
+    return [...tasks];
   }
 
   private renderListView(tasks: TaskItem[]): string {
@@ -471,7 +758,7 @@ export class TaskManagerTab {
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
-    const groups = groupByPlanDate(tasks, { unplannedFirst: true });
+    const groups = groupByPlanDate(tasks, { unplannedFirst: true, plannedDescending: true });
     return `<div class="task-manager-timeline">
   ${groups.map((group) => `<section class="task-manager-timeline__group">
     <div class="task-manager-timeline__date">${group.label}<span>${group.tasks.length}</span></div>
@@ -661,6 +948,10 @@ export class TaskManagerTab {
         this.actions.newTask({});
         return;
       }
+      if (action === "open-table-config") {
+        void this.openTableConfigDialog();
+        return;
+      }
       if (action === "sync") {
         void this.runSync();
         return;
@@ -685,17 +976,17 @@ export class TaskManagerTab {
         this.render();
         return;
       }
-      if (action === "toggle-completed-month") {
-        const monthKey = actionButton.dataset.month;
-        if (!monthKey) {
+      if (action === "toggle-completed-group") {
+        const groupKey = actionButton.dataset.groupKey;
+        if (!groupKey) {
           return;
         }
-        if (this.expandedCompletedMonths.has(monthKey)) {
-          this.expandedCompletedMonths.delete(monthKey);
+        if (this.expandedCompletedGroups.has(groupKey)) {
+          this.expandedCompletedGroups.delete(groupKey);
         } else {
-          this.expandedCompletedMonths.add(monthKey);
+          this.expandedCompletedGroups.add(groupKey);
         }
-        this.completedMonthStateInitialized = true;
+        this.completedGroupStateInitialized = true;
         this.render();
         return;
       }
@@ -860,7 +1151,10 @@ export class TaskManagerTab {
   }
 
   private currentTableColumns(): TableColumnDef[] {
-    return this.view === "completed" ? COMPLETED_TABLE_COLUMNS : TABLE_COLUMNS;
+    if (this.view === "completed") {
+      return COMPLETED_TABLE_COLUMNS;
+    }
+    return this.effectiveTableColumns();
   }
 
   private currentTableColumnWidths(): Record<TableColumnKey, number> {
@@ -976,12 +1270,12 @@ export class TaskManagerTab {
     }
   }
 
-  private initializeCompletedMonthState(groups: CompletedMonthGroup[]): void {
-    if (this.completedMonthStateInitialized || !groups.length) {
+  private initializeCompletedGroupState(groups: CompletedGroup[]): void {
+    if (this.completedGroupStateInitialized || !groups.length) {
       return;
     }
-    this.expandedCompletedMonths = new Set(groups.slice(0, 2).map((group) => group.key));
-    this.completedMonthStateInitialized = true;
+    this.expandedCompletedGroups = new Set(groups.slice(0, 2).map((group) => group.key));
+    this.completedGroupStateInitialized = true;
   }
 
   private tasksForCurrentView(): TaskItem[] {
@@ -1115,10 +1409,10 @@ function buildCompletedTaskTree(tasks: TaskItem[]): TaskTreeNode[] {
   return roots;
 }
 
-function groupCompletedTasksByCreatedMonth(tasks: TaskItem[]): CompletedMonthGroup[] {
+function groupCompletedTasksByWeek(tasks: TaskItem[]): CompletedGroup[] {
   const groups = new Map<string, TaskItem[]>();
   for (const task of tasks) {
-    const key = createdMonthKey(task.createdAt);
+    const key = weekKey(task.completedAt || task.createdAt);
     const group = groups.get(key) || [];
     group.push(task);
     groups.set(key, group);
@@ -1126,12 +1420,22 @@ function groupCompletedTasksByCreatedMonth(tasks: TaskItem[]): CompletedMonthGro
 
   return Array.from(groups.entries())
     .sort(([a], [b]) => b.localeCompare(a))
-    .map(([key, groupTasks]) => ({
-      key,
-      label: formatCompletedMonthLabel(key),
-      tasks: groupTasks,
-      tree: buildCompletedTaskTree(groupTasks)
-    }));
+    .map(([key, groupTasks]) => {
+      const orderedTasks = [...groupTasks].sort(compareCompletedTaskDisplayOrder);
+      return {
+        key,
+        label: formatWeekLabel(key),
+        tasks: orderedTasks,
+        tree: buildCompletedTaskTree(orderedTasks)
+      };
+    });
+}
+
+function compareCompletedTaskDisplayOrder(a: TaskItem, b: TaskItem): number {
+  return compareOptionalDates(a.completedAt || a.createdAt, b.completedAt || b.createdAt, "desc")
+    || compareOptionalDates(a.createdAt, b.createdAt, "desc")
+    || compareOptionalDates(a.updatedAt, b.updatedAt, "desc")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
 }
 
 function completedParentNode(task: TaskItem, nodes: Map<string, TaskTreeNode>, nodesByPath: Map<string, TaskTreeNode>): TaskTreeNode | undefined {
@@ -1143,24 +1447,12 @@ function completedParentNode(task: TaskItem, nodes: Map<string, TaskTreeNode>, n
   return parentPath ? nodesByPath.get(parentPath) : undefined;
 }
 
-function createdMonthKey(value?: string): string {
-  const dateKey = toDateKey(value);
-  return dateKey ? dateKey.slice(0, 7) : "未分组";
-}
-
-function formatCompletedMonthLabel(monthKey: string): string {
-  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
-    return monthKey;
-  }
-  const [year, month] = monthKey.split("-");
-  return `${year}年${Number(month)}月`;
-}
 
 function taskPathKey(path?: string): string {
   if (!path) {
     return "";
   }
-  return path.replace(/\.sy$/i, "").replace(/\/+$|^\/+/, "");
+  return path.replace(/\.sy$/i, "").replace(/\/+$/g, "").replace(/^\/+/, "");
 }
 
 function parentTaskPathKey(path?: string): string {
@@ -1169,7 +1461,7 @@ function parentTaskPathKey(path?: string): string {
   return lastSlash > 0 ? key.slice(0, lastSlash) : "";
 }
 
-function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean } = {}): Array<{ key: string; label: string; tasks: TaskItem[] }> {
+function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean; plannedDescending?: boolean } = {}): Array<{ key: string; label: string; tasks: TaskItem[] }> {
   const groups = new Map<string, TaskItem[]>();
   for (const task of tasks) {
     const key = toDateKey(task.planStart) || "unplanned";
@@ -1178,6 +1470,7 @@ function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean 
     groups.set(key, group);
   }
 
+  const direction = options.plannedDescending ? -1 : 1;
   return Array.from(groups.entries())
     .sort(([a], [b]) => {
       if (a === "unplanned") {
@@ -1186,13 +1479,84 @@ function groupByPlanDate(tasks: TaskItem[], options: { unplannedFirst?: boolean 
       if (b === "unplanned") {
         return options.unplannedFirst ? 1 : -1;
       }
-      return a.localeCompare(b);
+      return a.localeCompare(b) * direction;
     })
     .map(([key, groupTasks]) => ({
       key,
       label: key === "unplanned" ? "未安排" : key,
-      tasks: groupTasks
+      tasks: key === "unplanned"
+        ? [...groupTasks]
+        : [...groupTasks].sort(compareTimelineTasks)
     }));
+}
+
+function compareTimelineTasks(a: TaskItem, b: TaskItem): number {
+  return compareOptionalDates(a.planStart, b.planStart, "desc")
+    || compareOptionalDates(a.updatedAt, b.updatedAt, "desc")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
+}
+
+function sortTaskTree(nodes: TaskTreeNode[], comparator?: (a: TaskItem, b: TaskItem) => number): TaskTreeNode[] {
+  const sorted = nodes.map((node) => ({
+    ...node,
+    children: sortTaskTree(node.children, comparator)
+  }));
+  if (!comparator) {
+    return sorted;
+  }
+  return sorted.sort((a, b) => comparator(a.task, b.task));
+}
+
+function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSortColumn): number {
+  if (column === "task") {
+    return a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "project") {
+    return (a.project || "").localeCompare(b.project || "", "zh-Hans-CN")
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "source") {
+    const aSource = a.sourceText?.trim() || (a.sourceDocId ? "来源笔记" : "手动创建");
+    const bSource = b.sourceText?.trim() || (b.sourceDocId ? "来源笔记" : "手动创建");
+    return aSource.localeCompare(bSource, "zh-Hans-CN")
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "createdAt") {
+    return compareOptionalDates(a.createdAt, b.createdAt, "asc")
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "status") {
+    return compareBusinessOrder(a.status, b.status, ["todo", "doing", "waiting", "completed", "cancelled"])
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "priority") {
+    return compareBusinessOrder(a.priority, b.priority, ["none", "low", "medium", "high"])
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  if (column === "plan") {
+    return compareOptionalDates(a.planStart, b.planStart, "asc")
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
+  return compareOptionalDates(a.dueDate, b.dueDate, "asc")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
+}
+
+function compareBusinessOrder<T extends string>(a: T | undefined, b: T | undefined, order: T[]): number {
+  const rank = new Map(order.map((value, index) => [value, index]));
+  return (rank.get(a || order[0]) ?? order.length) - (rank.get(b || order[0]) ?? order.length);
+}
+
+function compareOptionalDates(a?: string, b?: string, direction: "asc" | "desc" = "asc"): number {
+  if (!a && !b) {
+    return 0;
+  }
+  if (!a) {
+    return 1;
+  }
+  if (!b) {
+    return -1;
+  }
+  return direction === "desc" ? b.localeCompare(a) : a.localeCompare(b);
 }
 
 function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumnKey, number> {

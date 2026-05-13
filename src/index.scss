@@ -18,8 +18,9 @@
   --manager-accent: var(--b3-theme-primary);
   --manager-border: var(--b3-border-color);
   --manager-muted: var(--b3-theme-on-surface);
-  --manager-surface: var(--b3-theme-surface);
-  --manager-bg: var(--b3-theme-background);
+  --manager-surface: #fff;
+  --manager-bg: #fff;
+  --manager-subtle: color-mix(in srgb, #fff 84%, var(--b3-theme-background));
   color: var(--b3-theme-on-background);
   display: flex;
   flex-direction: column;
@@ -33,7 +34,7 @@
 
 .task-manager-toolbar {
   align-items: center;
-  background: color-mix(in srgb, var(--manager-surface) 88%, var(--manager-bg));
+  background: var(--manager-surface);
   border-bottom: 1px solid var(--manager-border);
   display: flex;
   flex-shrink: 0;
@@ -137,6 +138,7 @@
 }
 
 .task-manager__body {
+  background: var(--manager-bg);
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -202,6 +204,7 @@
   border: 1px solid var(--manager-border);
   border-radius: 10px;
   overflow: hidden;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent);
 }
 
 .task-manager-completed-group__header {
@@ -263,6 +266,7 @@
 }
 
 .task-manager-table {
+  background: var(--manager-surface);
   border-collapse: separate;
   border-spacing: 0;
   min-width: 1180px;
@@ -397,9 +401,81 @@
   pointer-events: none;
 }
 
-.task-manager--table .task-manager-table__cell .task-manager-table__text--static:hover,
-.task-manager--completed .task-manager-table__cell .task-manager-table__text--plain:hover {
+.task-manager--table .task-manager-table__cell .task-manager-table__text--plain,
+.task-manager--completed .task-manager-table__cell .task-manager-table__text--plain {
   color: var(--b3-theme-on-background);
+  cursor: default;
+}
+
+.task-manager-config {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-manager-config__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.task-manager-config__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-manager-config__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.task-manager-config__hint,
+.task-manager-config__default-sort {
+  color: var(--manager-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.task-manager-config__column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-manager-config__column-row {
+  align-items: center;
+  background: var(--manager-subtle);
+  border: 1px solid var(--manager-border);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.task-manager-config__column-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-manager-config__column-actions,
+.task-manager-config__actions-inline {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.task-manager-config__grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.task-manager-config__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .task-manager--completed .task-manager-status-completed {
@@ -977,7 +1053,7 @@
 }
 
 .task-manager-kanban__column {
-  background: color-mix(in srgb, var(--manager-surface) 76%, var(--manager-bg));
+  background: var(--manager-subtle);
   border: 1px solid var(--manager-border);
   border-radius: 8px;
   display: flex;
@@ -1041,6 +1117,7 @@
 
 .task-manager-calendar__toolbar {
   align-items: center;
+  background: var(--manager-surface);
   border-bottom: 1px solid var(--manager-border);
   display: flex;
   flex-shrink: 0;

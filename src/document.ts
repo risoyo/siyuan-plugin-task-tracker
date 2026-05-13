@@ -12,7 +12,7 @@ import {
   sqlText,
   updateBlock
 } from "./api";
-import { newSiyuanId, nowIso, toDateKey } from "./date";
+import { newSiyuanId, nowIso, toDateKey, weekKey } from "./date";
 import { TaskStore } from "./taskStore";
 import {
   ACTIVE_TASK_STATUSES,
@@ -345,10 +345,10 @@ export class TaskService {
       return task;
     }
 
-    const month = archiveMonth(task.createdAt);
-    const archivePath = await ensureArchiveMonthDoc(settings, month);
+    const week = archiveWeek(task.completedAt || task.createdAt);
+    const archivePath = await ensureArchiveWeekDoc(settings, week);
     const taskPath = await getTaskPath(task.docId) || task.path;
-    if (!taskPath || isTaskUnderArchiveMonth(taskPath, archivePath)) {
+    if (!taskPath || isTaskUnderArchivePath(taskPath, archivePath)) {
       return task;
     }
 
@@ -826,19 +826,18 @@ async function ensureArchiveRootDoc(settings: TaskSettings): Promise<string> {
   return ensureArchiveDoc(settings, rootHPath, "已完成");
 }
 
-async function ensureArchiveMonthDoc(settings: TaskSettings, month: string): Promise<string> {
+async function ensureArchiveWeekDoc(settings: TaskSettings, week: string): Promise<string> {
   const rootHPath = await resolveParentHPath(settings);
   const archiveHPath = normalizeHPath(`${rootHPath === "/" ? "" : rootHPath}/已完成`);
   await ensureArchiveRootDoc(settings);
-  return ensureArchiveDoc(settings, archiveHPath, month);
+  return ensureArchiveDoc(settings, archiveHPath, week);
 }
 
-function archiveMonth(createdAt: string): string {
-  const dateKey = toDateKey(createdAt) || toDateKey(nowIso());
-  return dateKey.slice(0, 7);
+function archiveWeek(value?: string): string {
+  return weekKey(value || nowIso());
 }
 
-function isTaskUnderArchiveMonth(taskPath: string, archivePath: string): boolean {
+function isTaskUnderArchivePath(taskPath: string, archivePath: string): boolean {
   const archiveKey = taskPathKey(archivePath);
   const taskKey = taskPathKey(taskPath);
   return Boolean(archiveKey && taskKey.startsWith(`${archiveKey}/`));

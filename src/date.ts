@@ -100,9 +100,60 @@ export function monthTitle(date: Date): string {
   return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`;
 }
 
+export function startOfWeek(date: Date): Date {
+  const offset = (date.getDay() + 6) % 7;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset);
+}
+
+export function endOfWeek(date: Date): Date {
+  const start = startOfWeek(date);
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+}
+
+export function weekKey(value?: string): string {
+  const key = toDateKey(value);
+  if (!key) {
+    return "未分组";
+  }
+  return formatDateKey(startOfWeek(new Date(`${key}T00:00:00`)));
+}
+
+export function formatWeekLabel(key: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    return key;
+  }
+  const start = new Date(`${key}T00:00:00`);
+  if (Number.isNaN(start.getTime())) {
+    return key;
+  }
+  return `${formatDateKey(start)} 至 ${formatDateKey(endOfWeek(start))}`;
+}
+
 export function formatHumanDate(value?: string): string {
   const key = toDateKey(value);
   return key || "未设置";
+}
+
+export function formatHumanDatetime(value?: string): string {
+  return formatHumanDatetimeOrEmpty(value) || "未设置";
+}
+
+export function formatHumanDatetimeOrEmpty(value?: string): string {
+  if (!value) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    return value.slice(0, 16).replace("T", " ");
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const pad = (input: number) => input.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function formatMonthDay(value?: string): string {

@@ -3,9 +3,19 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_DATA_FILE,
   TASKS_DATA_FILE,
+  type SortDirection,
+  type TableColumnKey,
+  type TablePageColumnKey,
+  type TablePageConfig,
+  type TableSortColumn,
+  type TableSortSpec,
   type TaskItem,
   type TaskSettings
 } from "./types";
+
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "createdAt", "status", "priority", "plan", "due"];
+const DEFAULT_TABLE_PAGE_COLUMNS: TablePageColumnKey[] = [...TABLE_PAGE_COLUMNS];
+const DEFAULT_TABLE_SORT: TableSortSpec = { column: "default" };
 
 export class TaskStore {
   private tasks: TaskItem[] = [];
@@ -25,7 +35,7 @@ export class TaskStore {
     this.tasks = loadedTasks.map((task) => normalizeStoredTask(task));
 
     if (settingsData && typeof settingsData === "object") {
-      this.settings = { ...DEFAULT_SETTINGS, ...(settingsData as TaskSettings) };
+      this.settings = normalizeSettings(settingsData as TaskSettings);
     }
 
     if (loadedTasks.length && loadedTasks.some((task, index) => this.tasks[index] !== task)) {
@@ -52,7 +62,7 @@ export class TaskStore {
   }
 
   getSettings(): TaskSettings {
-    return { ...this.settings };
+    return normalizeSettings(this.settings);
   }
 
   getProjects(): string[] {
@@ -61,7 +71,7 @@ export class TaskStore {
   }
 
   async setSettings(settings: TaskSettings): Promise<void> {
-    this.settings = { ...this.settings, ...settings };
+    this.settings = normalizeSettings({ ...this.settings, ...settings });
     await this.plugin.saveData(SETTINGS_DATA_FILE, this.settings);
   }
 
@@ -124,6 +134,83 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
     title: normalizedTitle,
     createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };
+}
+
+function normalizeSettings(settings: TaskSettings): TaskSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    pageConfigs: {
+      ...settings.pageConfigs,
+      table: normalizeTablePageConfig(settings.pageConfigs?.table)
+    }
+  };
+}
+
+function normalizeTablePageConfig(raw?: TablePageConfig): TablePageConfig {
+  const visibleColumns = normalizeVisibleColumns(raw?.visibleColumns);
+  const columnOrder = normalizeColumnOrder(raw?.columnOrder);
+  return {
+    visibleColumns,
+    columnOrder,
+    currentSort: normalizeSortSpec(raw?.currentSort) || { ...DEFAULT_TABLE_SORT },
+    defaultSort: normalizeDefaultSort(raw?.defaultSort)
+  };
+}
+
+function normalizeVisibleColumns(columns?: TablePageColumnKey[]): TablePageColumnKey[] {
+  const configured = Array.isArray(columns)
+    ? columns.filter((column): column is TablePageColumnKey => TABLE_PAGE_COLUMNS.includes(column))
+    : [];
+  const unique = Array.from(new Set(configured));
+  return unique.length ? unique : [...DEFAULT_TABLE_PAGE_COLUMNS];
+}
+
+function normalizeColumnOrder(columns?: TablePageColumnKey[]): TablePageColumnKey[] {
+  const configured = Array.isArray(columns)
+    ? columns.filter((column): column is TablePageColumnKey => TABLE_PAGE_COLUMNS.includes(column))
+    : [];
+  const unique = Array.from(new Set(configured));
+  for (const column of DEFAULT_TABLE_PAGE_COLUMNS) {
+    if (!unique.includes(column)) {
+      unique.push(column);
+    }
+  }
+  return unique;
+}
+
+function normalizeSortSpec(raw?: TableSortSpec): TableSortSpec | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  if (raw.column === "default") {
+    return { column: "default" };
+  }
+  if (!isTableSortColumn(raw.column)) {
+    return undefined;
+  }
+  return {
+    column: raw.column,
+    direction: normalizeSortDirection(raw.direction) || "asc"
+  };
+}
+
+function normalizeDefaultSort(raw?: { column: TableSortColumn; direction: SortDirection }): { column: TableSortColumn; direction: SortDirection } | undefined {
+  if (!raw || typeof raw !== "object" || !isTableSortColumn(raw.column)) {
+    return undefined;
+  }
+  return {
+    column: raw.column,
+    direction: normalizeSortDirection(raw.direction) || "asc"
+  };
+}
+
+function normalizeSortDirection(direction?: SortDirection): SortDirection | undefined {
+  return direction === "asc" || direction === "desc" ? direction : undefined;
+}
+
+function isTableSortColumn(value: unknown): value is TableSortColumn {
+  return typeof value === "string" && TABLE_PAGE_COLUMNS.includes(value as TablePageColumnKey);
 }
 
 function fallbackTaskTitle(task: Pick<TaskItem, "path" | "docId">): string {

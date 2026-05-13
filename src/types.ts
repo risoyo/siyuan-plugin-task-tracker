@@ -25,6 +25,27 @@ export interface TaskItem {
 
 export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "completedAt";
 
+export type TablePageColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due";
+
+export type SortDirection = "asc" | "desc";
+
+export type TableSortColumn = TablePageColumnKey;
+
+export interface TableSortSpec {
+  column: TableSortColumn | "default";
+  direction?: SortDirection;
+}
+
+export interface TablePageConfig {
+  visibleColumns?: TablePageColumnKey[];
+  columnOrder?: TablePageColumnKey[];
+  currentSort?: TableSortSpec;
+  defaultSort?: {
+    column: TableSortColumn;
+    direction: SortDirection;
+  };
+}
+
 export interface TaskSettings {
   taskRootDocId?: string;
   taskRootNotebookId?: string;
@@ -35,6 +56,9 @@ export interface TaskSettings {
   taskTemplate?: string;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
+  pageConfigs?: {
+    table?: TablePageConfig;
+  };
   startupSyncGraceMs?: number;
 }
 
