@@ -149,7 +149,7 @@ export class TaskManagerTab {
   private expandedCompletedGroups = new Set<string>();
   private completedGroupStateInitialized = false;
   private calendarUnplannedVisible = false;
-  private expandedCalendarDateKey?: string;
+  private expandedCalendarDateKeys = new Set<string>();
   private isComposingSearch = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
@@ -796,11 +796,13 @@ export class TaskManagerTab {
     const tasksByDate = groupTasksByDate(tasks);
     const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
     const monthValue = monthInputValue(this.month);
-    const expandedWeekIndex = this.expandedCalendarDateKey
-      ? days.findIndex((day) => formatDateKey(day) === this.expandedCalendarDateKey)
-      : -1;
-    const normalizedExpandedWeekIndex = expandedWeekIndex >= 0 ? Math.floor(expandedWeekIndex / 7) : undefined;
-    const gridStyle = calendarGridStyle(weekRows, normalizedExpandedWeekIndex);
+    const expandedWeekIndexes = new Set<number>();
+    days.forEach((day, index) => {
+      if (this.expandedCalendarDateKeys.has(formatDateKey(day))) {
+        expandedWeekIndexes.add(Math.floor(index / 7));
+      }
+    });
+    const gridStyle = calendarGridStyle(weekRows, expandedWeekIndexes);
 
     return `<div class="task-manager-calendar">
   <div class="task-manager-calendar__toolbar">
@@ -817,7 +819,7 @@ export class TaskManagerTab {
       <div class="task-manager-calendar__weekdays">
         ${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<div>${day}</div>`).join("")}
       </div>
-      <div class="task-manager-calendar__grid" data-week-rows="${weekRows}" ${normalizedExpandedWeekIndex !== undefined ? `data-expanded-week="${normalizedExpandedWeekIndex}"` : ""} style="${escapeAttr(gridStyle)}">
+      <div class="task-manager-calendar__grid" data-week-rows="${weekRows}" ${expandedWeekIndexes.size ? `data-expanded-weeks="${Array.from(expandedWeekIndexes).join(",")}"` : ""} style="${escapeAttr(gridStyle)}">
         ${days.map((day, index) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [], Math.floor(index / 7))).join("")}
       </div>
     </section>
@@ -835,7 +837,7 @@ export class TaskManagerTab {
     const dateKey = formatDateKey(day);
     const isToday = dateKey === formatDateKey(new Date());
     const outside = !sameMonth(day, this.month);
-    const expanded = this.expandedCalendarDateKey === dateKey;
+    const expanded = this.expandedCalendarDateKeys.has(dateKey);
     const visibleTasks = expanded ? tasks : tasks.slice(0, 3);
     const overflowCount = Math.max(tasks.length - 3, 0);
 
@@ -974,19 +976,19 @@ export class TaskManagerTab {
       }
       if (action === "prev-month") {
         this.month = addMonths(this.month, -1);
-        this.expandedCalendarDateKey = undefined;
+        this.expandedCalendarDateKeys.clear();
         this.render();
         return;
       }
       if (action === "next-month") {
         this.month = addMonths(this.month, 1);
-        this.expandedCalendarDateKey = undefined;
+        this.expandedCalendarDateKeys.clear();
         this.render();
         return;
       }
       if (action === "today-month") {
         this.month = monthStart(new Date());
-        this.expandedCalendarDateKey = undefined;
+        this.expandedCalendarDateKeys.clear();
         this.render();
         return;
       }
@@ -1002,7 +1004,11 @@ export class TaskManagerTab {
         if (!dateKey) {
           return;
         }
-        this.expandedCalendarDateKey = this.expandedCalendarDateKey === dateKey ? undefined : dateKey;
+        if (this.expandedCalendarDateKeys.has(dateKey)) {
+          this.expandedCalendarDateKeys.delete(dateKey);
+        } else {
+          this.expandedCalendarDateKeys.add(dateKey);
+        }
         this.render();
         return;
       }
@@ -1073,7 +1079,7 @@ export class TaskManagerTab {
       const date = new Date(`${target.value}-01T00:00:00`);
       if (!Number.isNaN(date.getTime())) {
         this.month = monthStart(date);
-        this.expandedCalendarDateKey = undefined;
+        this.expandedCalendarDateKeys.clear();
         this.render();
       }
       return;
@@ -1249,7 +1255,11 @@ export class TaskManagerTab {
       if (!dateKey) {
         return;
       }
-      this.expandedCalendarDateKey = this.expandedCalendarDateKey === dateKey ? undefined : dateKey;
+      if (this.expandedCalendarDateKeys.has(dateKey)) {
+        this.expandedCalendarDateKeys.delete(dateKey);
+      } else {
+        this.expandedCalendarDateKeys.add(dateKey);
+      }
       this.render();
       return;
     }
@@ -1677,11 +1687,11 @@ function monthInputValue(date: Date): string {
   return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
 }
 
-function calendarGridStyle(weekRows: number, expandedWeekIndex?: number): string {
+function calendarGridStyle(weekRows: number, expandedWeekIndexes: Set<number>): string {
   const compactHeight = weekRows === 5 ? 92 : 78;
   const expandedHeight = weekRows === 5 ? 196 : 172;
   const rows = Array.from({ length: weekRows }, (_, index) => {
-    const height = expandedWeekIndex === index ? expandedHeight : compactHeight;
+    const height = expandedWeekIndexes.has(index) ? expandedHeight : compactHeight;
     return `minmax(${height}px, 1fr)`;
   });
   return `grid-template-rows: ${rows.join(" ")};`;

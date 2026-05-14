@@ -1108,14 +1108,19 @@ function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
 }
 
 function rewriteWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string): string {
-  const summaryBody = extractWeeklyReportSectionBody(markdown, ["二、本周工作总结", "本周工作总结"]);
-  const planBody = extractWeeklyReportSectionBody(markdown, ["三、下周工作计划", "下周工作计划"]);
-  return buildWeeklyReportMarkdown(title, itemsBody, summaryBody, planBody);
+  const report = parseWeeklyReportSections(markdown);
+  return buildWeeklyReportMarkdown(title, itemsBody, report.summaryBody, report.planBody);
 }
 
-function extractWeeklyReportSectionBody(markdown: string, headings: string[]): string {
+function parseWeeklyReportSections(markdown: string): { summaryBody: string; planBody: string } {
+  const summaryBody = extractWeeklyReportSectionBody(markdown, ["二、本周工作总结", "本周工作总结"], ["三、下周工作计划", "下周工作计划"]);
+  const planBody = extractWeeklyReportSectionBody(markdown, ["三、下周工作计划", "下周工作计划"], []);
+  return { summaryBody, planBody };
+}
+
+function extractWeeklyReportSectionBody(markdown: string, headings: string[], nextHeadings: string[]): string {
   for (const heading of headings) {
-    const sections = findNamedSectionBounds(markdown, heading);
+    const sections = findNamedSectionBounds(markdown, heading, nextHeadings);
     if (sections.length === 1) {
       const section = sections[0];
       return normalizeSectionBody(markdown.slice(section.bodyStart, section.nextHeadingStart));
@@ -1125,14 +1130,19 @@ function extractWeeklyReportSectionBody(markdown: string, headings: string[]): s
 }
 
 function normalizeSectionBody(value: string): string {
-  return value
+  return truncateWeeklyReportDirtyTail(value)
     .replace(/^---\n[\s\S]*?\n---\n*/m, "")
     .replace(/^# .*$/gm, "")
     .replace(/^\[\^.+?\]:.*$/gm, "")
     .trim();
 }
 
-function findNamedSectionBounds(markdown: string, heading: string): Array<{ bodyStart: number; nextHeadingStart: number }> {
+function truncateWeeklyReportDirtyTail(value: string): string {
+  const taskMetadataStart = /(?:^|\n)(?:>\s*)?来源：[^\n]*(?:\n(?:>\s*)?父任务：[^\n]*)?(?:\n(?:>\s*)?项目：[^\n]*)?(?:\n(?:>\s*)?状态：[^\n]*)?/m.exec(value)?.index;
+  return taskMetadataStart === undefined ? value : value.slice(0, taskMetadataStart);
+}
+
+function findNamedSectionBounds(markdown: string, heading: string, nextHeadings: string[]): Array<{ bodyStart: number; nextHeadingStart: number }> {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(`^## ${escapedHeading}$`, "gm");
   const matches = Array.from(markdown.matchAll(regex));
@@ -1140,14 +1150,33 @@ function findNamedSectionBounds(markdown: string, heading: string): Array<{ body
     const headingStart = match.index || 0;
     const headingEnd = headingStart + match[0].length;
     const bodyStart = headingEnd < markdown.length && markdown[headingEnd] === "\n" ? headingEnd + 1 : headingEnd;
-    const nextHeadingMatch = /^## /gm;
-    nextHeadingMatch.lastIndex = bodyStart;
-    const next = nextHeadingMatch.exec(markdown);
+    const nextHeadingStart = findNextWeeklyReportSectionStart(markdown, bodyStart, nextHeadings);
     return {
       bodyStart,
-      nextHeadingStart: next?.index ?? markdown.length
+      nextHeadingStart
     };
   });
+}
+
+function findNextWeeklyReportSectionStart(markdown: string, bodyStart: number, nextHeadings: string[]): number {
+  const candidates = nextHeadings
+    .map((heading) => findNamedHeadingStart(markdown, heading, bodyStart))
+    .filter((index): index is number => index !== undefined);
+  if (candidates.length) {
+    return Math.min(...candidates);
+  }
+
+  const unexpectedReportSection = /^## (?:一、本周工作事项|本周工作事项|二、本周工作总结|本周工作总结|三、下周工作计划|下周工作计划)$/gm;
+  unexpectedReportSection.lastIndex = bodyStart;
+  const next = unexpectedReportSection.exec(markdown);
+  return next?.index ?? markdown.length;
+}
+
+function findNamedHeadingStart(markdown: string, heading: string, fromIndex: number): number | undefined {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`^## ${escapedHeading}$`, "gm");
+  regex.lastIndex = fromIndex;
+  return regex.exec(markdown)?.index;
 }
 
 function compareWeeklyReportTaskOrder(a: TaskItem, b: TaskItem): number {
