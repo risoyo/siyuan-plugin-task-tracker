@@ -335,24 +335,25 @@ export class TaskService {
       .sort(compareWeeklyReportTaskOrder);
     const weekLabel = formatCompletedWeekLabel(week);
     const title = `${weekLabel}工作`;
-    const reportRootPath = await ensureWeeklyReportRootDoc(settings);
-    const reportRootHPath = stripDocSuffix(reportRootPath);
-    const existing = await getDocRefByHPath(settings.taskRootNotebookId, `${reportRootHPath}/${title}`);
+    const reportRoot = await ensureWeeklyReportRoot(settings);
+    const reportHPath = `${reportRoot.hpath === "/" ? "" : reportRoot.hpath}/${title}`;
+    const existing = await getDocRefByHPath(settings.taskRootNotebookId, reportHPath);
     const itemsBody = renderWeeklyReportItemsBody(week, tasks);
 
     if (!existing) {
-      const markdown = renderWeeklyReportMarkdown(title, itemsBody);
-      const created = await createNamedDoc(settings.taskRootNotebookId, reportRootHPath, title, markdown);
+      const markdown = buildWeeklyReportMarkdown(title, itemsBody, "", "");
+      const created = await createWeeklyReportDoc(settings.taskRootNotebookId, reportRoot.hpath, title, markdown);
       await markWeeklyReportDoc(created.docId);
       return { docId: created.docId, title };
     }
 
     const currentMarkdown = await readDocMarkdown(existing.id);
-    const nextMarkdown = updateWeeklyReportMarkdown(currentMarkdown, title, itemsBody);
+    const nextMarkdown = rewriteWeeklyReportMarkdown(currentMarkdown, title, itemsBody);
     await updateBlock(existing.id, nextMarkdown);
     await markWeeklyReportDoc(existing.id);
     return { docId: existing.id, title };
   }
+
 
   private async syncTaskDocument(id: string): Promise<boolean> {
     const task = this.store.get(id);
@@ -882,18 +883,49 @@ async function ensureArchiveWeekDoc(settings: TaskSettings, week: string): Promi
   return ensureArchiveDoc(settings, archiveHPath, week);
 }
 
-async function ensureWeeklyReportRootDoc(settings: TaskSettings): Promise<string> {
-  const rootHPath = await resolveParentHPath(settings);
-  return ensureArchiveDoc(settings, rootHPath, "周报");
+interface WeeklyReportRootRef {
+  hpath: string;
+  path: string;
 }
 
-async function createNamedDoc(
+async function ensureWeeklyReportRoot(settings: TaskSettings): Promise<WeeklyReportRootRef> {
+  const rootHPath = await resolveParentHPath(settings);
+  const reportRootHPath = normalizeHPath(`${rootHPath === "/" ? "" : rootHPath}/周报`);
+  const path = await ensureArchiveDoc(settings, rootHPath, "周报");
+  return {
+    hpath: reportRootHPath,
+    path
+  };
+}
+
+async function createWeeklyReportDoc(
   notebookId: string,
   parentHPath: string,
   title: string,
   markdown: string
 ): Promise<{ docId: string; path: string }> {
-  return createTaskDocWithTitle(notebookId, parentHPath, title, markdown);
+  const baseName = sanitizeDocName(title);
+  const parent = normalizeHPath(parentHPath);
+  let lastError: unknown;
+
+  for (let index = 0; index < 50; index += 1) {
+    const name = index === 0 ? baseName : `${baseName} (${index + 1})`;
+    const hpath = `${parent === "/" ? "" : parent}/${name}`;
+    try {
+      const docId = await createDocWithMd(notebookId, `${hpath}.sy`, markdown);
+      const path = await getTaskPath(docId);
+      return { docId, path: path || `${hpath}.sy` };
+    } catch (error) {
+      lastError = error;
+      const message = String(error instanceof Error ? error.message : error).toLowerCase();
+      if (message.includes("exist") || message.includes("已存在") || message.includes("duplicate")) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("创建周报文档失败");
 }
 
 async function getDocRefByHPath(notebookId: string, hpath: string): Promise<{ id: string; path: string } | undefined> {
@@ -1038,18 +1070,19 @@ function formatTaskDate(value?: string): string {
   return formatLocalDateTimeOrEmpty(value) || "未设置";
 }
 
-function renderWeeklyReportMarkdown(title: string, itemsBody: string): string {
+function buildWeeklyReportMarkdown(title: string, itemsBody: string, summaryBody: string, planBody: string): string {
+  const normalizedSummary = normalizeSectionBody(summaryBody);
+  const normalizedPlan = normalizeSectionBody(planBody);
   return `# ${title}
 
-## 本周工作事项
+## 一、本周工作事项
 ${itemsBody}
 
-## 本周工作总结
+## 二、本周工作总结
+${normalizedSummary}${normalizedSummary ? "\n" : ""}
 
-
-## 下周工作计划
-
-`;
+## 三、下周工作计划
+${normalizedPlan}${normalizedPlan ? "\n" : ""}`.trimEnd() + "\n";
 }
 
 function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
@@ -1074,40 +1107,29 @@ function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
   }).join("\n\n");
 }
 
-function updateWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string): string {
-  const base = markdown.trim() ? markdown.replace(/^# .*$/m, `# ${title}`) : `# ${title}`;
-  const withItems = replaceNamedSection(base, "本周工作事项", itemsBody);
-  const withSummary = ensureNamedSection(withItems, "本周工作总结");
-  return ensureNamedSection(withSummary, "下周工作计划").trimEnd() + "\n";
+function rewriteWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string): string {
+  const summaryBody = extractWeeklyReportSectionBody(markdown, ["二、本周工作总结", "本周工作总结"]);
+  const planBody = extractWeeklyReportSectionBody(markdown, ["三、下周工作计划", "下周工作计划"]);
+  return buildWeeklyReportMarkdown(title, itemsBody, summaryBody, planBody);
 }
 
-function replaceNamedSection(markdown: string, heading: string, body: string): string {
-  const sections = findNamedSectionBounds(markdown, heading);
-  if (sections.length !== 1) {
-    if (sections.length === 0) {
-      return appendNamedSection(markdown, heading, body);
+function extractWeeklyReportSectionBody(markdown: string, headings: string[]): string {
+  for (const heading of headings) {
+    const sections = findNamedSectionBounds(markdown, heading);
+    if (sections.length === 1) {
+      const section = sections[0];
+      return normalizeSectionBody(markdown.slice(section.bodyStart, section.nextHeadingStart));
     }
-    throw new Error(`周报结构异常：无法唯一定位“${heading}”`);
   }
-  const section = sections[0];
-  return `${markdown.slice(0, section.bodyStart)}${body.trimEnd()}\n\n${markdown.slice(section.nextHeadingStart)}`;
+  return "";
 }
 
-function ensureNamedSection(markdown: string, heading: string): string {
-  const sections = findNamedSectionBounds(markdown, heading);
-  if (sections.length > 1) {
-    throw new Error(`周报结构异常：无法唯一定位“${heading}”`);
-  }
-  if (sections.length === 1) {
-    return markdown;
-  }
-  return appendNamedSection(markdown, heading, "");
-}
-
-function appendNamedSection(markdown: string, heading: string, body: string): string {
-  const trimmed = markdown.trimEnd();
-  const bodyContent = body.trimEnd();
-  return `${trimmed}\n\n## ${heading}\n${bodyContent}${bodyContent ? "\n" : "\n\n"}`;
+function normalizeSectionBody(value: string): string {
+  return value
+    .replace(/^---\n[\s\S]*?\n---\n*/m, "")
+    .replace(/^# .*$/gm, "")
+    .replace(/^\[\^.+?\]:.*$/gm, "")
+    .trim();
 }
 
 function findNamedSectionBounds(markdown: string, heading: string): Array<{ bodyStart: number; nextHeadingStart: number }> {
