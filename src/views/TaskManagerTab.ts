@@ -1,7 +1,6 @@
 import { Dialog, showMessage } from "siyuan";
 import {
   addMonths,
-  endOfWeek,
   formatCompletedWeekLabel,
   formatDateKey,
   formatHumanDate,
@@ -849,14 +848,20 @@ export class TaskManagerTab {
   }
 
   private renderCalendarWeekView(tasks: TaskItem[]): string {
-    const weekEnd = endOfWeek(this.weekStart);
     const weekLabel = `${formatWeekRangeCompact(formatDateKey(this.weekStart))}`;
     const tasksByDate = groupTasksByDate(tasks);
     const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
-    const weekDays: Date[] = [];
+    const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    const weekDays: Array<{ date: Date; label: string; dateKey: string; isToday: boolean }> = [];
     for (let i = 0; i < 7; i++) {
       const day = new Date(this.weekStart.getFullYear(), this.weekStart.getMonth(), this.weekStart.getDate() + i);
-      weekDays.push(day);
+      const dateKey = formatDateKey(day);
+      weekDays.push({
+        date: day,
+        label: weekdayLabels[i],
+        dateKey,
+        isToday: dateKey === formatDateKey(new Date())
+      });
     }
 
     return `<div class="task-manager-calendar task-manager-calendar--week">
@@ -874,7 +879,7 @@ export class TaskManagerTab {
   <div class="task-manager-calendar__layout">
     <section class="task-manager-calendar__main">
       <div class="task-manager-calendar__week">
-        ${weekDays.map((day) => this.renderCalendarWeekDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
+        ${weekDays.map((day) => this.renderCalendarWeekDay(day, tasksByDate[day.dateKey] || [])).join("")}
       </div>
     </section>
     ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
@@ -887,21 +892,18 @@ export class TaskManagerTab {
 </div>`;
   }
 
-  private renderCalendarWeekDay(day: Date, tasks: TaskItem[]): string {
-    const dateKey = formatDateKey(day);
-    const isToday = dateKey === formatDateKey(new Date());
-    const dayLabel = `${day.getMonth() + 1}/${day.getDate()}`;
-    const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-    const weekdayLabel = weekdayLabels[(day.getDay() + 6) % 7];
+  private renderCalendarWeekDay(day: { date: Date; label: string; dateKey: string; isToday: boolean }, tasks: TaskItem[]): string {
+    const dayLabel = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
+    const todayClass = day.isToday ? "is-today" : "";
 
-    return `<div class="task-manager-calendar-week-day ${isToday ? "is-today" : ""}">
-  <div class="task-manager-calendar-week-day__header">
-    <span class="task-manager-calendar-week-day__label">${weekdayLabel}</span>
-    <span class="task-manager-calendar-week-day__date ${isToday ? "is-today" : ""}">${dayLabel}</span>
-    <span class="task-manager-calendar-week-day__count">${tasks.length}</span>
+    return `<div class="task-manager-calendar-week-row ${todayClass}">
+  <div class="task-manager-calendar-week-row__label">
+    <span class="task-manager-calendar-week-row__day">${day.label}</span>
+    <span class="task-manager-calendar-week-row__date ${todayClass}">${dayLabel}</span>
+    ${tasks.length ? `<span class="task-manager-calendar-week-row__count">${tasks.length}</span>` : ""}
   </div>
-  <div class="task-manager-calendar-week-day__tasks">
-    ${tasks.length ? tasks.map((task) => this.renderTaskCard(task, "week")).join("") : `<div class="task-manager-calendar-week-day__empty">暂无日程</div>`}
+  <div class="task-manager-calendar-week-row__tasks">
+    ${tasks.length ? tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>`).join("") : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
   </div>
 </div>`;
   }
@@ -1083,7 +1085,7 @@ export class TaskManagerTab {
       }
       if (action === "toggle-calendar-week") {
         this.calendarMode = "week";
-        this.weekStart = startOfWeek(this.month);
+        this.weekStart = startOfWeek(new Date());
         this.render();
         return;
       }

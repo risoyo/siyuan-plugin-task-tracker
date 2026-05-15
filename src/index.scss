@@ -1391,51 +1391,57 @@
 
 /* Calendar Week View */
 .task-manager-calendar__week {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 8px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  min-height: 0;
-  overflow: auto;
-}
-
-.task-manager-calendar-week-day {
-  background: var(--manager-bg);
-  border: 1px solid var(--manager-border);
-  border-radius: 6px;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
-.task-manager-calendar-week-day.is-today {
-  border-color: var(--manager-accent);
-  box-shadow: 0 0 0 1px var(--manager-accent);
-}
-
-.task-manager-calendar-week-day__header {
-  align-items: center;
+.task-manager-calendar-week-row {
+  align-items: stretch;
   border-bottom: 1px solid var(--manager-border);
   display: flex;
   flex: 0 0 auto;
-  gap: 6px;
-  padding: 8px 10px;
+  min-height: 0;
+  min-width: 0;
 }
 
-.task-manager-calendar-week-day__label {
+.task-manager-calendar-week-row.is-today {
+  background: color-mix(in srgb, var(--manager-accent) 4%, transparent);
+}
+
+.task-manager-calendar-week-row__label {
+  align-items: center;
+  border-right: 1px solid var(--manager-border);
+  display: flex;
+  flex: 0 0 calc(100% / 7);
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 6px;
+}
+
+.task-manager-calendar-week-row__day {
   color: var(--manager-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1.2;
 }
 
-.task-manager-calendar-week-day__date {
-  font-size: 14px;
+.task-manager-calendar-week-row.is-today .task-manager-calendar-week-row__day {
+  color: var(--manager-accent);
+  font-weight: 600;
+}
+
+.task-manager-calendar-week-row__date {
+  font-size: 15px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
-.task-manager-calendar-week-day__date.is-today {
+.task-manager-calendar-week-row__date.is-today {
   align-items: center;
   background: var(--manager-accent);
   border-radius: 999px;
@@ -1446,83 +1452,36 @@
   width: 24px;
 }
 
-.task-manager-calendar-week-day__count {
-  background: var(--b3-theme-primary-light);
-  border-radius: 999px;
+.task-manager-calendar-week-row__count {
   color: var(--manager-accent);
   font-size: 11px;
   font-weight: 600;
-  margin-left: auto;
-  min-width: 18px;
-  padding: 0 5px;
-  text-align: center;
+  line-height: 1;
+  margin-top: 1px;
 }
 
-.task-manager-calendar-week-day__tasks {
+.task-manager-calendar-week-row__tasks {
+  align-content: flex-start;
+  align-items: flex-start;
   display: flex;
   flex: 1 1 auto;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.task-manager-calendar-week-day__empty {
-  color: var(--manager-muted);
-  font-size: 12px;
-  padding: 8px 0;
-  text-align: center;
-}
-
-.task-manager-card--week {
-  background: var(--manager-surface);
-  border: 1px solid var(--manager-border);
-  border-radius: 4px;
-  cursor: default;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  gap: 4px;
-  padding: 6px 8px;
-}
-
-.task-manager-card--week:hover {
-  border-color: var(--manager-accent);
-}
-
-.task-manager-card--week .task-manager-card__header--compact {
-  align-items: center;
-  display: flex;
-  gap: 4px;
-  justify-content: flex-start;
-}
-
-.task-manager-card--week .task-manager-task-title {
-  flex: 1 1 auto;
-  font-size: 13px;
-  min-width: 0;
-}
-
-.task-manager-card--week .task-manager-card__meta-chips {
-  align-items: center;
-  display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  font-size: 11px;
+  min-width: 0;
+  padding: 8px 10px;
 }
 
-.task-manager-card--week .task-manager-card__meta-chip {
-  font-size: 11px;
+.task-manager-calendar-week-row__empty {
+  color: var(--manager-muted);
+  font-size: 12px;
+  padding: 4px 0;
 }
 
-.task-manager-card--week .task-manager-card__meta-select {
-  font-size: 11px;
-  padding: 1px 2px;
-}
-
-.task-manager-card--week .task-manager-actions {
-  flex-shrink: 0;
+/* Ensure pills inside week rows match month view style */
+.task-manager-calendar-week-row__tasks .task-manager-calendar-pill {
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 3px 6px;
 }
 
 .task-tracker-setting__root {
