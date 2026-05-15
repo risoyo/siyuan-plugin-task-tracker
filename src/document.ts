@@ -162,8 +162,12 @@ export class TaskService {
 
     const normalized = normalizeCompletion(current, title ? { ...normalizedPatch, title } : normalizedPatch);
     let task = await this.store.update(id, normalized);
+    const parentIdChanged = current.parentId !== task.parentId;
     if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
       task = await this.archiveCompletedParentTask(task);
+    }
+    if (parentIdChanged) {
+      task = await this.moveTaskToParent(task);
     }
     await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
@@ -420,6 +424,59 @@ export class TaskService {
     return archivedTask;
   }
 
+  private async moveTaskToParent(task: TaskItem): Promise<TaskItem> {
+    const settings = this.store.getSettings();
+    if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
+      return task;
+    }
+
+    const currentPath = await getTaskPath(task.docId) || task.path;
+    if (!currentPath) {
+      return task;
+    }
+
+    let targetDir: string;
+    if (task.parentId) {
+      const parent = this.store.get(task.parentId);
+      if (!parent) {
+        return task;
+      }
+      const parentPath = await getTaskPath(parent.docId) || parent.path;
+      if (!parentPath) {
+        return task;
+      }
+      targetDir = parentPath.replace(/\.sy$/i, "");
+    } else {
+      targetDir = settings.taskRootPath.replace(/\.sy$/i, "");
+    }
+
+    const currentDir = currentPath.replace(/\/[^/]+\.sy$/, "");
+    if (currentDir === targetDir) {
+      return task;
+    }
+
+    await moveDocs([currentPath], task.notebookId, targetDir);
+
+    const ids = expandWithDescendants(this.store.all(), [task.id]);
+    let movedTask = task;
+    for (const id of ids) {
+      const current = this.store.get(id);
+      if (!current) {
+        continue;
+      }
+      const path = await getTaskPath(current.docId);
+      if (!path || path === current.path) {
+        continue;
+      }
+      const updated = await this.store.update(id, { path });
+      if (id === task.id) {
+        movedTask = updated;
+      }
+    }
+    await this.syncTaskDocuments(ids);
+    return movedTask;
+  }
+
   private async collectTasksFromRoot(): Promise<TaskItem[]> {
     const settings = this.store.getSettings();
     const candidates = await listTaskDocCandidates(settings);
@@ -498,6 +555,9 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   }
   if ("dueDate" in normalized && normalized.dueDate === "") {
     normalized.dueDate = undefined;
+  }
+  if ("completedAt" in normalized && normalized.completedAt === "") {
+    normalized.completedAt = undefined;
   }
   if ("planStart" in normalized && normalized.planStart === "") {
     normalized.planStart = undefined;

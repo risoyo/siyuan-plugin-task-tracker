@@ -75,6 +75,7 @@ export interface TaskCreateInput {
   planStart?: string;
   planEnd?: string;
   createdAt?: string;
+  completedAt?: string;
 }
 
 export interface SourceContext {

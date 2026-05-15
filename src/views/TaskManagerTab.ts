@@ -1,16 +1,19 @@
 import { Dialog, showMessage } from "siyuan";
 import {
   addMonths,
+  endOfWeek,
   formatCompletedWeekLabel,
   formatDateKey,
   formatHumanDate,
   formatHumanDatetimeOrEmpty,
   formatLocalDateTimeOrEmpty,
   formatMonthDay,
+  formatWeekRangeCompact,
   mergeDateInputWithExisting,
   monthStart,
   monthTitle,
   sameMonth,
+  startOfWeek,
   toDateKey,
   weekKey
 } from "../date";
@@ -145,6 +148,8 @@ export class TaskManagerTab {
   private view: TaskManagerView = "table";
   private search = "";
   private month = monthStart(new Date());
+  private calendarMode: "month" | "week" = "month";
+  private weekStart = startOfWeek(new Date());
   private collapsedTaskIds = new Set<string>();
   private expandedCompletedGroups = new Set<string>();
   private completedGroupStateInitialized = false;
@@ -791,6 +796,13 @@ export class TaskManagerTab {
   }
 
   private renderCalendarView(tasks: TaskItem[]): string {
+    if (this.calendarMode === "week") {
+      return this.renderCalendarWeekView(tasks);
+    }
+    return this.renderCalendarMonthView(tasks);
+  }
+
+  private renderCalendarMonthView(tasks: TaskItem[]): string {
     const days = calendarDays(this.month);
     const weekRows = Math.ceil(days.length / 7);
     const tasksByDate = groupTasksByDate(tasks);
@@ -812,6 +824,9 @@ export class TaskManagerTab {
     <input class="b3-text-field task-manager-calendar__month-input" data-field="month" type="month" value="${monthValue}" aria-label="选择月份" />
     <button class="task-manager-calendar__nav task-manager-calendar__nav--today" data-action="today-month" aria-label="回到本月" title="回到本月">今</button>
     <span class="fn__flex-1"></span>
+    <button class="b3-button b3-button--text task-manager-calendar__mode-toggle ${this.calendarMode === "week" ? "is-active" : ""}" data-action="toggle-calendar-week" aria-label="周视图" title="周视图">周</button>
+    <button class="b3-button b3-button--text task-manager-calendar__mode-toggle ${this.calendarMode === "month" ? "is-active" : ""}" data-action="toggle-calendar-month" aria-label="月视图" title="月视图">月</button>
+    <span class="fn__flex-1" style="flex:0 1 8px"></span>
     <button class="b3-button b3-button--text task-manager-calendar__unplanned-toggle ${this.calendarUnplannedVisible ? "is-active" : ""}" data-action="toggle-unplanned" aria-label="未安排任务" aria-pressed="${this.calendarUnplannedVisible}" title="未安排任务">未安排任务</button>
   </div>
   <div class="task-manager-calendar__layout">
@@ -833,6 +848,64 @@ export class TaskManagerTab {
 </div>`;
   }
 
+  private renderCalendarWeekView(tasks: TaskItem[]): string {
+    const weekEnd = endOfWeek(this.weekStart);
+    const weekLabel = `${formatWeekRangeCompact(formatDateKey(this.weekStart))}`;
+    const tasksByDate = groupTasksByDate(tasks);
+    const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
+    const weekDays: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(this.weekStart.getFullYear(), this.weekStart.getMonth(), this.weekStart.getDate() + i);
+      weekDays.push(day);
+    }
+
+    return `<div class="task-manager-calendar task-manager-calendar--week">
+  <div class="task-manager-calendar__toolbar">
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--prev" data-action="prev-week" aria-label="上一周" title="上一周">${renderChevron(false)}</button>
+    <div class="task-manager-calendar__title">${weekLabel}</div>
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--chevron task-manager-calendar__nav--next" data-action="next-week" aria-label="下一周" title="下一周">${renderChevron(false)}</button>
+    <button class="task-manager-calendar__nav task-manager-calendar__nav--today" data-action="today-week" aria-label="回到本周" title="回到本周">今</button>
+    <span class="fn__flex-1"></span>
+    <button class="b3-button b3-button--text task-manager-calendar__mode-toggle ${this.calendarMode === "week" ? "is-active" : ""}" data-action="toggle-calendar-week" aria-label="周视图" title="周视图">周</button>
+    <button class="b3-button b3-button--text task-manager-calendar__mode-toggle ${this.calendarMode === "month" ? "is-active" : ""}" data-action="toggle-calendar-month" aria-label="月视图" title="月视图">月</button>
+    <span class="fn__flex-1" style="flex:0 1 8px"></span>
+    <button class="b3-button b3-button--text task-manager-calendar__unplanned-toggle ${this.calendarUnplannedVisible ? "is-active" : ""}" data-action="toggle-unplanned" aria-label="未安排任务" aria-pressed="${this.calendarUnplannedVisible}" title="未安排任务">未安排任务</button>
+  </div>
+  <div class="task-manager-calendar__layout">
+    <section class="task-manager-calendar__main">
+      <div class="task-manager-calendar__week">
+        ${weekDays.map((day) => this.renderCalendarWeekDay(day, tasksByDate[formatDateKey(day)] || [])).join("")}
+      </div>
+    </section>
+    ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
+      <div class="task-manager-calendar__aside-title">未安排任务</div>
+      <div class="task-manager-calendar__unplanned">
+        ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
+      </div>
+    </aside>` : ""}
+  </div>
+</div>`;
+  }
+
+  private renderCalendarWeekDay(day: Date, tasks: TaskItem[]): string {
+    const dateKey = formatDateKey(day);
+    const isToday = dateKey === formatDateKey(new Date());
+    const dayLabel = `${day.getMonth() + 1}/${day.getDate()}`;
+    const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    const weekdayLabel = weekdayLabels[(day.getDay() + 6) % 7];
+
+    return `<div class="task-manager-calendar-week-day ${isToday ? "is-today" : ""}">
+  <div class="task-manager-calendar-week-day__header">
+    <span class="task-manager-calendar-week-day__label">${weekdayLabel}</span>
+    <span class="task-manager-calendar-week-day__date ${isToday ? "is-today" : ""}">${dayLabel}</span>
+    <span class="task-manager-calendar-week-day__count">${tasks.length}</span>
+  </div>
+  <div class="task-manager-calendar-week-day__tasks">
+    ${tasks.length ? tasks.map((task) => this.renderTaskCard(task, "week")).join("") : `<div class="task-manager-calendar-week-day__empty">暂无日程</div>`}
+  </div>
+</div>`;
+  }
+
   private renderCalendarDay(day: Date, tasks: TaskItem[], weekIndex: number): string {
     const dateKey = formatDateKey(day);
     const isToday = dateKey === formatDateKey(new Date());
@@ -850,7 +923,7 @@ export class TaskManagerTab {
 </div>`;
   }
 
-  private renderTaskCard(task: TaskItem, mode: "timeline" | "kanban" | "calendar-aside"): string {
+  private renderTaskCard(task: TaskItem, mode: "timeline" | "kanban" | "calendar-aside" | "week"): string {
     return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
   <div class="task-manager-card__header task-manager-card__header--compact">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
@@ -923,6 +996,7 @@ export class TaskManagerTab {
 
     if (options.completedView) {
       return `<span class="task-manager-actions${listClass}">
+        <button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>
         <button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>
         ${deleteButton}
       </span>`;
@@ -989,6 +1063,33 @@ export class TaskManagerTab {
       if (action === "today-month") {
         this.month = monthStart(new Date());
         this.expandedCalendarDateKeys.clear();
+        this.render();
+        return;
+      }
+      if (action === "prev-week") {
+        this.weekStart = new Date(this.weekStart.getFullYear(), this.weekStart.getMonth(), this.weekStart.getDate() - 7);
+        this.render();
+        return;
+      }
+      if (action === "next-week") {
+        this.weekStart = new Date(this.weekStart.getFullYear(), this.weekStart.getMonth(), this.weekStart.getDate() + 7);
+        this.render();
+        return;
+      }
+      if (action === "today-week") {
+        this.weekStart = startOfWeek(new Date());
+        this.render();
+        return;
+      }
+      if (action === "toggle-calendar-week") {
+        this.calendarMode = "week";
+        this.weekStart = startOfWeek(this.month);
+        this.render();
+        return;
+      }
+      if (action === "toggle-calendar-month") {
+        this.calendarMode = "month";
+        this.month = monthStart(this.weekStart);
         this.render();
         return;
       }

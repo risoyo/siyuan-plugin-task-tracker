@@ -60,6 +60,7 @@ export class TaskDialog {
       : (this.options.presetPlanDate ? `${this.options.presetPlanDate}T09:00` : "");
     const defaultPlanEnd = editingTask?.planEnd ? toDatetimeLocal(editingTask.planEnd) : "";
     const defaultDueDate = editingTask?.dueDate?.slice(0, 10) || "";
+    const defaultCompletedAt = editingTask?.completedAt ? toDatetimeLocal(editingTask.completedAt) : "";
     const defaultSourceDocId = effectiveSource?.docId || "";
     const dialogTitle = editMode ? "编辑任务" : (this.options.parentId ? "新建子任务" : "新建任务");
     const submitLabel = editMode ? "保存任务修改" : "创建任务文档";
@@ -115,6 +116,10 @@ export class TaskDialog {
       <label class="task-tracker-field">
         <span>截止日期</span>
         <input class="b3-text-field fn__block" name="dueDate" type="date" value="${escapeAttr(defaultDueDate)}" />
+      </label>
+      <label class="task-tracker-field">
+        <span>完成时间</span>
+        <input class="b3-text-field fn__block" name="completedAt" type="datetime-local" value="${escapeAttr(defaultCompletedAt)}" />
       </label>
       <div class="task-tracker-field task-tracker-field--wide task-tracker-source">
         <span>来源</span>
@@ -229,7 +234,8 @@ export class TaskDialog {
           priority: String(data.get("priority") || "medium") as TaskPriority,
           dueDate: String(data.get("dueDate") || "") || undefined,
           planStart: fromDatetimeLocal(String(data.get("planStart") || "")),
-          planEnd: fromDatetimeLocal(String(data.get("planEnd") || ""))
+          planEnd: fromDatetimeLocal(String(data.get("planEnd") || "")),
+          completedAt: fromDatetimeLocal(String(data.get("completedAt") || ""))
         };
         if (!input.title) {
           throw new Error("请填写任务标题");

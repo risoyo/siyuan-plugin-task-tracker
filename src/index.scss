@@ -1376,6 +1376,155 @@
   background: color-mix(in srgb, var(--manager-accent) 12%, transparent);
   color: var(--manager-accent);
 }
+
+.task-manager-calendar__mode-toggle {
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 32px;
+  padding: 0 8px;
+}
+
+.task-manager-calendar__mode-toggle.is-active {
+  background: color-mix(in srgb, var(--manager-accent) 12%, transparent);
+  color: var(--manager-accent);
+}
+
+/* Calendar Week View */
+.task-manager-calendar__week {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-manager-calendar-week-day {
+  background: var(--manager-bg);
+  border: 1px solid var(--manager-border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-manager-calendar-week-day.is-today {
+  border-color: var(--manager-accent);
+  box-shadow: 0 0 0 1px var(--manager-accent);
+}
+
+.task-manager-calendar-week-day__header {
+  align-items: center;
+  border-bottom: 1px solid var(--manager-border);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.task-manager-calendar-week-day__label {
+  color: var(--manager-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.task-manager-calendar-week-day__date {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.task-manager-calendar-week-day__date.is-today {
+  align-items: center;
+  background: var(--manager-accent);
+  border-radius: 999px;
+  color: var(--b3-theme-background);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.task-manager-calendar-week-day__count {
+  background: var(--b3-theme-primary-light);
+  border-radius: 999px;
+  color: var(--manager-accent);
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  text-align: center;
+}
+
+.task-manager-calendar-week-day__tasks {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.task-manager-calendar-week-day__empty {
+  color: var(--manager-muted);
+  font-size: 12px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.task-manager-card--week {
+  background: var(--manager-surface);
+  border: 1px solid var(--manager-border);
+  border-radius: 4px;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.task-manager-card--week:hover {
+  border-color: var(--manager-accent);
+}
+
+.task-manager-card--week .task-manager-card__header--compact {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-start;
+}
+
+.task-manager-card--week .task-manager-task-title {
+  flex: 1 1 auto;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.task-manager-card--week .task-manager-card__meta-chips {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.task-manager-card--week .task-manager-card__meta-chip {
+  font-size: 11px;
+}
+
+.task-manager-card--week .task-manager-card__meta-select {
+  font-size: 11px;
+  padding: 1px 2px;
+}
+
+.task-manager-card--week .task-manager-actions {
+  flex-shrink: 0;
+}
+
 .task-tracker-setting__root {
   align-items: center;
   gap: 6px;
