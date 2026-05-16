@@ -273,29 +273,19 @@
   align-items: center;
   box-sizing: border-box;
   display: inline-flex;
-  gap: 6px;
-  height: 34px;
   justify-content: center;
   min-width: 0;
-  padding: 0 14px;
+  padding-left: 14px;
+  padding-right: 14px;
   white-space: nowrap;
   width: auto;
 }
 
-.task-manager-filter-btn > *,
-.task-manager-filter-all-btn > * {
-  margin-left: 0;
-  margin-right: 0;
-}
-
-.task-manager-filter-btn__arrow {
-  color: currentColor;
+.task-manager-filter-btn__label {
   display: block;
-  flex: 0 0 12px;
-  height: 12px;
   margin: 0;
-  opacity: 0.65;
-  width: 12px;
+  min-width: 0;
+  text-align: center;
 }
 
 .task-manager-filter-dropdown__menu {

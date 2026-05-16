@@ -301,8 +301,7 @@ export class TaskManagerTab {
     const dropdownHtml = isCompletedView ? "" : `
     <div class="task-manager-filter-dropdown">
       <button class="${filterBtnClass}" data-action="toggle-status-dropdown" aria-haspopup="listbox" aria-expanded="${this.statusDropdownOpen}">
-        <span>${filterLabel}</span>
-        <svg class="task-manager-filter-btn__arrow"><use xlink:href="#iconUnfold"></use></svg>
+        <span class="task-manager-filter-btn__label">${filterLabel}</span>
       </button>
       ${this.statusDropdownOpen ? `<div class="task-manager-filter-dropdown__menu" role="listbox">
         ${VIEW_FILTER_OPTIONS.map((option) => {
