@@ -387,23 +387,18 @@ export class TaskDialog {
       <div class="task-tracker-dialog-v3__source-row">
         <div class="task-tracker-dialog-v3__source-left">
           <span class="task-tracker-dialog-v3__label">来源</span>
-          ${sourceSegmentHtml}
+          <div class="task-tracker-dialog-v3__source-control">
+            ${sourceSegmentHtml}
+            <input class="task-tracker-dialog-v3__source-note-input" name="sourceDocId" placeholder="填写笔记ID" value="${escapeAttr(defaultSourceDocId)}" data-source-note style="${sourceMode === "note" ? "" : "display:none"}" />
+          </div>
         </div>
-        <div class="task-tracker-dialog-v3__source-right" data-source-note style="${sourceMode === "note" ? "" : "display:none"}">
+        <div class="task-tracker-dialog-v3__source-right">
           <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full">
-            <span class="task-tracker-dialog-v3__label">笔记 ID</span>
-            <div class="task-tracker-dialog-v3__input-wrap">
-              <span class="task-tracker-dialog-v3__input-icon">${ICONS.search}</span>
-              <input class="task-tracker-dialog-v3__input" name="sourceDocId" placeholder="填写笔记 ID" value="${escapeAttr(defaultSourceDocId)}" />
-            </div>
+            <span class="task-tracker-dialog-v3__label">任务描述</span>
+            <textarea class="task-tracker-dialog-v3__textarea" name="description" rows="3" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
           </label>
         </div>
       </div>
-
-      <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full" style="margin-top:16px;">
-        <span class="task-tracker-dialog-v3__label">任务描述</span>
-        <textarea class="task-tracker-dialog-v3__textarea" name="description" rows="3" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
-      </label>
     </div>
     </div>
   </form>
@@ -425,7 +420,6 @@ export class TaskDialog {
     const form = root.querySelector("form") as HTMLFormElement;
     const titleInput = root.querySelector<HTMLInputElement>("input[name='title']");
     const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
-    const sourceNote = root.querySelector<HTMLElement>("[data-source-note]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     titleInput?.focus();
     titleInput?.select();
@@ -433,8 +427,8 @@ export class TaskDialog {
     // ── Source mode ────────────────────────────────────────
 
     const renderSourceMode = () => {
-      if (sourceNote) {
-        sourceNote.style.display = sourceMode === "note" ? "" : "none";
+      if (sourceDocIdInput) {
+        sourceDocIdInput.style.display = sourceMode === "note" ? "" : "none";
       }
       if (sourceMode === "manual") {
         selectedSource = undefined;

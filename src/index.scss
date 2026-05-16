@@ -2992,22 +2992,55 @@
 /* ── Source row ───────────────────────────────────────── */
 .task-tracker-dialog-v3__source-row {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  column-gap: 24px;
-  align-items: end;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 15px;
+  align-items: start;
 }
 
 .task-tracker-dialog-v3__source-left {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
+}
+
+.task-tracker-dialog-v3__source-control {
+  align-items: center;
+  background: #F1F5F9;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 6px;
+  padding: 3px;
+}
+
+.task-tracker-dialog-v3__source-note-input {
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #D8DEE8;
+  border-radius: 7px;
+  color: #1F2937;
+  font-family: inherit;
+  font-size: 14px;
+  height: 40px;
+  padding: 0 12px;
+  width: 200px;
+  box-sizing: border-box;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.task-tracker-dialog-v3__source-note-input:focus {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.task-tracker-dialog-v3__source-note-input::placeholder {
+  color: #94A3B8;
 }
 
 .task-tracker-dialog-v3__source-right {
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-width: 0;
 }
 
