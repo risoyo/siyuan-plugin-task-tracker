@@ -296,7 +296,7 @@ export class TaskManagerTab {
     const filter = this.currentFilter;
     const filterActive = filter !== "all";
     const filterLabel = filterActive ? TASK_STATUS_LABELS[filter] : "全部任务";
-    const filterBtnClass = filterActive ? "task-manager-btn-primary task-manager-filter-btn is-filtering" : "b3-button b3-button--outline task-manager-filter-btn";
+    const filterBtnClass = filterActive ? "task-manager-btn-primary task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "b3-button b3-button--outline task-manager-filter-btn task-manager-filter-all-btn";
 
     const dropdownHtml = isCompletedView ? "" : `
     <div class="task-manager-filter-dropdown">

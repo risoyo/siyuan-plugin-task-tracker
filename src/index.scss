@@ -268,21 +268,32 @@
   position: relative;
 }
 
-.task-manager-filter-btn {
+.task-manager-filter-btn,
+.task-manager-filter-all-btn {
   align-items: center;
   box-sizing: border-box;
   display: inline-flex;
   gap: 6px;
-  height: 36px;
+  height: 34px;
   justify-content: center;
-  min-width: auto;
+  min-width: 0;
   padding: 0 14px;
+  white-space: nowrap;
+  width: auto;
+}
+
+.task-manager-filter-btn > *,
+.task-manager-filter-all-btn > * {
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .task-manager-filter-btn__arrow {
   color: currentColor;
-  flex: 0 0 auto;
+  display: block;
+  flex: 0 0 12px;
   height: 12px;
+  margin: 0;
   opacity: 0.65;
   width: 12px;
 }
@@ -388,23 +399,27 @@
 
 .task-manager-table__row,
 .task-manager-table tbody tr {
-  min-height: 60px;
+  height: 76px;
 }
 
 /* Table cells */
-.task-manager-table td {
+.task-manager-table td,
+.task-manager-table__cell {
   border-bottom: 1px solid var(--manager-border);
-  height: 60px;
+  box-sizing: border-box;
+  height: 76px;
   max-width: none;
   min-width: 0;
-  padding: 12px 12px;
+  padding: 14px 12px;
   vertical-align: middle;
 }
 
 /* Editable select cells — restore full width */
 .task-manager-table td.is-status,
-.task-manager-table td.is-priority {
-  padding: 12px 8px;
+.task-manager-table td.is-priority,
+.task-manager-table__cell.is-status,
+.task-manager-table__cell.is-priority {
+  padding: 14px 8px;
 }
 
 /* Row hover */
@@ -469,6 +484,7 @@
   align-items: center;
   display: flex;
   gap: 6px;
+  min-height: 30px;
   min-width: 0;
   padding-left: calc(var(--task-depth, 0) * 22px);
 }
@@ -476,13 +492,17 @@
 .task-manager-table__task-text {
   color: var(--manager-text);
   cursor: pointer;
+  display: -webkit-box;
   font-size: 14px;
   font-weight: 500;
   line-height: 1.35;
   max-width: 100%;
   min-width: 0;
-  word-break: break-word;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
 }
 
 .task-manager-table__task-text:hover {
@@ -631,6 +651,7 @@
   gap: 5px;
   height: 30px;
   line-height: 30px;
+  min-height: 30px;
   padding: 0 10px;
 }
 
@@ -754,6 +775,8 @@
 /* ── Actions column ────────────────────────────────────────────── */
 .task-manager-table__cell.is-actions {
   line-height: 0;
+  padding-bottom: 14px;
+  padding-top: 14px;
   white-space: nowrap;
 }
 
@@ -764,6 +787,19 @@
   line-height: 0;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+.task-manager--table .task-manager-task__action-button,
+.task-manager--completed .task-manager-task__action-button {
+  height: 28px;
+  padding: 0;
+  width: 28px;
+}
+
+.task-manager--table .task-manager-task__action-button svg,
+.task-manager--completed .task-manager-task__action-button svg {
+  height: 15px;
+  width: 15px;
 }
 
 /* ── Completed Groups ──────────────────────────────────────────── */
