@@ -278,7 +278,7 @@ export class TaskDialog {
     <!-- Task info section -->
     <div class="task-tracker-dialog-v3__section">
       ${sectionTitle("任务信息")}
-      <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full">
+      <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--title">
         <span class="task-tracker-dialog-v3__label">任务标题 <span class="task-tracker-dialog-v3__required">*</span></span>
         <input class="task-tracker-dialog-v3__input" name="title" value="${escapeAttr(defaultTitle)}" required placeholder="请输入任务标题" />
       </label>

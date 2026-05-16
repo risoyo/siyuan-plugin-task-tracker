@@ -2507,19 +2507,19 @@
 .task-tracker-dialog-v3__section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 
 .task-tracker-dialog-v3__divider {
   border-top: 1px dashed #E5EAF2;
-  margin: 20px 0;
+  margin: 14px 0;
 }
 
 .task-tracker-dialog-v3__section-title {
   color: #374151;
   font-size: 15px;
   font-weight: 600;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
 }
 
 /* ── Rows ─────────────────────────────────────────────── */
@@ -2531,14 +2531,15 @@
 
 .task-tracker-dialog-v3__row--project-parent {
   gap: 20px;
-  grid-template-columns: 1fr 1.5fr;
+  grid-template-columns: 1fr 1fr;
 }
 
 .task-tracker-dialog-v3__row--quad {
-  column-gap: 20px;
+  column-gap: 60px;
   row-gap: 18px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: start;
+  max-width: 96%;
 }
 
 /* Field width helpers */
@@ -2572,6 +2573,10 @@
 
 .task-tracker-dialog-v3__field--full {
   grid-column: 1 / -1;
+}
+
+.task-tracker-dialog-v3__field--title {
+  max-width: calc(100% - 25px);
 }
 
 .task-tracker-dialog-v3__field--half {
