@@ -2486,8 +2486,17 @@
 /* Body */
 .task-tracker-dialog-v3__body {
   flex: 1;
-  overflow-y: auto;
+  overflow: visible;
   padding: 32px;
+  min-height: 0;
+}
+
+.task-tracker-dialog-v3__body-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  max-height: 100%;
 }
 
 .task-tracker-dialog-v3__grid {
@@ -2508,22 +2517,25 @@
 }
 
 .task-tracker-dialog-v3__section-title {
-  color: #64748B;
-  font-size: 12px;
+  color: #374151;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.5px;
   margin-bottom: 16px;
-  text-transform: uppercase;
 }
 
 /* ── Rows ─────────────────────────────────────────────── */
 .task-tracker-dialog-v3__row {
   display: grid;
-  gap: 16px;
+  gap: 20px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.task-tracker-dialog-v3__row--project-parent {
+  gap: 24px;
+}
+
 .task-tracker-dialog-v3__row--quad {
+  gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -2742,14 +2754,21 @@
 }
 
 .task-tracker-dialog-v3__status-priority-row {
-  align-items: center;
+  align-items: flex-end;
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
-.task-tracker-dialog-v3__status-priority-row .task-tracker-dialog-v3__dropdown {
+.task-tracker-dialog-v3__sp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 1;
   min-width: 0;
+}
+
+.task-tracker-dialog-v3__sp-item .task-tracker-dialog-v3__dropdown {
+  position: relative;
 }
 
 .task-tracker-dialog-v3__badge {
@@ -2773,11 +2792,11 @@
   border-radius: 8px;
   color: var(--badge-color, #475569);
   display: inline-flex;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   gap: 6px;
   height: 40px;
-  padding: 0 12px;
+  padding: 0 10px;
   transition: box-shadow 120ms ease;
   width: 100%;
   justify-content: center;
@@ -2996,7 +3015,9 @@
 }
 
 .task-tracker-dialog-v3__date-wrap .task-tracker-dialog-v3__input {
-  padding-left: 36px;
+  font-size: 13px;
+  padding-left: 32px;
+  padding-right: 8px;
 }
 
 .task-tracker-dialog-v3__date-icon {
@@ -3006,11 +3027,11 @@
   flex-shrink: 0;
   height: 40px;
   justify-content: center;
-  left: 12px;
+  left: 10px;
   pointer-events: none;
   position: absolute;
   top: 0;
-  width: 16px;
+  width: 14px;
 }
 
 /* ── Input wrap with icon ─────────────────────────────── */

@@ -35,7 +35,7 @@ const ICONS = {
   hierarchy: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M8 4.5v4M5.2 10L4 11.5M10.8 10l1.2 1.5"/></svg>`,
   calendar: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>`,
   clock: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l2 1.5"/></svg>`,
-  chevronDown: `<svg viewBox="0 0 10 6" width="10" height="6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  chevronDown: `<svg viewBox="0 0 10 6" width="10" height="10"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   check: `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   edit: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg>`,
   doc: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4"/></svg>`,
@@ -68,7 +68,7 @@ function buildComboboxOption(value: string, label: string, active: boolean, icon
   </button>`;
 }
 
-// ── Status / Priority badge + dropdown (from 3.1.0, refined) ──
+// ── Status / Priority badge + dropdown ──
 
 function statusBadge(status: TaskStatus): string {
   const cfg = STATUS_BADGE_CONFIG[status];
@@ -128,7 +128,7 @@ function buildSegmentedControl(name: string, options: Array<{ value: string; lab
   </div>`;
 }
 
-// ── Section divider ───────────────────────────────────────────
+// ── Section divider / title ───────────────────────────────────
 
 function sectionDivider(): string {
   return `<div class="task-tracker-dialog-v3__divider"></div>`;
@@ -193,8 +193,6 @@ export class TaskDialog {
 
     // ── Build parent task options ──────────────────────────
     const parentOptionsHtml = (() => {
-      const parents = activeTasks.filter((t) => !t.parentId || t.parentId === defaultParentId);
-      // Actually use all active tasks, but indent children
       const topLevel = activeTasks.filter((t) => !t.parentId);
       const children = activeTasks.filter((t) => t.parentId && !topLevel.includes(t));
       let html = buildComboboxOption("", "无（顶层任务）", !defaultParentId);
@@ -238,14 +236,16 @@ export class TaskDialog {
   </div>
 
   <form class="task-tracker-dialog-v3__body">
-    <!-- Basic info section -->
+    <div class="task-tracker-dialog-v3__body-scroll">
+    <!-- Task info section -->
     <div class="task-tracker-dialog-v3__section">
+      ${sectionTitle("任务信息")}
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full">
         <span class="task-tracker-dialog-v3__label">任务标题 <span class="task-tracker-dialog-v3__required">*</span></span>
         <input class="task-tracker-dialog-v3__input" name="title" value="${escapeAttr(defaultTitle)}" required placeholder="请输入任务标题" />
       </label>
 
-      <div class="task-tracker-dialog-v3__row">
+      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--project-parent">
         <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
           <span class="task-tracker-dialog-v3__label">项目</span>
           ${buildComboboxSelect("project", defaultProject, "选择或输入项目", ICONS.folder, projectOptionsHtml)}
@@ -261,33 +261,34 @@ export class TaskDialog {
             <input type="hidden" name="parentId" value="${escapeAttr(defaultParentId)}" />`
             : buildComboboxSelect("parentId", defaultParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml)
           }
-          ${isSubtasks
-            ? `<div class="task-tracker-dialog-v3__hint">当前任务将作为所选父任务的子任务</div>`
-            : `<div class="task-tracker-dialog-v3__hint">如需创建子任务，请在此选择父任务</div>`
-          }
         </label>
       </div>
 
       <div class="task-tracker-dialog-v3__row">
         <div class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
-          <span class="task-tracker-dialog-v3__label">状态 / 优先级</span>
           <div class="task-tracker-dialog-v3__status-priority-row">
-            <div class="task-tracker-dialog-v3__dropdown" data-dropdown="status">
-              <input type="hidden" name="status" value="${defaultStatus}" />
-              <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="status">
-                ${statusBadgeHtml}
-              </button>
-              <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="status" style="display:none;">
-                ${statusDropdownHtml}
+            <div class="task-tracker-dialog-v3__sp-item">
+              <span class="task-tracker-dialog-v3__label">状态</span>
+              <div class="task-tracker-dialog-v3__dropdown" data-dropdown="status">
+                <input type="hidden" name="status" value="${defaultStatus}" />
+                <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="status">
+                  ${statusBadgeHtml}
+                </button>
+                <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="status" style="display:none;">
+                  ${statusDropdownHtml}
+                </div>
               </div>
             </div>
-            <div class="task-tracker-dialog-v3__dropdown" data-dropdown="priority">
-              <input type="hidden" name="priority" value="${defaultPriority}" />
-              <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="priority">
-                ${priorityBadgeHtml}
-              </button>
-              <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="priority" style="display:none;">
-                ${priorityDropdownHtml}
+            <div class="task-tracker-dialog-v3__sp-item">
+              <span class="task-tracker-dialog-v3__label">优先级</span>
+              <div class="task-tracker-dialog-v3__dropdown" data-dropdown="priority">
+                <input type="hidden" name="priority" value="${defaultPriority}" />
+                <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="priority">
+                  ${priorityBadgeHtml}
+                </button>
+                <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="priority" style="display:none;">
+                  ${priorityDropdownHtml}
+                </div>
               </div>
             </div>
           </div>
@@ -360,14 +361,12 @@ export class TaskDialog {
           </label>
         </div>
       </div>
-      <div class="task-tracker-dialog-v3__source-summary" data-source-summary>
-        <div class="task-tracker-dialog-v3__source-current">当前来源：${sourceMode === "note" ? (selectedSource?.text || "尚未填写笔记 ID") : "手动创建"}</div>
-      </div>
 
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full" style="margin-top:16px;">
         <span class="task-tracker-dialog-v3__label">任务描述</span>
         <textarea class="task-tracker-dialog-v3__textarea" name="description" rows="3" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
       </label>
+    </div>
     </div>
   </form>
 
@@ -388,23 +387,12 @@ export class TaskDialog {
     const form = root.querySelector("form") as HTMLFormElement;
     const titleInput = root.querySelector<HTMLInputElement>("input[name='title']");
     const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
-    const sourceSummary = root.querySelector<HTMLElement>("[data-source-summary]");
     const sourceNote = root.querySelector<HTMLElement>("[data-source-note]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     titleInput?.focus();
     titleInput?.select();
 
-    // ── Source ──────────────────────────────────────────────
-
-    const renderSourceSummary = () => {
-      if (!sourceSummary) {
-        return;
-      }
-      const current = sourceMode === "note"
-        ? selectedSource?.text || sourceDocIdInput?.value.trim() || "尚未填写笔记 ID"
-        : "手动创建";
-      sourceSummary.innerHTML = `<div class="task-tracker-dialog-v3__source-current">当前来源：${escapeHtml(current)}</div>`;
-    };
+    // ── Source mode ────────────────────────────────────────
 
     const renderSourceMode = () => {
       if (sourceNote) {
@@ -412,12 +400,12 @@ export class TaskDialog {
       }
       if (sourceMode === "manual") {
         selectedSource = undefined;
+        if (sourceDocIdInput) sourceDocIdInput.value = "";
       }
       // Update segment buttons
       root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
         btn.classList.toggle("is-active", btn.dataset.segmentValue === sourceMode);
       });
-      renderSourceSummary();
     };
 
     const applyDocIdSource = async (): Promise<void> => {
@@ -434,12 +422,11 @@ export class TaskDialog {
         docId: doc.id,
         text: doc.content || doc.hpath || doc.id
       };
-      renderSourceSummary();
     };
 
     renderSourceMode();
 
-    // ── Project combobox ────────────────────────────────────
+    // ── Combobox logic ────────────────────────────────────
 
     const initCombobox = (name: string) => {
       const combobox = root.querySelector<HTMLElement>(`[data-combobox="${name}"]`);
@@ -449,56 +436,26 @@ export class TaskDialog {
       const menu = combobox.querySelector<HTMLElement>(`[data-combobox-menu="${name}"]`);
       const hidden = combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`);
       const valueEl = combobox.querySelector<HTMLElement>(`[data-combobox-value="${name}"]`);
-      const filterInput = combobox.querySelector<HTMLInputElement>(`[data-combobox-filter="${name}"]`);
 
       const updateDisplay = (val: string, label: string) => {
-        if (valueEl) valueEl.textContent = label || (name === "project" ? "选择或输入项目" : "选择或输入父任务（可选）");
+        if (valueEl) valueEl.textContent = label || "无";
         if (menu) menu.style.display = "none";
         toggle?.classList.remove("is-open");
-        // Update active state on options
         menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((opt) => {
           opt.classList.toggle("is-active", opt.dataset.comboboxOption === val);
         });
       };
 
-      toggle?.addEventListener("click", (e) => {
-        e.stopPropagation();
+      toggle?.addEventListener("click", () => {
         const isOpen = menu?.style.display !== "none";
         closeAllDropdowns();
         closeAllComboboxes(name);
         if (!isOpen && menu) {
           menu.style.display = "";
           toggle.classList.add("is-open");
-          // Focus filter input if present
-          if (filterInput) {
-            filterInput.value = "";
-            filterInput.focus();
-            filterOptions("");
-          }
         }
       });
 
-      // Filter input handler for project combobox
-      filterInput?.addEventListener("input", () => {
-        filterOptions(filterInput.value);
-      });
-
-      filterInput?.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-          closeAllComboboxes();
-        }
-        e.stopPropagation();
-      });
-
-      const filterOptions = (query: string) => {
-        menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((opt) => {
-          const text = opt.textContent?.toLowerCase() || "";
-          const matches = !query || text.includes(query.toLowerCase());
-          (opt as HTMLElement).style.display = matches ? "" : "none";
-        });
-      };
-
-      // Option click
       menu?.addEventListener("click", (e) => {
         const option = (e.target as HTMLElement).closest<HTMLElement>("[data-combobox-option]");
         if (!option) return;
@@ -510,7 +467,6 @@ export class TaskDialog {
       });
     };
 
-    // Init project and parent comboboxes
     initCombobox("project");
     initCombobox("parentId");
 
@@ -560,10 +516,10 @@ export class TaskDialog {
     root.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
 
-      const toggle = target.closest<HTMLElement>("[data-dropdown-toggle]");
-      if (toggle) {
+      const dropdownToggle = target.closest<HTMLElement>("[data-dropdown-toggle]");
+      if (dropdownToggle) {
         event.stopPropagation();
-        const name = toggle.dataset.dropdown;
+        const name = dropdownToggle.dataset.dropdown;
         if (name) {
           toggleDropdown(name);
         }
@@ -600,6 +556,7 @@ export class TaskDialog {
         return;
       }
 
+      // Close popups when clicking outside
       if (!target.closest("[data-dropdown-menu]") && !target.closest("[data-dropdown-toggle]") && !target.closest("[data-combobox-menu]") && !target.closest("[data-combobox-toggle]")) {
         closeAllDropdowns();
         closeAllComboboxes();
@@ -647,12 +604,6 @@ export class TaskDialog {
           renderSourceMode();
         }
       });
-    });
-    sourceDocIdInput?.addEventListener("input", () => {
-      if (sourceMode === "note") {
-        selectedSource = undefined;
-        renderSourceSummary();
-      }
     });
 
     // ── Form submission ────────────────────────────────────
@@ -706,14 +657,12 @@ export class TaskDialog {
 
 // ── Shared utilities ────────────────────────────────────────
 
-/** Render a `<select>` element for the given status (used in TaskManagerTab). */
 export function statusOptions(current: TaskStatus): string {
   return (Object.entries(TASK_STATUS_LABELS) as Array<[TaskStatus, string]>)
     .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
     .join("");
 }
 
-/** Render a `<select>` element for the given priority (used in TaskManagerTab). */
 export function priorityOptions(current: TaskPriority): string {
   return (Object.entries(TASK_PRIORITY_LABELS) as Array<[TaskPriority, string]>)
     .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
