@@ -258,3 +258,50 @@ export function formatHumanDatetimeWithWeekday(value?: string): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${WEEKDAY_NAMES[date.getDay()]} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/** Lightweight date display for the sidebar dock.
+ *  Picks the most relevant date: dueDate → planEnd → planStart → none. */
+export function formatSidebarDate(task: {
+  planStart?: string;
+  planEnd?: string;
+  dueDate?: string;
+  status: string;
+}): { display: string; kind: "today" | "tomorrow" | "weekday" | "date" | "overdue" | "unset"; dateKey: string } {
+  const dateKey = toDateKey(task.dueDate) || toDateKey(task.planEnd) || toDateKey(task.planStart);
+  if (!dateKey) {
+    return { display: "未设置", kind: "unset", dateKey: "" };
+  }
+
+  const today = formatDateKey(new Date());
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return { display: "未设置", kind: "unset", dateKey: "" };
+  }
+
+  // Overdue: date is before today and task is still active
+  const isActive = task.status !== "completed" && task.status !== "cancelled";
+  if (dateKey < today && isActive) {
+    return { display: "逾期", kind: "overdue", dateKey };
+  }
+
+  if (dateKey === today) {
+    return { display: "今天", kind: "today", dateKey };
+  }
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (dateKey === formatDateKey(tomorrow)) {
+    return { display: "明天", kind: "tomorrow", dateKey };
+  }
+
+  // Within current week (Mon-Sun)?
+  const weekStart = startOfWeek(new Date());
+  const weekEnd = endOfWeek(new Date());
+  const weekStartKey = formatDateKey(weekStart);
+  const weekEndKey = formatDateKey(weekEnd);
+  if (dateKey >= weekStartKey && dateKey <= weekEndKey) {
+    return { display: WEEKDAY_NAMES[date.getDay()], kind: "weekday", dateKey };
+  }
+
+  return { display: dateKey.slice(5), kind: "date", dateKey };
+}
