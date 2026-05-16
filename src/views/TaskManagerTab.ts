@@ -18,8 +18,10 @@ import {
   weekKey
 } from "../date";
 import type { TaskService } from "../document";
-import { escapeHtml, priorityOptions, statusOptions } from "../dialogs/TaskDialog";
+import { escapeHtml } from "../dialogs/TaskDialog";
 import {
+  PRIORITY_BADGE_CONFIG,
+  STATUS_BADGE_CONFIG,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_COLORS,
   TASK_STATUS_LABELS,
@@ -193,6 +195,7 @@ export class TaskManagerTab {
   private search = "";
   private viewFilters = new Map<TaskManagerView, "all" | TaskStatus>();
   private statusDropdownOpen = false;
+  private activePopover: { taskId: string; field: "status" | "priority" } | null = null;
   private month = monthStart(new Date());
   private calendarMode: "month" | "week" = "month";
   private weekStart = startOfWeek(new Date());
@@ -542,15 +545,10 @@ export class TaskManagerTab {
       return `<td class="task-manager-table__cell is-time"><span class="task-manager-table__time ${display === "—" ? "is-empty" : ""}" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.createdAt))}">${escapeHtml(display)}</span></td>`;
     }
     if (key === "status") {
-      const color = TASK_STATUS_COLORS[task.status];
-      return `<td class="task-manager-table__cell is-status">
-  <label class="task-manager-status-badge" style="--status-color: ${color.textColor}; --status-bg: ${color.bgColor};">
-    <select class="task-manager-status-select" data-field="status" aria-label="任务状态">${statusOptions(task.status)}</select>
-  </label>
-</td>`;
+      return `<td class="task-manager-table__cell is-status">${this.renderInlineStatusBadge(task, "table")}</td>`;
     }
     if (key === "priority") {
-      return `<td class="task-manager-table__cell is-priority"><span class="task-manager-table__text task-manager-table__text--plain">${escapeHtml(TASK_PRIORITY_LABELS[task.priority] || "")}</span></td>`;
+      return `<td class="task-manager-table__cell is-priority">${this.renderInlinePriorityBadge(task, "table")}</td>`;
     }
     if (key === "plan") {
       const display = formatHumanDatetimeWithWeekday(task.planStart);
@@ -1068,8 +1066,8 @@ export class TaskManagerTab {
   </div>
   <div class="task-manager-task__controls">
     <div class="task-manager-task__control-grid">
-      ${this.renderListMetaChip("status", statusOptions(task.status), TASK_STATUS_COLORS[task.status])}
-      ${this.renderListMetaChip("priority", priorityOptions(task.priority))}
+      ${this.renderListMetaChip("status", task)}
+      ${this.renderListMetaChip("priority", task)}
       ${this.renderListDateChip("planDate", "计划", formatMonthDay(task.planStart), toDateKey(task.planStart))}
       ${this.renderListDateChip("dueDate", "截止", task.dueDate ? formatMonthDay(task.dueDate) : "", task.dueDate || "")}
     </div>
@@ -1272,7 +1270,7 @@ export class TaskManagerTab {
   <div class="task-manager-card__meta-chips">
     ${this.renderProjectMetaChip(task)}
     ${this.renderSourceMetaChip(task)}
-    ${this.renderSelectMetaChip("状态", "status", statusOptions(task.status))}
+    ${this.renderSelectMetaChip("状态", "status", task)}
     ${this.renderPriorityMetaChip(task)}
     ${this.renderDateMetaChip("计划", "planDate", formatMonthDay(task.planStart), toDateKey(task.planStart))}
     ${this.renderDateMetaChip("截止", "dueDate", formatMonthDay(task.dueDate), task.dueDate || "")}
@@ -1294,13 +1292,14 @@ export class TaskManagerTab {
   }
 
   private renderPriorityMetaChip(task: TaskItem): string {
-    return this.renderSelectMetaChip("优先级", "priority", priorityOptions(task.priority));
+    return this.renderSelectMetaChip("优先级", "priority", task);
   }
 
-  private renderSelectMetaChip(label: string, field: "status" | "priority", options: string): string {
-    return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--select">
-  <select class="task-manager-card__meta-select" data-field="${field}" aria-label="${label}">${options}</select>
-</label>`;
+  private renderSelectMetaChip(label: string, field: "status" | "priority", task: TaskItem): string {
+    if (field === "status") {
+      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--select">${this.renderInlineStatusBadge(task, "card")}</span>`;
+    }
+    return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--select">${this.renderInlinePriorityBadge(task, "card")}</span>`;
   }
 
   private renderDateMetaChip(label: string, field: "planDate" | "dueDate", display: string, value: string): string {
@@ -1310,11 +1309,11 @@ export class TaskManagerTab {
 </label>`;
   }
 
-  private renderListMetaChip(field: "status" | "priority", options: string, color?: { textColor: string; bgColor: string }): string {
-    const style = color ? ` style="--chip-color: ${color.textColor}; --chip-bg: ${color.bgColor};"` : "";
-    return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--select"${style}>
-  <select class="task-manager-card__meta-select" data-field="${field}" aria-label="${field === "status" ? "任务状态" : "任务优先级"}">${options}</select>
-</label>`;
+  private renderListMetaChip(field: "status" | "priority", task: TaskItem): string {
+    if (field === "status") {
+      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--select">${this.renderInlineStatusBadge(task, "list")}</span>`;
+    }
+    return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--select">${this.renderInlinePriorityBadge(task, "list")}</span>`;
   }
 
   private renderListDateChip(field: "planDate" | "dueDate", label: string, display: string, value: string): string {
@@ -1364,6 +1363,58 @@ export class TaskManagerTab {
     : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
   ${deleteButton}
 </span>`;
+  }
+
+  private renderInlineStatusBadge(task: TaskItem, mode: "table" | "list" | "card"): string {
+    const cfg = STATUS_BADGE_CONFIG[task.status];
+    const open = this.activePopover?.taskId === task.id && this.activePopover?.field === "status";
+    const sizeClass = mode === "table" ? "task-manager-inline-badge--table" : "task-manager-inline-badge--compact";
+    return `<div class="task-manager-inline-dropdown" data-popover="status" data-task-id="${task.id}">
+  <button type="button" class="task-manager-inline-badge ${sizeClass} ${open ? "is-open" : ""}" data-popover-toggle="status" data-task-id="${task.id}" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
+    <span class="task-manager-inline-badge__dot" style="--dot-color: ${cfg.dotColor};"></span>
+    <span class="task-manager-inline-badge__text">${cfg.label}</span>
+    <svg class="task-manager-inline-badge__arrow" viewBox="0 0 10 6" width="8" height="5"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="task-manager-inline-menu" data-popover-menu="status" data-task-id="${task.id}" style="display: ${open ? "" : "none"};">
+    ${(["todo", "doing", "waiting", "completed", "cancelled"] as TaskStatus[]).map((status) => {
+      const itemCfg = STATUS_BADGE_CONFIG[status];
+      const active = status === task.status;
+      return `<button type="button" class="task-manager-inline-menu__item ${active ? "is-active" : ""}" data-popover-select="status" data-task-id="${task.id}" data-status-value="${status}">
+        <span class="task-manager-inline-menu__dot" style="--dot-color: ${itemCfg.dotColor};"></span>
+        <span class="task-manager-inline-menu__label">${itemCfg.label}</span>
+        ${active ? `<svg class="task-manager-inline-menu__check" viewBox="0 0 16 16" width="12" height="12"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}
+      </button>`;
+    }).join("")}
+  </div>
+</div>`;
+  }
+
+  private renderInlinePriorityBadge(task: TaskItem, mode: "table" | "list" | "card"): string {
+    const cfg = PRIORITY_BADGE_CONFIG[task.priority];
+    const open = this.activePopover?.taskId === task.id && this.activePopover?.field === "priority";
+    const sizeClass = mode === "table" ? "task-manager-inline-badge--table" : "task-manager-inline-badge--compact";
+    return `<div class="task-manager-inline-dropdown" data-popover="priority" data-task-id="${task.id}">
+  <button type="button" class="task-manager-inline-badge ${sizeClass} ${open ? "is-open" : ""}" data-popover-toggle="priority" data-task-id="${task.id}" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
+    <svg class="task-manager-inline-badge__flag" viewBox="0 0 16 16" width="12" height="12" style="--icon-color: ${cfg.iconColor};"><path d="M4 2v12M4 2h9l-3 3.5L13 9H4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="task-manager-inline-badge__text">${cfg.label}</span>
+    <svg class="task-manager-inline-badge__arrow" viewBox="0 0 10 6" width="8" height="5"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="task-manager-inline-menu" data-popover-menu="priority" data-task-id="${task.id}" style="display: ${open ? "" : "none"};">
+    ${(["high", "medium", "low", "none"] as TaskPriority[]).map((priority) => {
+      const itemCfg = PRIORITY_BADGE_CONFIG[priority];
+      const active = priority === task.priority;
+      return `<button type="button" class="task-manager-inline-menu__item ${active ? "is-active" : ""}" data-popover-select="priority" data-task-id="${task.id}" data-priority-value="${priority}">
+        <svg class="task-manager-inline-menu__flag" viewBox="0 0 16 16" width="12" height="12" style="--icon-color: ${itemCfg.iconColor};"><path d="M4 2v12M4 2h9l-3 3.5L13 9H4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="task-manager-inline-menu__label">${itemCfg.label}</span>
+        ${active ? `<svg class="task-manager-inline-menu__check" viewBox="0 0 16 16" width="12" height="12"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}
+      </button>`;
+    }).join("")}
+  </div>
+</div>`;
+  }
+
+  private closePopover(): void {
+    this.activePopover = null;
   }
 
   private bind(): void {
@@ -1525,6 +1576,58 @@ export class TaskManagerTab {
       }
     }
 
+    // ── Inline popover handling ──────────────────────────
+
+    const popoverToggle = target.closest<HTMLElement>("[data-popover-toggle]");
+    if (popoverToggle) {
+      event.stopPropagation();
+      const field = popoverToggle.dataset.popoverToggle as "status" | "priority";
+      const taskId = popoverToggle.dataset.taskId;
+      if (field && taskId) {
+        if (this.activePopover?.taskId === taskId && this.activePopover?.field === field) {
+          this.closePopover();
+        } else {
+          this.activePopover = { taskId, field };
+        }
+        this.render();
+      }
+      return;
+    }
+
+    const popoverSelect = target.closest<HTMLElement>("[data-popover-select]");
+    if (popoverSelect) {
+      event.stopPropagation();
+      const field = popoverSelect.dataset.popoverSelect as "status" | "priority";
+      const taskId = popoverSelect.dataset.taskId;
+      if (!field || !taskId) {
+        return;
+      }
+      const task = this.service.store.get(taskId);
+      if (!task) {
+        return;
+      }
+      if (field === "status") {
+        const newStatus = popoverSelect.dataset.statusValue as TaskStatus;
+        if (newStatus && newStatus !== task.status) {
+          void this.runUpdate(() => this.service.updateTask(task.id, { status: newStatus }));
+        }
+      } else {
+        const newPriority = popoverSelect.dataset.priorityValue as TaskPriority;
+        if (newPriority && newPriority !== task.priority) {
+          void this.runUpdate(() => this.service.updateTask(task.id, { priority: newPriority }));
+        }
+      }
+      this.closePopover();
+      return;
+    }
+
+    // Close inline popover when clicking outside
+    if (this.activePopover && !target.closest("[data-popover]")) {
+      this.closePopover();
+      this.render();
+      return;
+    }
+
     // Close status filter dropdown when clicking outside
     if (this.statusDropdownOpen && !target.closest(".task-manager-filter-dropdown")) {
       this.statusDropdownOpen = false;
@@ -1587,11 +1690,7 @@ export class TaskManagerTab {
       return;
     }
 
-    if (field.dataset.field === "status") {
-      void this.runUpdate(() => this.service.updateTask(task.id, { status: (field as HTMLSelectElement).value as TaskStatus }));
-    } else if (field.dataset.field === "priority") {
-      void this.runUpdate(() => this.service.updateTask(task.id, { priority: (field as HTMLSelectElement).value as TaskPriority }));
-    } else if (field.dataset.field === "planDate") {
+    if (field.dataset.field === "planDate") {
       void this.runUpdate(() => this.service.updateTask(task.id, {
         planStart: mergeDateInputWithExisting((field as HTMLInputElement).value, task.planStart)
       }));
@@ -1743,6 +1842,14 @@ export class TaskManagerTab {
 
   private handleKeydown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement;
+
+    if (event.key === "Escape" && this.activePopover) {
+      event.preventDefault();
+      this.closePopover();
+      this.render();
+      return;
+    }
+
     const expandButton = target.closest<HTMLElement>("[data-action='toggle-calendar-day-expand']");
     if (expandButton && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();

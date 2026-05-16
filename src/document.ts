@@ -100,6 +100,7 @@ export class TaskService {
       dueDate: input.dueDate || undefined,
       planStart: input.planStart || undefined,
       planEnd: input.planEnd || undefined,
+      description: input.description?.trim() || undefined,
       createdAt,
       updatedAt: now,
       completedAt: input.status === "completed" ? now : undefined
@@ -553,6 +554,9 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   if ("sourceText" in normalized && typeof normalized.sourceText === "string") {
     normalized.sourceText = normalized.sourceText.trim() || undefined;
   }
+  if ("description" in normalized && typeof normalized.description === "string") {
+    normalized.description = normalized.description.trim() || undefined;
+  }
   if ("dueDate" in normalized && normalized.dueDate === "") {
     normalized.dueDate = undefined;
   }
@@ -750,7 +754,8 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
     planEnd: attrs[TASK_ATTRS.planEnd] || undefined,
     createdAt: attrs[TASK_ATTRS.createdAt] || updatedToIso(doc.updated) || nowIso(),
     updatedAt: updatedToIso(doc.updated) || nowIso(),
-    completedAt: attrs[TASK_ATTRS.completedAt] || undefined
+    completedAt: attrs[TASK_ATTRS.completedAt] || undefined,
+    description: attrs[TASK_ATTRS.description]?.trim() || undefined
   };
 }
 
@@ -1083,6 +1088,7 @@ function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, chi
     planEnd: formatTaskDate(task.planEnd),
     childTasks: renderChildRefs(children, "inline"),
     childTaskList: renderChildRefs(children, "list"),
+    description: task.description || "无",
     createdAt: formatTaskDate(task.createdAt),
     updatedAt: formatTaskDate(task.updatedAt)
   };
@@ -1099,6 +1105,7 @@ function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: Ta
 > 项目：${task.project || "未设置"}
 > 状态：${TASK_STATUS_LABELS[task.status]}
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
+> 任务描述：${task.description || "无"}
 > 创建时间：${formatTaskDate(task.createdAt)}
 > 截止时间：${formatTaskDate(task.dueDate)}
 > 计划时间：${formatTaskDate(task.planStart)}
@@ -1275,7 +1282,8 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.parentId]: task.parentId || "",
     [TASK_ATTRS.sourceBlockId]: task.sourceBlockId || "",
     [TASK_ATTRS.sourceDocId]: task.sourceDocId || "",
-    [TASK_ATTRS.sourceText]: task.sourceText || ""
+    [TASK_ATTRS.sourceText]: task.sourceText || "",
+    [TASK_ATTRS.description]: task.description || ""
   });
 }
 

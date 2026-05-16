@@ -580,42 +580,155 @@
   color: #94A3B8;
 }
 
-/* ── Status Badge (styled <select>) ────────────────────────────── */
-.task-manager-status-badge {
+/* ── Inline Badge + Popover (status & priority, table/list/kanban) ─ */
+.task-manager-inline-dropdown {
   display: inline-flex;
   position: relative;
   max-width: 100%;
 }
 
-.task-manager-status-select {
+.task-manager-inline-badge {
+  align-items: center;
   appearance: none;
-  -webkit-appearance: none;
-  background: var(--status-bg, #F1F5F9);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394A3B8' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-position: right 8px center;
-  background-repeat: no-repeat;
-  border: 0;
-  border-radius: 6px;
-  color: var(--status-color, #475569);
+  background: var(--badge-bg, #F8FAFC);
+  border: 1px solid var(--badge-border, #CBD5E1);
+  border-radius: 10px;
+  color: var(--badge-color, #475569);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  height: 28px;
-  line-height: 28px;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 6px;
+  height: 36px;
   max-width: 100%;
   min-width: 0;
-  padding: 0 26px 0 10px;
+  padding: 0 12px;
+  transition: box-shadow 120ms ease;
+}
+
+.task-manager-inline-badge:hover {
+  filter: brightness(0.98);
+}
+
+.task-manager-inline-badge.is-open {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.task-manager-inline-badge--table {
+  font-size: 13px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  gap: 5px;
+}
+
+.task-manager-inline-badge--compact {
+  font-size: 11px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  gap: 4px;
+}
+
+.task-manager-inline-badge__dot {
+  background: var(--dot-color, #94A3B8);
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.task-manager-inline-badge--compact .task-manager-inline-badge__dot {
+  height: 6px;
+  width: 6px;
+}
+
+.task-manager-inline-badge__flag {
+  color: var(--icon-color, #94A3B8);
+  flex-shrink: 0;
+  height: 14px;
+  width: 14px;
+}
+
+.task-manager-inline-badge--compact .task-manager-inline-badge__flag {
+  height: 10px;
+  width: 10px;
+}
+
+.task-manager-inline-badge__text {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.task-manager-inline-badge__arrow {
+  color: var(--badge-color, #475569);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* ── Inline Popover Menu ────────────────────────────────────── */
+.task-manager-inline-menu {
+  background: #FFFFFF;
+  border: 1px solid #E5EAF2;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+  min-width: 148px;
+  padding: 6px;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 100;
+}
+
+.task-manager-inline-menu__item {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #1F2937;
+  cursor: pointer;
+  display: flex;
+  font-size: 14px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
   width: 100%;
 }
 
-.task-manager-status-select:focus {
-  outline: 2px solid var(--manager-accent);
-  outline-offset: 1px;
+.task-manager-inline-menu__item:hover {
+  background: #F5F8FF;
 }
 
-.task-manager-status-select:focus-visible {
-  outline: 2px solid var(--manager-accent);
-  outline-offset: 1px;
+.task-manager-inline-menu__item.is-active {
+  background: #EFF6FF;
+  color: #2563EB;
+  font-weight: 500;
+}
+
+.task-manager-inline-menu__dot {
+  background: var(--dot-color, #94A3B8);
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.task-manager-inline-menu__flag {
+  color: var(--icon-color, #94A3B8);
+  flex-shrink: 0;
+  height: 14px;
+  width: 14px;
+}
+
+.task-manager-inline-menu__label {
+  flex: 1;
+  text-align: left;
+}
+
+.task-manager-inline-menu__check {
+  color: #2563EB;
+  flex-shrink: 0;
 }
 
 /* ── Actions column ────────────────────────────────────────────── */
@@ -2297,6 +2410,392 @@
   grid-column: 1 / -1;
 }
 
+/* ── Inline badge inside meta-chip (cards & list) ─────────────── */
+.task-manager-card__meta-chip--select .task-manager-inline-dropdown {
+  display: inline-flex;
+}
+
+.task-manager-card__meta-chip--select .task-manager-inline-badge--compact {
+  background: transparent;
+  border: 0;
+  padding: 0 4px 0 0;
+  height: auto;
+  font-size: 11px;
+  gap: 3px;
+}
+
+/* ── Dialog v3 ───────────────────────────────────────────────── */
+.task-tracker-dialog-v3 {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+}
+
+/* Header */
+.task-tracker-dialog-v3__header {
+  align-items: center;
+  border-bottom: 1px solid #E5EAF2;
+  display: flex;
+  flex-shrink: 0;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.task-tracker-dialog-v3__header-left {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.task-tracker-dialog-v3__icon-block {
+  align-items: center;
+  background: #EFF6FF;
+  border-radius: 10px;
+  color: #2563EB;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.task-tracker-dialog-v3__title {
+  color: #1E293B;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.task-tracker-dialog-v3__close {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid #E5EAF2;
+  border-radius: 8px;
+  color: #64748B;
+  cursor: pointer;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.task-tracker-dialog-v3__close:hover {
+  background: #F8FAFC;
+  color: #1E293B;
+}
+
+/* Body */
+.task-tracker-dialog-v3__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.task-tracker-dialog-v3__grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Footer */
+.task-tracker-dialog-v3__footer {
+  align-items: center;
+  background: #FAFBFD;
+  border-top: 1px solid #E5EAF2;
+  display: flex;
+  flex-shrink: 0;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+}
+
+/* Form fields */
+.task-tracker-dialog-v3__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-tracker-dialog-v3__field--wide {
+  grid-column: 1 / -1;
+}
+
+.task-tracker-dialog-v3__label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.task-tracker-dialog-v3__required {
+  color: #DC2626;
+}
+
+.task-tracker-dialog-v3__input,
+.task-tracker-dialog-v3__select {
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #D8DEE8;
+  border-radius: 8px;
+  color: #1E293B;
+  font-family: inherit;
+  font-size: 14px;
+  height: 40px;
+  line-height: 40px;
+  min-width: 0;
+  padding: 0 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+  width: 100%;
+}
+
+.task-tracker-dialog-v3__input:focus,
+.task-tracker-dialog-v3__select:focus {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.task-tracker-dialog-v3__input::placeholder {
+  color: #94A3B8;
+}
+
+.task-tracker-dialog-v3__input:disabled {
+  background: #F8FAFC;
+  color: #94A3B8;
+  cursor: not-allowed;
+}
+
+.task-tracker-dialog-v3__textarea {
+  background: #FFFFFF;
+  border: 1px solid #D8DEE8;
+  border-radius: 8px;
+  color: #1E293B;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 96px;
+  padding: 10px 12px;
+  resize: vertical;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.task-tracker-dialog-v3__textarea:focus {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.task-tracker-dialog-v3__textarea::placeholder {
+  color: #94A3B8;
+}
+
+/* Parent locked */
+.task-tracker-dialog-v3__parent-locked {
+  align-items: center;
+  background: #F8FAFC;
+  border: 1px solid #E5EAF2;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.task-tracker-dialog-v3__parent-text {
+  color: #1E293B;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.task-tracker-dialog-v3__parent-hint {
+  color: #94A3B8;
+  font-size: 12px;
+}
+
+/* Dialog dropdown */
+.task-tracker-dialog-v3__dropdown {
+  position: relative;
+}
+
+.task-tracker-dialog-v3__badge {
+  appearance: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}
+
+.task-tracker-dialog-v3__badge.is-open .task-tracker-dialog-v3__badge-inner {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.task-tracker-dialog-v3__badge-inner {
+  align-items: center;
+  background: var(--badge-bg, #F8FAFC);
+  border: 1px solid var(--badge-border, #CBD5E1);
+  border-radius: 10px;
+  color: var(--badge-color, #475569);
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  transition: box-shadow 120ms ease;
+}
+
+.task-tracker-dialog-v3__badge-inner:hover {
+  filter: brightness(0.98);
+}
+
+.task-tracker-dialog-v3__badge-dot {
+  background: var(--dot-color, #94A3B8);
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.task-tracker-dialog-v3__badge-text {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.task-tracker-dialog-v3__badge-arrow {
+  color: var(--badge-color, #475569);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.task-tracker-dialog-v3__badge-flag {
+  color: var(--icon-color, #94A3B8);
+  flex-shrink: 0;
+}
+
+/* Dialog dropdown menu */
+.task-tracker-dialog-v3__menu {
+  background: #FFFFFF;
+  border: 1px solid #E5EAF2;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+  left: 0;
+  min-width: 148px;
+  padding: 6px;
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 200;
+}
+
+.task-tracker-dialog-v3__menu-item {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #1F2937;
+  cursor: pointer;
+  display: flex;
+  font-size: 14px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.task-tracker-dialog-v3__menu-item:hover {
+  background: #F5F8FF;
+}
+
+.task-tracker-dialog-v3__menu-item.is-active {
+  background: #EFF6FF;
+  color: #2563EB;
+  font-weight: 500;
+}
+
+.task-tracker-dialog-v3__menu-dot {
+  background: var(--dot-color, #94A3B8);
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.task-tracker-dialog-v3__menu-label {
+  flex: 1;
+  text-align: left;
+}
+
+.task-tracker-dialog-v3__menu-check {
+  color: #2563EB;
+  flex-shrink: 0;
+}
+
+/* Dialog buttons */
+.task-tracker-dialog-v3__btn-cancel {
+  align-items: center;
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #D8DEE8;
+  border-radius: 8px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  padding: 0 20px;
+  transition: background-color 120ms ease;
+}
+
+.task-tracker-dialog-v3__btn-cancel:hover {
+  background: #F8FAFC;
+}
+
+.task-tracker-dialog-v3__btn-primary {
+  align-items: center;
+  appearance: none;
+  background: #2563EB;
+  border: 0;
+  border-radius: 8px;
+  color: #FFFFFF;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  height: 40px;
+  padding: 0 24px;
+  transition: background-color 120ms ease;
+}
+
+.task-tracker-dialog-v3__btn-primary:hover {
+  background: #1D4ED8;
+}
+
+.task-tracker-dialog-v3__btn-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Override siyuan Dialog's built-in background */
+body > [data-name="dialog"] .b3-dialog__container {
+  background: #FFFFFF;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16), 0 8px 24px rgba(15, 23, 42, 0.08);
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+}
+
+body > [data-name="dialog"] .b3-dialog__close {
+  display: none;
+}
+
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 820px) {
   .task-manager-toolbar__header {
@@ -2396,6 +2895,7 @@
   }
 
   .task-tracker-dialog__grid,
+  .task-tracker-dialog-v3__grid,
   .task-tracker-calendar__layout {
     grid-template-columns: 1fr;
   }
