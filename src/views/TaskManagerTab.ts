@@ -896,10 +896,10 @@ export class TaskManagerTab {
     const dayLabel = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
     const todayClass = day.isToday ? "is-today" : "";
 
-    return `<div class="task-manager-calendar-week-row ${todayClass}">
+    return `<div class="task-manager-calendar-week-row ${todayClass}" data-date="${day.dateKey}">
   <div class="task-manager-calendar-week-row__label">
     <span class="task-manager-calendar-week-row__day">${day.label}</span>
-    <span class="task-manager-calendar-week-row__date ${todayClass}">${dayLabel}</span>
+    <span class="task-manager-calendar-week-row__date">${dayLabel}</span>
     ${tasks.length ? `<span class="task-manager-calendar-week-row__count">${tasks.length}</span>` : ""}
   </div>
   <div class="task-manager-calendar-week-row__tasks">
@@ -1173,6 +1173,11 @@ export class TaskManagerTab {
     const day = target.closest<HTMLElement>(".task-manager-calendar-day");
     if (day?.dataset.date) {
       this.actions.newTask({ presetPlanDate: day.dataset.date });
+    }
+
+    const weekRow = target.closest<HTMLElement>(".task-manager-calendar-week-row");
+    if (weekRow?.dataset.date) {
+      this.actions.newTask({ presetPlanDate: weekRow.dataset.date });
     }
   }
 
