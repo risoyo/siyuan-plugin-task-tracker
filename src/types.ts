@@ -2,6 +2,34 @@ export type TaskStatus = "todo" | "doing" | "waiting" | "completed" | "cancelled
 
 export type TaskPriority = "none" | "low" | "medium" | "high";
 
+/** Visual color configuration for each task status — display layer only, does not change business model. */
+export interface StatusColorConfig {
+  label: string;
+  textColor: string;
+  bgColor: string;
+}
+
+export const TASK_STATUS_COLORS: Record<TaskStatus, StatusColorConfig> = {
+  todo:       { label: "待处理", textColor: "#C2410C", bgColor: "#FFF7ED" },
+  doing:      { label: "进行中", textColor: "#1D4ED8", bgColor: "#EFF6FF" },
+  waiting:    { label: "等待中", textColor: "#A16207", bgColor: "#FFFCEF" },
+  completed:  { label: "已完成", textColor: "#15803D", bgColor: "#F0FDF4" },
+  cancelled:  { label: "已取消", textColor: "#6B7280", bgColor: "#F9FAFB" }
+};
+
+export interface StatusFilterOption {
+  key: "all" | TaskStatus;
+  label: string;
+  statusFilter?: TaskStatus; // which status value this pill filters to
+}
+
+export const STATUS_FILTER_OPTIONS: StatusFilterOption[] = [
+  { key: "all", label: "全部任务" },
+  { key: "todo", label: "待处理", statusFilter: "todo" },
+  { key: "doing", label: "进行中", statusFilter: "doing" },
+  { key: "completed", label: "已完成", statusFilter: "completed" }
+];
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -27,12 +55,21 @@ export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "stat
 
 export type TablePageColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due";
 
+export type CompletedPageColumnKey = "task" | "project" | "source" | "createdAt" | "completedAt";
+
 export type SortDirection = "asc" | "desc";
 
 export type TableSortColumn = TablePageColumnKey;
 
+export type CompletedSortColumn = CompletedPageColumnKey;
+
 export interface TableSortSpec {
   column: TableSortColumn | "default";
+  direction?: SortDirection;
+}
+
+export interface CompletedSortSpec {
+  column: CompletedSortColumn | "default";
   direction?: SortDirection;
 }
 
@@ -42,6 +79,16 @@ export interface TablePageConfig {
   currentSort?: TableSortSpec;
   defaultSort?: {
     column: TableSortColumn;
+    direction: SortDirection;
+  };
+}
+
+export interface CompletedPageConfig {
+  visibleColumns?: CompletedPageColumnKey[];
+  columnOrder?: CompletedPageColumnKey[];
+  currentSort?: CompletedSortSpec;
+  defaultSort?: {
+    column: CompletedSortColumn;
     direction: SortDirection;
   };
 }
@@ -58,6 +105,7 @@ export interface TaskSettings {
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   pageConfigs?: {
     table?: TablePageConfig;
+    completed?: CompletedPageConfig;
   };
   startupSyncGraceMs?: number;
 }

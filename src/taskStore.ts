@@ -3,6 +3,9 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_DATA_FILE,
   TASKS_DATA_FILE,
+  type CompletedPageColumnKey,
+  type CompletedPageConfig,
+  type CompletedSortSpec,
   type SortDirection,
   type TableColumnKey,
   type TablePageColumnKey,
@@ -16,6 +19,10 @@ import {
 const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "createdAt", "status", "priority", "plan", "due"];
 const DEFAULT_TABLE_PAGE_COLUMNS: TablePageColumnKey[] = [...TABLE_PAGE_COLUMNS];
 const DEFAULT_TABLE_SORT: TableSortSpec = { column: "default" };
+
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "completedAt"];
+const DEFAULT_COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = [...COMPLETED_PAGE_COLUMNS];
+const DEFAULT_COMPLETED_SORT: CompletedSortSpec = { column: "default" };
 
 export class TaskStore {
   private tasks: TaskItem[] = [];
@@ -142,7 +149,8 @@ function normalizeSettings(settings: TaskSettings): TaskSettings {
     ...settings,
     pageConfigs: {
       ...settings.pageConfigs,
-      table: normalizeTablePageConfig(settings.pageConfigs?.table)
+      table: normalizeTablePageConfig(settings.pageConfigs?.table),
+      completed: normalizeCompletedPageConfig(settings.pageConfigs?.completed)
     }
   };
 }
@@ -211,6 +219,68 @@ function normalizeSortDirection(direction?: SortDirection): SortDirection | unde
 
 function isTableSortColumn(value: unknown): value is TableSortColumn {
   return typeof value === "string" && TABLE_PAGE_COLUMNS.includes(value as TablePageColumnKey);
+}
+
+function normalizeCompletedPageConfig(raw?: CompletedPageConfig): CompletedPageConfig {
+  const visibleColumns = normalizeCompletedVisibleColumns(raw?.visibleColumns);
+  const columnOrder = normalizeCompletedColumnOrder(raw?.columnOrder);
+  return {
+    visibleColumns,
+    columnOrder,
+    currentSort: normalizeCompletedSortSpec(raw?.currentSort) || { ...DEFAULT_COMPLETED_SORT },
+    defaultSort: normalizeCompletedDefaultSort(raw?.defaultSort)
+  };
+}
+
+function normalizeCompletedVisibleColumns(columns?: CompletedPageColumnKey[]): CompletedPageColumnKey[] {
+  const configured = Array.isArray(columns)
+    ? columns.filter((column): column is CompletedPageColumnKey => COMPLETED_PAGE_COLUMNS.includes(column))
+    : [];
+  const unique = Array.from(new Set(configured));
+  return unique.length ? unique : [...DEFAULT_COMPLETED_PAGE_COLUMNS];
+}
+
+function normalizeCompletedColumnOrder(columns?: CompletedPageColumnKey[]): CompletedPageColumnKey[] {
+  const configured = Array.isArray(columns)
+    ? columns.filter((column): column is CompletedPageColumnKey => COMPLETED_PAGE_COLUMNS.includes(column))
+    : [];
+  const unique = Array.from(new Set(configured));
+  for (const column of DEFAULT_COMPLETED_PAGE_COLUMNS) {
+    if (!unique.includes(column)) {
+      unique.push(column);
+    }
+  }
+  return unique;
+}
+
+function normalizeCompletedSortSpec(raw?: CompletedSortSpec): CompletedSortSpec | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  if (raw.column === "default") {
+    return { column: "default" };
+  }
+  if (!isCompletedSortColumn(raw.column)) {
+    return undefined;
+  }
+  return {
+    column: raw.column,
+    direction: normalizeSortDirection(raw.direction) || "asc"
+  };
+}
+
+function normalizeCompletedDefaultSort(raw?: { column: CompletedPageColumnKey; direction: SortDirection }): { column: CompletedPageColumnKey; direction: SortDirection } | undefined {
+  if (!raw || typeof raw !== "object" || !isCompletedSortColumn(raw.column)) {
+    return undefined;
+  }
+  return {
+    column: raw.column,
+    direction: normalizeSortDirection(raw.direction) || "asc"
+  };
+}
+
+function isCompletedSortColumn(value: unknown): value is CompletedPageColumnKey {
+  return typeof value === "string" && COMPLETED_PAGE_COLUMNS.includes(value as CompletedPageColumnKey);
 }
 
 function fallbackTaskTitle(task: Pick<TaskItem, "path" | "docId">): string {

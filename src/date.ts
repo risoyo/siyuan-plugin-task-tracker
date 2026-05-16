@@ -233,3 +233,28 @@ export function formatMonthDay(value?: string): string {
   const key = toDateKey(value);
   return key ? key.slice(5) : "未设置";
 }
+
+const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+/** Display-only format: "MM-DD 周X HH:MM" or "—" for empty/invalid values. */
+export function formatHumanDatetimeWithWeekday(value?: string): string {
+  if (!value) {
+    return "—";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    // date-only string → just return short date, no time component
+    const parts = value.split("-");
+    const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    if (Number.isNaN(date.getTime())) {
+      return "—";
+    }
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${WEEKDAY_NAMES[date.getDay()]}`;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${WEEKDAY_NAMES[date.getDay()]} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
