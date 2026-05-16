@@ -270,16 +270,20 @@
 
 .task-manager-filter-btn {
   align-items: center;
+  box-sizing: border-box;
   display: inline-flex;
-  gap: 4px;
-  min-width: 0;
-  padding-left: 10px;
-  padding-right: 10px;
+  gap: 6px;
+  height: 36px;
+  justify-content: center;
+  min-width: auto;
+  padding: 0 14px;
 }
 
 .task-manager-filter-btn__arrow {
-  flex-shrink: 0;
+  color: currentColor;
+  flex: 0 0 auto;
   height: 12px;
+  opacity: 0.65;
   width: 12px;
 }
 
@@ -371,7 +375,7 @@
   background: var(--manager-header-bg);
   border-bottom: 1px solid var(--manager-border);
   color: var(--manager-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   height: 40px;
   padding: 0 12px;
@@ -382,20 +386,25 @@
   z-index: 1;
 }
 
+.task-manager-table__row,
+.task-manager-table tbody tr {
+  min-height: 60px;
+}
+
 /* Table cells */
 .task-manager-table td {
   border-bottom: 1px solid var(--manager-border);
-  height: 56px;
+  height: 60px;
   max-width: none;
   min-width: 0;
-  padding: 8px 12px;
+  padding: 12px 12px;
   vertical-align: middle;
 }
 
 /* Editable select cells — restore full width */
 .task-manager-table td.is-status,
 .task-manager-table td.is-priority {
-  padding: 8px 8px;
+  padding: 12px 8px;
 }
 
 /* Row hover */
@@ -467,9 +476,9 @@
 .task-manager-table__task-text {
   color: var(--manager-text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.35;
   max-width: 100%;
   min-width: 0;
   word-break: break-word;
@@ -518,8 +527,8 @@
 /* ── Table Text Cells (project, source, time, priority) ────────── */
 .task-manager-table__text {
   display: block;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.35;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -538,7 +547,7 @@
 
 .task-manager-table__text--source {
   color: var(--manager-muted);
-  font-size: 12px;
+  font-size: 13px;
   max-width: 160px;
 }
 
@@ -562,8 +571,8 @@
 /* ── Time Cells ────────────────────────────────────────────────── */
 .task-manager-table__time {
   color: var(--manager-text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.35;
   white-space: nowrap;
 }
 
@@ -573,8 +582,8 @@
 
 .task-manager-table__completed-at {
   color: var(--manager-text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.35;
   white-space: nowrap;
 }
 
@@ -617,11 +626,12 @@
 }
 
 .task-manager-inline-badge--table {
+  border-radius: 9px;
   font-size: 13px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
   gap: 5px;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px;
 }
 
 .task-manager-inline-badge--compact {
@@ -640,6 +650,7 @@
   width: 8px;
 }
 
+.task-manager-inline-badge--table .task-manager-inline-badge__dot,
 .task-manager-inline-badge--compact .task-manager-inline-badge__dot {
   height: 6px;
   width: 6px;
@@ -648,6 +659,11 @@
 .task-manager-inline-badge__flag {
   color: var(--icon-color, #94A3B8);
   flex-shrink: 0;
+  height: 14px;
+  width: 14px;
+}
+
+.task-manager-inline-badge--table .task-manager-inline-badge__flag {
   height: 14px;
   width: 14px;
 }
@@ -665,7 +681,9 @@
 .task-manager-inline-badge__arrow {
   color: var(--badge-color, #475569);
   flex-shrink: 0;
+  height: 12px;
   opacity: 0.5;
+  width: 12px;
 }
 
 /* ── Inline Popover Menu ────────────────────────────────────── */
@@ -691,9 +709,9 @@
   color: #1F2937;
   cursor: pointer;
   display: flex;
-  font-size: 14px;
-  gap: 8px;
-  height: 36px;
+  font-size: 13px;
+  gap: 7px;
+  height: 32px;
   padding: 0 10px;
   width: 100%;
 }
@@ -712,8 +730,8 @@
   background: var(--dot-color, #94A3B8);
   border-radius: 50%;
   flex-shrink: 0;
-  height: 8px;
-  width: 8px;
+  height: 6px;
+  width: 6px;
 }
 
 .task-manager-inline-menu__flag {
@@ -735,6 +753,7 @@
 
 /* ── Actions column ────────────────────────────────────────────── */
 .task-manager-table__cell.is-actions {
+  line-height: 0;
   white-space: nowrap;
 }
 
@@ -742,6 +761,8 @@
   align-items: center;
   display: inline-flex;
   gap: 2px;
+  line-height: 0;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
