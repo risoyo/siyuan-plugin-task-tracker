@@ -268,17 +268,36 @@
   position: relative;
 }
 
+.task-manager-settings-btn,
 .task-manager-filter-btn,
 .task-manager-filter-all-btn {
   align-items: center;
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #2563EB;
+  border-radius: 8px;
   box-sizing: border-box;
+  color: #2563EB;
+  cursor: pointer;
   display: inline-flex;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 6px;
+  height: 34px;
   justify-content: center;
   min-width: 0;
-  padding-left: 14px;
-  padding-right: 14px;
+  padding: 0 14px;
   white-space: nowrap;
   width: auto;
+}
+
+.task-manager-settings-btn:hover,
+.task-manager-filter-btn:hover {
+  background: var(--manager-accent-soft);
+}
+
+.task-manager-filter-btn.is-filtering {
+  background: var(--manager-accent-light);
 }
 
 .task-manager-filter-btn__label {
@@ -286,6 +305,20 @@
   margin: 0;
   min-width: 0;
   text-align: center;
+}
+
+.task-manager-settings-btn__icon,
+.task-manager-filter-btn__arrow {
+  color: currentColor;
+  flex-shrink: 0;
+  height: 14px;
+  margin: 0;
+  width: 14px;
+}
+
+.task-manager-filter-btn__arrow {
+  height: 13px;
+  width: 13px;
 }
 
 .task-manager-filter-dropdown__menu {
@@ -476,7 +509,19 @@
   gap: 6px;
   min-height: 30px;
   min-width: 0;
-  padding-left: calc(var(--task-depth, 0) * 22px);
+  padding-left: calc(var(--task-depth, 0) * 30px);
+  position: relative;
+}
+
+.task-manager-table__row--child .task-manager-table__task-cell::before {
+  background: #D8DEE8;
+  content: "";
+  height: 34px;
+  left: calc((var(--task-depth, 1) * 30px) - 15px);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
 }
 
 .task-manager-table__task-text {
@@ -499,8 +544,27 @@
   color: var(--manager-accent);
 }
 
+.task-manager-table__row--parent .task-manager-table__task-text,
 .task-manager-table__task-text.is-parent {
   font-weight: 600;
+}
+
+.task-manager-table__row--child .task-manager-table__task-text {
+  color: #475569;
+  font-weight: 400;
+}
+
+.task-manager-table__child-count {
+  background: var(--manager-accent-light);
+  border-radius: 999px;
+  color: var(--manager-accent);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  min-width: 18px;
+  padding: 0 6px;
+  text-align: center;
 }
 
 /* ── Toggle / Tree Controls ────────────────────────────────────── */

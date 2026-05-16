@@ -296,12 +296,13 @@ export class TaskManagerTab {
     const filter = this.currentFilter;
     const filterActive = filter !== "all";
     const filterLabel = filterActive ? TASK_STATUS_LABELS[filter] : "全部任务";
-    const filterBtnClass = filterActive ? "task-manager-btn-primary task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "b3-button b3-button--outline task-manager-filter-btn task-manager-filter-all-btn";
+    const filterBtnClass = filterActive ? "task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "task-manager-filter-btn task-manager-filter-all-btn";
 
     const dropdownHtml = isCompletedView ? "" : `
     <div class="task-manager-filter-dropdown">
       <button class="${filterBtnClass}" data-action="toggle-status-dropdown" aria-haspopup="listbox" aria-expanded="${this.statusDropdownOpen}">
         <span class="task-manager-filter-btn__label">${filterLabel}</span>
+        <svg class="task-manager-filter-btn__arrow" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       ${this.statusDropdownOpen ? `<div class="task-manager-filter-dropdown__menu" role="listbox">
         ${VIEW_FILTER_OPTIONS.map((option) => {
@@ -326,7 +327,7 @@ export class TaskManagerTab {
     }).join("")}
   </div>
   <div class="task-manager-view-switch__right">
-    ${supportsPageSettings ? `<button class="b3-button b3-button--outline" data-action="open-page-config"><span>页面设置</span></button>` : ""}
+    ${supportsPageSettings ? `<button class="task-manager-settings-btn" data-action="open-page-config"><span>页面设置</span><svg class="task-manager-settings-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v2M8 12.5v2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M1.5 8h2M12.5 8h2M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>` : ""}
     ${dropdownHtml}
   </div>
 </div>`;
@@ -411,7 +412,8 @@ export class TaskManagerTab {
     const task = node.task;
     const childCount = node.children.length;
     const collapsed = this.collapsedTaskIds.has(task.id);
-    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
+    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   ${columns.map((column) => this.renderCompletedTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
     const children = childCount && !collapsed
@@ -430,6 +432,7 @@ export class TaskManagerTab {
       ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-manager-task__toggle-placeholder"></span>`}
     <span class="task-manager-table__task-text ${isParent ? "is-parent" : ""}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</span>
+    ${isParent ? `<span class="task-manager-table__child-count">${childCount}</span>` : ""}
   </div>
 </td>`;
     }
@@ -516,7 +519,8 @@ export class TaskManagerTab {
   private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean, columns: TableColumnDef[]): string {
     const task = node.task;
     const contextClass = node.contextOnly ? " task-manager-table__row--context" : "";
-    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
+    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   ${columns.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
   }
@@ -530,6 +534,7 @@ export class TaskManagerTab {
       ? `<button class="task-manager-task__toggle" data-task-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-manager-task__toggle-placeholder"></span>`}
     <span class="task-manager-table__task-text ${isParent ? "is-parent" : ""}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</span>
+    ${isParent ? `<span class="task-manager-table__child-count">${childCount}</span>` : ""}
   </div>
 </td>`;
     }
