@@ -46,11 +46,11 @@ const ICONS = {
 
 function buildComboboxSelect(name: string, value: string, placeholder: string, leftIcon: string, optionsHtml: string, extraAttrs: string = ""): string {
   return `<div class="task-tracker-dialog-v3__combobox" data-combobox="${name}">
-    <div class="task-tracker-dialog-v3__combobox-trigger" data-combobox-toggle="${name}">
+    <button type="button" class="task-tracker-dialog-v3__combobox-trigger" data-combobox-toggle="${name}">
       <span class="task-tracker-dialog-v3__combobox-icon">${leftIcon}</span>
       <span class="task-tracker-dialog-v3__combobox-value" data-combobox-value="${name}">${escapeHtml(value || placeholder)}</span>
       <span class="task-tracker-dialog-v3__combobox-arrow">${ICONS.chevronDown}</span>
-    </div>
+    </button>
     <input type="hidden" name="${name}" value="${escapeAttr(value)}" ${extraAttrs} />
     <div class="task-tracker-dialog-v3__menu" data-combobox-menu="${name}" style="display:none;">
       <div class="task-tracker-dialog-v3__menu-scroll">
@@ -136,6 +136,44 @@ function sectionDivider(): string {
 
 function sectionTitle(title: string): string {
   return `<div class="task-tracker-dialog-v3__section-title">${escapeHtml(title)}</div>`;
+}
+
+// ── Popup positioning helper ──────────────────────────────────
+
+function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
+  const triggerRect = trigger.getBoundingClientRect();
+  const menuHeight = menu.offsetHeight || 200;
+  const viewportH = window.innerHeight;
+  // Prefer below, flip to above if not enough room
+  const spaceBelow = viewportH - triggerRect.bottom;
+  const spaceAbove = triggerRect.top;
+  const fitsBelow = spaceBelow >= Math.min(menuHeight, 240);
+  const fitsAbove = spaceAbove >= Math.min(menuHeight, 240);
+
+  let top: number;
+  if (fitsBelow || !fitsAbove) {
+    top = triggerRect.bottom + 4;
+  } else {
+    top = triggerRect.top - Math.min(menuHeight, 240) - 4;
+  }
+
+  // Clamp so menu stays in viewport
+  const maxTop = viewportH - Math.min(menuHeight, 240) - 8;
+  top = Math.max(8, Math.min(top, maxTop));
+
+  menu.style.position = "fixed";
+  menu.style.top = `${top}px`;
+  menu.style.left = `${triggerRect.left}px`;
+  menu.style.minWidth = `${triggerRect.width}px`;
+  menu.style.zIndex = "400";
+}
+
+function resetPopupPosition(menu: HTMLElement): void {
+  menu.style.position = "";
+  menu.style.top = "";
+  menu.style.left = "";
+  menu.style.minWidth = "";
+  menu.style.zIndex = "";
 }
 
 // ── TaskDialog class ──────────────────────────────────────────
@@ -246,11 +284,11 @@ export class TaskDialog {
       </label>
 
       <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--project-parent">
-        <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
+        <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--proj">
           <span class="task-tracker-dialog-v3__label">项目</span>
           ${buildComboboxSelect("project", defaultProject, "选择或输入项目", ICONS.folder, projectOptionsHtml)}
         </label>
-        <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
+        <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--parent">
           <span class="task-tracker-dialog-v3__label">父任务</span>
           ${isSubtasks
             ? `<div class="task-tracker-dialog-v3__parent-locked">
@@ -314,28 +352,28 @@ export class TaskDialog {
           <span class="task-tracker-dialog-v3__label">计划开始</span>
           <div class="task-tracker-dialog-v3__date-wrap">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
-            <input class="task-tracker-dialog-v3__input" name="planStart" type="datetime-local" value="${escapeAttr(defaultPlanStart)}" placeholder="选择日期和时间" />
+            <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="planStart" type="datetime-local" value="${escapeAttr(defaultPlanStart)}" />
           </div>
         </label>
         <label class="task-tracker-dialog-v3__field">
           <span class="task-tracker-dialog-v3__label">计划结束</span>
           <div class="task-tracker-dialog-v3__date-wrap">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
-            <input class="task-tracker-dialog-v3__input" name="planEnd" type="datetime-local" value="${escapeAttr(defaultPlanEnd)}" placeholder="选择日期和时间" />
+            <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="planEnd" type="datetime-local" value="${escapeAttr(defaultPlanEnd)}" />
           </div>
         </label>
         <label class="task-tracker-dialog-v3__field">
           <span class="task-tracker-dialog-v3__label">截止日期</span>
           <div class="task-tracker-dialog-v3__date-wrap">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.calendar}</span>
-            <input class="task-tracker-dialog-v3__input" name="dueDate" type="date" value="${escapeAttr(defaultDueDate)}" placeholder="选择日期" />
+            <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="dueDate" type="date" value="${escapeAttr(defaultDueDate)}" />
           </div>
         </label>
         <label class="task-tracker-dialog-v3__field">
           <span class="task-tracker-dialog-v3__label">完成时间</span>
           <div class="task-tracker-dialog-v3__date-wrap">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
-            <input class="task-tracker-dialog-v3__input" name="completedAt" type="datetime-local" value="${escapeAttr(defaultCompletedAt)}" placeholder="选择日期和时间（可选）" />
+            <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="completedAt" type="datetime-local" value="${escapeAttr(defaultCompletedAt)}" />
           </div>
         </label>
       </div>
@@ -351,7 +389,7 @@ export class TaskDialog {
           <span class="task-tracker-dialog-v3__label">来源</span>
           ${sourceSegmentHtml}
         </div>
-        <div class="task-tracker-dialog-v3__source-right" data-source-note ${sourceMode === "note" ? "" : "hidden"}>
+        <div class="task-tracker-dialog-v3__source-right" data-source-note style="${sourceMode === "note" ? "" : "display:none"}">
           <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full">
             <span class="task-tracker-dialog-v3__label">笔记 ID</span>
             <div class="task-tracker-dialog-v3__input-wrap">
@@ -396,13 +434,12 @@ export class TaskDialog {
 
     const renderSourceMode = () => {
       if (sourceNote) {
-        sourceNote.hidden = sourceMode !== "note";
+        sourceNote.style.display = sourceMode === "note" ? "" : "none";
       }
       if (sourceMode === "manual") {
         selectedSource = undefined;
         if (sourceDocIdInput) sourceDocIdInput.value = "";
       }
-      // Update segment buttons
       root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
         btn.classList.toggle("is-active", btn.dataset.segmentValue === sourceMode);
       });
@@ -426,6 +463,18 @@ export class TaskDialog {
 
     renderSourceMode();
 
+    // ── Popup helpers ──────────────────────────────────────
+
+    const openMenu = (menu: HTMLElement, trigger: HTMLElement) => {
+      menu.style.display = "";
+      positionPopup(menu, trigger);
+    };
+
+    const closeMenu = (menu: HTMLElement) => {
+      menu.style.display = "none";
+      resetPopupPosition(menu);
+    };
+
     // ── Combobox logic ────────────────────────────────────
 
     const initCombobox = (name: string) => {
@@ -439,7 +488,7 @@ export class TaskDialog {
 
       const updateDisplay = (val: string, label: string) => {
         if (valueEl) valueEl.textContent = label || "无";
-        if (menu) menu.style.display = "none";
+        if (menu) closeMenu(menu);
         toggle?.classList.remove("is-open");
         menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((opt) => {
           opt.classList.toggle("is-active", opt.dataset.comboboxOption === val);
@@ -447,11 +496,11 @@ export class TaskDialog {
       };
 
       toggle?.addEventListener("click", () => {
-        const isOpen = menu?.style.display !== "none";
+        const isOpen = menu && menu.style.display !== "none";
         closeAllDropdowns();
         closeAllComboboxes(name);
-        if (!isOpen && menu) {
-          menu.style.display = "";
+        if (!isOpen && menu && toggle) {
+          openMenu(menu, toggle);
           toggle.classList.add("is-open");
         }
       });
@@ -476,7 +525,7 @@ export class TaskDialog {
       root.querySelectorAll<HTMLElement>("[data-combobox-menu]").forEach((menu) => {
         const name = menu.dataset.comboboxMenu;
         if (name !== except) {
-          menu.style.display = "none";
+          closeMenu(menu);
         }
       });
       root.querySelectorAll<HTMLElement>("[data-combobox-toggle]").forEach((toggle) => {
@@ -491,7 +540,7 @@ export class TaskDialog {
 
     const closeAllDropdowns = () => {
       root.querySelectorAll<HTMLElement>("[data-dropdown-menu]").forEach((menu) => {
-        menu.style.display = "none";
+        closeMenu(menu);
       });
       root.querySelectorAll<HTMLElement>("[data-dropdown-toggle]").forEach((toggle) => {
         toggle.classList.remove("is-open");
@@ -508,7 +557,7 @@ export class TaskDialog {
       closeAllDropdowns();
       closeAllComboboxes();
       if (!isOpen) {
-        menu.style.display = "";
+        openMenu(menu, toggle);
         toggle.classList.add("is-open");
       }
     };
@@ -556,7 +605,6 @@ export class TaskDialog {
         return;
       }
 
-      // Close popups when clicking outside
       if (!target.closest("[data-dropdown-menu]") && !target.closest("[data-dropdown-toggle]") && !target.closest("[data-combobox-menu]") && !target.closest("[data-combobox-toggle]")) {
         closeAllDropdowns();
         closeAllComboboxes();

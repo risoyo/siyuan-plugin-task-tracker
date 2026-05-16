@@ -2486,7 +2486,7 @@
 /* Body */
 .task-tracker-dialog-v3__body {
   flex: 1;
-  overflow: visible;
+  overflow: hidden;
   padding: 32px;
   min-height: 0;
 }
@@ -2495,8 +2495,8 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  height: 100%;
   overflow-y: auto;
-  max-height: 100%;
 }
 
 .task-tracker-dialog-v3__grid {
@@ -2532,11 +2532,21 @@
 
 .task-tracker-dialog-v3__row--project-parent {
   gap: 24px;
+  grid-template-columns: 1fr 1.5fr;
 }
 
 .task-tracker-dialog-v3__row--quad {
-  gap: 12px;
+  gap: 10px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Field width helpers */
+.task-tracker-dialog-v3__field--proj {
+  min-width: 0;
+}
+
+.task-tracker-dialog-v3__field--parent {
+  min-width: 0;
 }
 
 /* Footer */
@@ -3014,10 +3024,10 @@
   position: relative;
 }
 
-.task-tracker-dialog-v3__date-wrap .task-tracker-dialog-v3__input {
-  font-size: 13px;
-  padding-left: 32px;
-  padding-right: 8px;
+.task-tracker-dialog-v3__input--date {
+  font-size: 12px !important;
+  padding-left: 28px !important;
+  padding-right: 6px !important;
 }
 
 .task-tracker-dialog-v3__date-icon {
@@ -3027,7 +3037,7 @@
   flex-shrink: 0;
   height: 40px;
   justify-content: center;
-  left: 10px;
+  left: 8px;
   pointer-events: none;
   position: absolute;
   top: 0;
