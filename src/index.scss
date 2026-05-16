@@ -2418,7 +2418,7 @@
   display: flex;
   flex-shrink: 0;
   justify-content: space-between;
-  padding: 20px 32px;
+  padding: 18px 32px;
 }
 
 .task-tracker-dialog-v3__header-left {
@@ -2486,22 +2486,15 @@
 /* Body */
 .task-tracker-dialog-v3__body {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   min-height: 0;
-  position: relative;
+  padding: 24px 32px;
 }
 
 .task-tracker-dialog-v3__body-scroll {
   display: flex;
   flex-direction: column;
   gap: 0;
-  overflow-y: auto;
-  padding: 32px;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
 }
 
 .task-tracker-dialog-v3__grid {
@@ -2514,37 +2507,38 @@
 .task-tracker-dialog-v3__section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .task-tracker-dialog-v3__divider {
   border-top: 1px dashed #E5EAF2;
-  margin: 24px 0;
+  margin: 20px 0;
 }
 
 .task-tracker-dialog-v3__section-title {
   color: #374151;
   font-size: 15px;
   font-weight: 600;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 /* ── Rows ─────────────────────────────────────────────── */
 .task-tracker-dialog-v3__row {
   display: grid;
-  gap: 20px;
+  gap: 18px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .task-tracker-dialog-v3__row--project-parent {
-  gap: 24px;
+  gap: 20px;
   grid-template-columns: 1fr 1.5fr;
 }
 
 .task-tracker-dialog-v3__row--quad {
-  gap: 10px;
+  column-gap: 20px;
+  row-gap: 18px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  max-width: 75%;
+  align-items: start;
 }
 
 /* Field width helpers */
@@ -2565,7 +2559,7 @@
   flex-shrink: 0;
   gap: 12px;
   justify-content: flex-end;
-  padding: 16px 32px;
+  padding: 14px 32px;
 }
 
 /* Form fields */
@@ -2941,7 +2935,7 @@
   font-size: 14px;
   font-weight: 400;
   gap: 6px;
-  height: 34px;
+  height: 40px;
   padding: 0 14px;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
@@ -2992,8 +2986,10 @@
 
 /* ── Source row ───────────────────────────────────────── */
 .task-tracker-dialog-v3__source-row {
-  display: flex;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  column-gap: 24px;
+  align-items: end;
 }
 
 .task-tracker-dialog-v3__source-left {
@@ -3032,9 +3028,9 @@
 }
 
 .task-tracker-dialog-v3__input--date {
-  font-size: 12px !important;
-  padding-left: 28px !important;
-  padding-right: 6px !important;
+  font-size: 12px;
+  padding-left: 28px;
+  padding-right: 6px;
 }
 
 .task-tracker-dialog-v3__date-icon {
@@ -3118,6 +3114,19 @@
 .task-tracker-dialog-v3__btn-primary:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+/* ── Dialog v3 responsive ────────────────────────────── */
+@media (max-width: 1200px) {
+  .task-tracker-dialog-v3__row--quad {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .task-tracker-dialog-v3__row--quad {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Override siyuan Dialog's built-in background */
