@@ -327,7 +327,7 @@ export class TaskManagerTab {
     }).join("")}
   </div>
   <div class="task-manager-view-switch__right">
-    ${supportsPageSettings ? `<button class="task-manager-settings-btn" data-action="open-page-config"><span>页面设置</span><svg class="task-manager-settings-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v2M8 12.5v2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M1.5 8h2M12.5 8h2M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>` : ""}
+    ${supportsPageSettings ? `<button class="task-manager-settings-btn" data-action="open-page-config"><span>页面设置</span><svg class="task-manager-settings-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.8 1.5h2.4l.35 1.55c.42.14.82.31 1.18.53l1.34-.85 1.7 1.7-.85 1.34c.22.36.39.76.53 1.18L15 7.3v2.4l-1.55.35c-.14.42-.31.82-.53 1.18l.85 1.34-1.7 1.7-1.34-.85c-.36.22-.76.39-1.18.53L9.2 15H6.8l-.35-1.55a5.6 5.6 0 0 1-1.18-.53l-1.34.85-1.7-1.7.85-1.34a5.6 5.6 0 0 1-.53-1.18L1 9.7V7.3l1.55-.35c.14-.42.31-.82.53-1.18l-.85-1.34 1.7-1.7 1.34.85c.36-.22.76-.39 1.18-.53L6.8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>` : ""}
     ${dropdownHtml}
   </div>
 </div>`;
@@ -390,7 +390,7 @@ export class TaskManagerTab {
             </tr>
           </thead>
           <tbody>
-            ${group.tree.map((node) => this.renderCompletedTableNode(node, 0, columns)).join("")}
+            ${group.tree.map((node, index) => this.renderCompletedTableNode(node, 0, columns, index === group.tree.length - 1)).join("")}
           </tbody>
         </table>
       </div>` : ""}
@@ -408,16 +408,17 @@ export class TaskManagerTab {
     return columns.reduce((total, column) => total + this.completedTableColumnWidths[column.key], 0);
   }
 
-  private renderCompletedTableNode(node: TaskTreeNode, depth: number, columns: TableColumnDef[]): string {
+  private renderCompletedTableNode(node: TaskTreeNode, depth: number, columns: TableColumnDef[], isLastSibling = false): string {
     const task = node.task;
     const childCount = node.children.length;
     const collapsed = this.collapsedTaskIds.has(task.id);
     const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
-    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    const lastClass = depth > 0 && isLastSibling ? " is-last-child" : "";
+    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   ${columns.map((column) => this.renderCompletedTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
     const children = childCount && !collapsed
-      ? node.children.map((child) => this.renderCompletedTableNode(child, depth + 1, columns)).join("")
+      ? node.children.map((child, index) => this.renderCompletedTableNode(child, depth + 1, columns, index === node.children.length - 1)).join("")
       : "";
 
     return `${row}${children}`;
@@ -487,7 +488,7 @@ export class TaskManagerTab {
         </tr>
       </thead>
       <tbody>
-        ${tree.map((node) => this.renderTableNode(node, 0, childCounts, columns)).join("")}
+        ${tree.map((node, index) => this.renderTableNode(node, 0, childCounts, columns, index === tree.length - 1)).join("")}
       </tbody>
     </table>
   </div>
@@ -504,23 +505,24 @@ export class TaskManagerTab {
 </th>`;
   }
 
-  private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>, columns: TableColumnDef[]): string {
+  private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>, columns: TableColumnDef[], isLastSibling = false): string {
     const task = node.task;
     const childCount = childCounts.get(task.id) || 0;
     const collapsed = this.collapsedTaskIds.has(task.id);
-    const row = this.renderTableRow(node, depth, childCount, collapsed, columns);
+    const row = this.renderTableRow(node, depth, childCount, collapsed, columns, isLastSibling);
     const children = node.children.length && !collapsed
-      ? node.children.map((child) => this.renderTableNode(child, depth + 1, childCounts, columns)).join("")
+      ? node.children.map((child, index) => this.renderTableNode(child, depth + 1, childCounts, columns, index === node.children.length - 1)).join("")
       : "";
 
     return `${row}${children}`;
   }
 
-  private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean, columns: TableColumnDef[]): string {
+  private renderTableRow(node: TaskTreeNode, depth: number, childCount: number, collapsed: boolean, columns: TableColumnDef[], isLastSibling = false): string {
     const task = node.task;
     const contextClass = node.contextOnly ? " task-manager-table__row--context" : "";
     const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
-    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    const lastClass = depth > 0 && isLastSibling ? " is-last-child" : "";
+    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
   ${columns.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
   }

@@ -425,6 +425,10 @@
   height: 76px;
 }
 
+.task-manager-table__row--child {
+  height: 38px;
+}
+
 /* Table cells */
 .task-manager-table td,
 .task-manager-table__cell {
@@ -435,6 +439,13 @@
   min-width: 0;
   padding: 14px 12px;
   vertical-align: middle;
+}
+
+.task-manager-table__row--child td,
+.task-manager-table__row--child .task-manager-table__cell {
+  height: 38px;
+  padding-bottom: 4px;
+  padding-top: 4px;
 }
 
 /* Editable select cells — restore full width */
@@ -513,15 +524,45 @@
   position: relative;
 }
 
+.task-manager-table__row--child .task-manager-table__task-cell {
+  min-height: 30px;
+}
+
 .task-manager-table__row--child .task-manager-table__task-cell::before {
-  background: #D8DEE8;
+  border-left: 1px solid #D8DEE8;
   content: "";
-  height: 34px;
   left: calc((var(--task-depth, 1) * 30px) - 15px);
+  position: absolute;
+  top: -20px;
+  bottom: -20px;
+}
+
+.task-manager-table__row--child.is-last-child .task-manager-table__task-cell::before {
+  bottom: 50%;
+}
+
+.task-manager-table__row--child .task-manager-table__task-cell::after {
+  border-bottom: 1px solid #D8DEE8;
+  border-left: 1px solid #D8DEE8;
+  border-radius: 0 0 0 6px;
+  content: "";
+  height: 9px;
+  left: calc((var(--task-depth, 1) * 30px) - 15px);
+  position: absolute;
+  top: calc(50% - 9px);
+  width: 18px;
+}
+
+.task-manager-table__row--child .task-manager-table__task-text::before {
+  background: #D8DEE8;
+  border-radius: 50%;
+  content: "";
+  height: 4px;
+  left: calc((var(--task-depth, 1) * 30px) + 1px);
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  width: 1px;
+  width: 4px;
 }
 
 .task-manager-table__task-text {
