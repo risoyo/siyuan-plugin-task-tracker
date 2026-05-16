@@ -2487,16 +2487,21 @@
 .task-tracker-dialog-v3__body {
   flex: 1;
   overflow: hidden;
-  padding: 32px;
   min-height: 0;
+  position: relative;
 }
 
 .task-tracker-dialog-v3__body-scroll {
   display: flex;
   flex-direction: column;
   gap: 0;
-  height: 100%;
   overflow-y: auto;
+  padding: 32px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
 
 .task-tracker-dialog-v3__grid {
@@ -2509,6 +2514,7 @@
 .task-tracker-dialog-v3__section {
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
 .task-tracker-dialog-v3__divider {
@@ -2538,6 +2544,7 @@
 .task-tracker-dialog-v3__row--quad {
   gap: 10px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 75%;
 }
 
 /* Field width helpers */

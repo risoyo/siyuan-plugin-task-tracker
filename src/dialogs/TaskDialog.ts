@@ -332,7 +332,7 @@ export class TaskDialog {
           </div>
         </div>
         <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
-          <span class="task-tracker-dialog-v3__label">创建时间（系统记录）</span>
+          <span class="task-tracker-dialog-v3__label">创建时间</span>
           <div class="task-tracker-dialog-v3__readonly-field">
             <span class="task-tracker-dialog-v3__readonly-icon">${ICONS.calendar}</span>
             <span class="task-tracker-dialog-v3__readonly-value">${escapeHtml(defaultCreatedAt)}</span>
@@ -498,8 +498,11 @@ export class TaskDialog {
       toggle?.addEventListener("click", () => {
         const isOpen = menu && menu.style.display !== "none";
         closeAllDropdowns();
-        closeAllComboboxes(name);
-        if (!isOpen && menu && toggle) {
+        if (isOpen && menu) {
+          closeMenu(menu);
+          toggle?.classList.remove("is-open");
+        } else if (!isOpen && menu && toggle) {
+          closeAllComboboxes(name);
           openMenu(menu, toggle);
           toggle.classList.add("is-open");
         }
