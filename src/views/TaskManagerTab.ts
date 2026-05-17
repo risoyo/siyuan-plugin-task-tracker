@@ -1951,7 +1951,11 @@ export class TaskManagerTab {
 
   private handleTaskAction(action: string, task: TaskItem, element?: HTMLElement): void {
     if (action === "open") {
-      this.actions.openTask(task);
+      if (this.view === "table" || this.view === "calendar") {
+        this.actions.editTask(task);
+      } else {
+        this.actions.openTask(task);
+      }
     } else if (action === "open-source") {
       const docId = element?.dataset.sourceDocId || task.sourceDocId;
       if (docId) {

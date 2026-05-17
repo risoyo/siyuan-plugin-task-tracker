@@ -22,6 +22,7 @@ export interface TaskDialogOptions {
   presetPlanDate?: string;
   task?: TaskItem;
   onSaved?: (task: TaskItem) => void;
+  onOpenTask?: (task: TaskItem) => void;
 }
 
 type SourceMode = "manual" | "note";
@@ -207,6 +208,7 @@ export class TaskDialog {
     const isSubtasks = Boolean(!editMode && this.options.parentId);
     const dialogTitle = editMode ? "编辑任务" : (this.options.parentId ? "创建子任务" : "新建任务");
     const subtitle = editMode ? "修改任务信息并保存" : (this.options.parentId ? "在当前任务下创建一个子任务" : "创建一个新的跟踪任务");
+    const headerTaskTitle = editingTask?.title || defaultTitle || dialogTitle;
     const submitLabel = editMode ? "保存修改" : (this.options.parentId ? "创建子任务" : "创建任务");
     const submittingLabel = editMode ? "保存中..." : "创建中...";
 
@@ -246,14 +248,19 @@ export class TaskDialog {
       <div class="task-tracker-dialog-v3__icon-block">
         ${ICONS.taskGrid}
       </div>
-      <div class="task-tracker-dialog-v3__header-text">
-        <span class="task-tracker-dialog-v3__title">${escapeHtml(dialogTitle)}</span>
-        <span class="task-tracker-dialog-v3__subtitle">${escapeHtml(subtitle)}</span>
+      <div class="task-tracker-dialog-v3__header-mode">
+        <span class="task-tracker-dialog-v3__subtitle">${escapeHtml(dialogTitle)}</span>
       </div>
     </div>
-    <button class="task-tracker-dialog-v3__close" data-action="cancel" aria-label="关闭" title="关闭">
-      ${ICONS.close}
-    </button>
+    <div class="task-tracker-dialog-v3__header-center">
+      <span class="task-tracker-dialog-v3__title" title="${escapeAttr(headerTaskTitle)}">${escapeHtml(headerTaskTitle)}</span>
+    </div>
+    <div class="task-tracker-dialog-v3__header-right">
+      ${editMode ? `<button type="button" class="task-tracker-dialog-v3__open-note" data-action="open-note" aria-label="打开笔记" title="打开笔记">
+        <span class="task-tracker-dialog-v3__open-note-icon">${ICONS.doc}</span>
+        <span>打开笔记</span>
+      </button>` : `<span class="task-tracker-dialog-v3__header-spacer" aria-hidden="true"></span>`}
+    </div>
   </div>
 
   <form class="task-tracker-dialog-v3__body">
@@ -709,8 +716,23 @@ export class TaskDialog {
       dialog.destroy();
     };
 
+    const handleOpenTask = async () => {
+      if (!editMode || !editingTask) {
+        return;
+      }
+      if (detailTextarea && detailTextarea.value !== detailLoadedValue) {
+        window.clearTimeout(detailSaveTimer);
+        await saveDetail(true);
+      }
+      this.options.onOpenTask?.(editingTask);
+      cleanupDialog();
+    };
+
     root.querySelectorAll<HTMLElement>("[data-action='cancel']").forEach((btn) => {
       btn.addEventListener("click", () => cleanupDialog());
+    });
+    root.querySelector<HTMLElement>("[data-action='open-note']")?.addEventListener("click", () => {
+      void handleOpenTask();
     });
 
     root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
