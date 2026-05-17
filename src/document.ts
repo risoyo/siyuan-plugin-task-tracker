@@ -166,6 +166,9 @@ export class TaskService {
     }
 
     const normalized = normalizeCompletion(current, title ? { ...normalizedPatch, title } : normalizedPatch);
+    if ((normalized.status ?? current.status) === "completed" && !normalized.completedAt) {
+      throw new Error("已完成任务必须填写完成时间");
+    }
     let task = await this.store.update(id, normalized);
     const parentIdChanged = current.parentId !== task.parentId;
     if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
@@ -603,10 +606,7 @@ function normalizeCompletion(current: TaskItem, patch: Partial<TaskItem>): Parti
     if (current.status !== "completed") {
       return { ...patch, completedAt: patch.completedAt || nowIso() };
     }
-    if (patch.completedAt === undefined) {
-      return patch;
-    }
-    return { ...patch, completedAt: current.completedAt ?? patch.completedAt };
+    return { ...patch, completedAt: patch.completedAt ?? current.completedAt };
   }
   if (current.status === "completed") {
     if (patch.status) {
@@ -1131,6 +1131,7 @@ function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: Ta
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
 > 任务描述：${task.description || "无"}
 > 创建时间：${formatTaskDate(task.createdAt)}
+> 完成时间：${formatTaskDate(task.completedAt)}
 > 截止时间：${formatTaskDate(task.dueDate)}
 > 计划时间：${formatTaskDate(task.planStart)}
 > 子任务：${renderChildRefs(children, "inline")}
@@ -1341,6 +1342,7 @@ type TaskSummaryValueMap = {
   优先级: string;
   任务描述: string;
   创建时间: string;
+  完成时间: string;
   截止时间: string;
   计划时间: string;
   父任务: string;
@@ -1357,6 +1359,7 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
     优先级: TASK_PRIORITY_LABELS[task.priority],
     任务描述: task.description || "无",
     创建时间: formatTaskDate(task.createdAt),
+    完成时间: formatTaskDate(task.completedAt),
     截止时间: formatTaskDate(task.dueDate),
     计划时间: formatTaskDate(task.planStart),
     父任务: parentRef,
@@ -1370,12 +1373,53 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
   if (headerIndex === -1 || headerIndex + 2 >= lines.length) {
     return markdown;
   }
-  const headerCells = parseMarkdownTableRow(lines[headerIndex]);
-  const alignmentLine = lines[headerIndex + 1];
+  let headerCells = parseMarkdownTableRow(lines[headerIndex]);
+  let alignCells = parseMarkdownTableRow(lines[headerIndex + 1]);
+  const dataStart = headerIndex + 2;
+  let dataLines = lines.slice(dataStart);
+
+  // Auto-add "完成时间" column if missing — insert after "创建时间", before "截止时间"
+  if (!headerCells.includes("完成时间")) {
+    const insertAfter = headerCells.indexOf("创建时间");
+    const insertBefore = headerCells.indexOf("截止时间");
+    let insertAt: number;
+    if (insertAfter >= 0) {
+      insertAt = insertAfter + 1;
+    } else if (insertBefore >= 0) {
+      insertAt = insertBefore;
+    } else {
+      insertAt = headerCells.length;
+    }
+    headerCells = [...headerCells.slice(0, insertAt), "完成时间", ...headerCells.slice(insertAt)];
+    if (alignCells.length >= insertAt) {
+      alignCells = [...alignCells.slice(0, insertAt), "---", ...alignCells.slice(insertAt)];
+    }
+    const values = buildTaskSummaryValueMap(task, parent, children);
+    dataLines = dataLines.map((line) => {
+      if (!/^\|/.test(line)) {
+        return line;
+      }
+      const cells = parseMarkdownTableRow(line);
+      if (cells.length === 0) {
+        return line;
+      }
+      const completedAtValue = values["完成时间"] ?? "";
+      const newCells = [...cells.slice(0, insertAt), completedAtValue, ...cells.slice(insertAt)];
+      return `| ${newCells.join(" | ")} |`;
+    });
+    lines[headerIndex] = `| ${headerCells.join(" | ")} |`;
+    lines[headerIndex + 1] = `| ${alignCells.join(" | ")} |`;
+    for (let i = 0; i < dataLines.length && dataStart + i < lines.length; i++) {
+      lines[dataStart + i] = dataLines[i];
+    }
+  }
+
   const values = buildTaskSummaryValueMap(task, parent, children);
   const nextRow = headerCells.map((cell) => values[cell as keyof TaskSummaryValueMap] ?? "");
   const renderedRow = `| ${nextRow.join(" | ")} |`;
-  lines[headerIndex + 2] = renderedRow;
+  lines[dataStart] = renderedRow;
+
+  const alignmentLine = lines[headerIndex + 1];
   if (!/^\|/.test(alignmentLine)) {
     return markdown;
   }

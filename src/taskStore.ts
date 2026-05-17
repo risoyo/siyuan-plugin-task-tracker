@@ -20,7 +20,7 @@ const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "
 const DEFAULT_TABLE_PAGE_COLUMNS: TablePageColumnKey[] = [...TABLE_PAGE_COLUMNS];
 const DEFAULT_TABLE_SORT: TableSortSpec = { column: "default" };
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "planStart", "completedAt"];
 const DEFAULT_COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = [...COMPLETED_PAGE_COLUMNS];
 const DEFAULT_COMPLETED_SORT: CompletedSortSpec = { column: "default" };
 
@@ -237,7 +237,10 @@ function normalizeCompletedVisibleColumns(columns?: CompletedPageColumnKey[]): C
     ? columns.filter((column): column is CompletedPageColumnKey => COMPLETED_PAGE_COLUMNS.includes(column))
     : [];
   const unique = Array.from(new Set(configured));
-  return unique.length ? unique : [...DEFAULT_COMPLETED_PAGE_COLUMNS];
+  if (!unique.length) {
+    return [...DEFAULT_COMPLETED_PAGE_COLUMNS];
+  }
+  return migrateCompletedConfig(unique);
 }
 
 function normalizeCompletedColumnOrder(columns?: CompletedPageColumnKey[]): CompletedPageColumnKey[] {
@@ -245,12 +248,27 @@ function normalizeCompletedColumnOrder(columns?: CompletedPageColumnKey[]): Comp
     ? columns.filter((column): column is CompletedPageColumnKey => COMPLETED_PAGE_COLUMNS.includes(column))
     : [];
   const unique = Array.from(new Set(configured));
+  const migrated = migrateCompletedConfig(unique);
   for (const column of DEFAULT_COMPLETED_PAGE_COLUMNS) {
-    if (!unique.includes(column)) {
-      unique.push(column);
+    if (!migrated.includes(column)) {
+      migrated.push(column);
     }
   }
-  return unique;
+  return migrated;
+}
+
+function migrateCompletedConfig(columns: CompletedPageColumnKey[]): CompletedPageColumnKey[] {
+  if (columns.includes("planStart")) {
+    return columns;
+  }
+  const createdAtIndex = columns.indexOf("createdAt");
+  const completedAtIndex = columns.indexOf("completedAt");
+  if (createdAtIndex >= 0 && completedAtIndex > createdAtIndex) {
+    const result = [...columns];
+    result.splice(createdAtIndex + 1, 0, "planStart");
+    return result;
+  }
+  return [...columns, "planStart"];
 }
 
 function normalizeCompletedSortSpec(raw?: CompletedSortSpec): CompletedSortSpec | undefined {

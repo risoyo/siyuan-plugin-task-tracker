@@ -176,17 +176,19 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "project", label: "项目", defaultWidth: 130, minWidth: 80 },
   { key: "source", label: "来源", defaultWidth: 150, minWidth: 80 },
   { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 100 },
+  { key: "planStart", label: "计划开始", defaultWidth: 132, minWidth: 100 },
   { key: "completedAt", label: "完成时间", defaultWidth: 132, minWidth: 100 },
   { key: "actions", label: "操作", defaultWidth: 84, minWidth: 72, className: "is-actions" }
 ];
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "planStart", "completedAt"];
 const COMPLETED_SORT_OPTIONS: Array<{ value: CompletedSortColumn | "default"; label: string }> = [
   { value: "default", label: "默认" },
   { value: "task", label: "任务" },
   { value: "project", label: "项目" },
   { value: "source", label: "来源" },
   { value: "createdAt", label: "创建时间" },
+  { value: "planStart", label: "计划开始" },
   { value: "completedAt", label: "完成时间" }
 ];
 
@@ -447,6 +449,10 @@ export class TaskManagerTab {
     if (key === "createdAt") {
       const display = formatHumanDatetimeWithWeekday(task.createdAt);
       return `<td class="task-manager-table__cell is-time"><span class="task-manager-table__time ${display === "—" ? "is-empty" : ""}" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.createdAt))}">${escapeHtml(display)}</span></td>`;
+    }
+    if (key === "planStart") {
+      const display = formatHumanDatetimeWithWeekday(task.planStart);
+      return `<td class="task-manager-table__cell is-time"><span class="task-manager-table__time ${display === "—" ? "is-empty" : ""}" title="${escapeAttr(formatLocalDateTimeOrEmpty(task.planStart))}">${escapeHtml(display)}</span></td>`;
     }
     if (key === "actions") {
       return `<td class="task-manager-table__cell is-actions">${this.renderRowActions(task, { compact: true, completedView: true })}</td>`;
@@ -2332,6 +2338,7 @@ function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumn
     plan: 0,
     due: 0,
     actions: 0,
+    planStart: 0,
     completedAt: 0
   };
   for (const column of columns) {

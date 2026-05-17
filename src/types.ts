@@ -79,11 +79,11 @@ export interface TaskItem {
   description?: string;
 }
 
-export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "completedAt";
+export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "planStart" | "completedAt";
 
 export type TablePageColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due";
 
-export type CompletedPageColumnKey = "task" | "project" | "source" | "createdAt" | "completedAt";
+export type CompletedPageColumnKey = "task" | "project" | "source" | "createdAt" | "planStart" | "completedAt";
 
 export type SortDirection = "asc" | "desc";
 
