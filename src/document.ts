@@ -1,5 +1,8 @@
 import {
+  appendBlock,
+  deleteBlock,
   createDocWithMd,
+  getChildBlocks,
   getBlockAttrs,
   getBlockById,
   getDocMarkdown,
@@ -353,9 +356,9 @@ export class TaskService {
       return { docId: created.docId, title };
     }
 
-    const currentMarkdown = await readDocMarkdown(existing.id);
-    const nextMarkdown = rewriteWeeklyReportMarkdown(currentMarkdown, title, itemsBody);
-    await updateBlock(existing.id, nextMarkdown);
+    await replaceManagedHeadingSection(existing.id, ["一、本周工作事项", "本周工作事项"], itemsBody, {
+      createIfMissing: false
+    });
     await markWeeklyReportDoc(existing.id);
     return { docId: existing.id, title };
   }
@@ -366,12 +369,9 @@ export class TaskService {
   }
 
   async saveTaskDetail(docId: string, detail: string): Promise<void> {
-    const markdown = await readDocMarkdown(docId);
-    const nextMarkdown = rewriteTaskDetail(markdown, detail);
-    if (nextMarkdown === markdown) {
-      return;
-    }
-    await updateBlock(docId, nextMarkdown);
+    await replaceManagedHeadingSection(docId, [TASK_DETAIL_HEADING], normalizeTaskDetailBody(detail), {
+      createIfMissing: true
+    });
   }
 
   private async syncTaskDocument(id: string): Promise<boolean> {
@@ -387,13 +387,16 @@ export class TaskService {
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
     const children = this.store.all().filter((item) => item.parentId === task.id);
+    let synced = false;
     await updateBlock(
       metadataBlock.id,
       metadataBlock.format === "table"
         ? renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children)
         : renderTaskMetadataBlock(task, parent, children)
     );
-    return true;
+    synced = true;
+    synced = await syncManagedTaskDescriptionSection(task, synced);
+    return synced;
   }
 
   private async syncTaskDocuments(ids: string[]): Promise<number> {
@@ -1336,6 +1339,7 @@ type TaskSummaryValueMap = {
   状态: string;
   来源: string;
   优先级: string;
+  任务描述: string;
   创建时间: string;
   截止时间: string;
   计划时间: string;
@@ -1351,6 +1355,7 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
     状态: TASK_STATUS_LABELS[task.status],
     来源: sourceRef,
     优先级: TASK_PRIORITY_LABELS[task.priority],
+    任务描述: task.description || "无",
     创建时间: formatTaskDate(task.createdAt),
     截止时间: formatTaskDate(task.dueDate),
     计划时间: formatTaskDate(task.planStart),
@@ -1407,6 +1412,70 @@ where root_id = '${sqlText(docId)}'
 order by sort asc`);
   const matched = tableRows.find((row) => isTaskSummaryTable(row.markdown, row.content));
   return matched ? { ...matched, format: "table" } : undefined;
+}
+
+async function syncManagedTaskDescriptionSection(task: TaskItem, currentSynced = false): Promise<boolean> {
+  const heading = await findHeadingBlock(task.docId, ["任务描述"]);
+  if (!heading) {
+    return currentSynced;
+  }
+  await replaceManagedHeadingSection(task.docId, ["任务描述"], task.description || "", {
+    createIfMissing: false
+  });
+  return true;
+}
+
+async function replaceManagedHeadingSection(
+  docId: string,
+  headings: string[],
+  bodyMarkdown: string,
+  options: {
+    createIfMissing?: boolean;
+    headingLevel?: number;
+  } = {}
+): Promise<void> {
+  const normalizedBody = bodyMarkdown
+    .replace(/^\n+/u, "")
+    .replace(/\s+$/u, "");
+  const heading = await findHeadingBlock(docId, headings);
+  if (!heading) {
+    if (!options.createIfMissing) {
+      return;
+    }
+    const level = Math.min(Math.max(options.headingLevel || 2, 1), 6);
+    const title = headings[0] || TASK_DETAIL_HEADING;
+    const headingMarkdown = `${"#".repeat(level)} ${title}`;
+    const nextMarkdown = normalizedBody ? `${headingMarkdown}\n\n${normalizedBody}` : headingMarkdown;
+    await appendBlock(docId, nextMarkdown);
+    return;
+  }
+
+  const children = await getChildBlocks(heading.id).catch(() => []);
+  for (const child of [...children].reverse()) {
+    await deleteBlock(child.id).catch(() => undefined);
+  }
+  if (!normalizedBody) {
+    return;
+  }
+  await appendBlock(heading.id, normalizedBody);
+}
+
+async function findHeadingBlock(docId: string, headings: string[]): Promise<{ id: string; content?: string } | undefined> {
+  const normalizedHeadings = headings
+    .map((heading) => heading.trim())
+    .filter(Boolean);
+  if (!normalizedHeadings.length) {
+    return undefined;
+  }
+  const conditions = normalizedHeadings
+    .map((heading) => `content = '${sqlText(heading)}'`)
+    .join(" or ");
+  const rows = await sql<Array<{ id: string; content?: string }>[number]>(`select id, content from blocks
+where root_id = '${sqlText(docId)}'
+  and type = 'h'
+  and (${conditions})
+order by sort asc`);
+  return rows[0];
 }
 
 async function setTaskAttrs(task: TaskItem): Promise<void> {
