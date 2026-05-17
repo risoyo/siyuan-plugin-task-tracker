@@ -1,18 +1,23 @@
 import { showMessage } from "siyuan";
-import { formatSidebarDate, toDateKey } from "../date";
+import { formatSidebarDate, mergeDateInputWithExisting, toDateKey } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
 import {
   ACTIVE_TASK_STATUSES,
   type TaskItem,
-  STATUS_BADGE_CONFIG
+  STATUS_BADGE_CONFIG,
+  type TaskStatus
 } from "../types";
 
 type DockFilter = "all" | "important" | "today";
 
+type DockPopoverField = "status";
+
 export class TaskDock {
   private filter: DockFilter = "all";
   private collapsedTaskIds = new Set<string>();
+  private activePopover: { taskId: string; field: DockPopoverField } | null = null;
+  private activePopoverCleanup?: () => void;
   private unsubscribe?: () => void;
 
   constructor(
@@ -31,6 +36,8 @@ export class TaskDock {
 
   destroy(): void {
     this.unsubscribe?.();
+    this.closePopover();
+    this.container.onclick = null;
     this.container.onchange = null;
     this.container.onkeydown = null;
   }
@@ -40,6 +47,7 @@ export class TaskDock {
     const tree = this.filteredTaskTree();
     const counts = this.counts();
 
+    this.closePopover();
     this.container.innerHTML = `<div class="task-tracker task-tracker--dock">
   ${this.renderHeader()}
   ${settings.taskRootDocId ? this.renderContent(tree, counts) : this.renderEmptyRoot()}
@@ -109,7 +117,7 @@ export class TaskDock {
     const childClass = depth > 0 ? " task-tracker-dock__task--child" : "";
     const parentClass = isParent ? " task-tracker-dock__task--parent" : "";
 
-    return `<div class="task-tracker-dock__task ${childClass}${contextClass}${parentClass}" data-task-id="${task.id}">
+    return `<div class="task-tracker-dock__task ${childClass}${contextClass}${parentClass}" data-task-id="${task.id}" data-depth="${depth}">
   <div class="task-tracker-dock__task-row">
     ${depth > 0
       ? `<span class="task-tracker-dock__task-indent"></span>`
@@ -133,16 +141,31 @@ export class TaskDock {
 
   private renderStatusBadge(task: TaskItem): string {
     const cfg = STATUS_BADGE_CONFIG[task.status];
-    return `<span class="task-tracker-dock__status task-tracker-dock__status--${task.status}">
-  ${escapeHtml(cfg.label)}
-</span>`;
+    const open = this.activePopover?.taskId === task.id && this.activePopover?.field === "status";
+    return `<div class="task-manager-inline-dropdown task-tracker-dock__status-dropdown" data-popover="status" data-task-id="${task.id}">
+  <button type="button" class="task-manager-inline-badge task-manager-inline-badge--compact task-tracker-dock__inline-badge task-tracker-dock__inline-badge--text-only ${open ? "is-open" : ""}" data-popover-toggle="status" data-task-id="${task.id}" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
+    <span class="task-manager-inline-badge__text">${escapeHtml(cfg.label)}</span>
+  </button>
+  <div class="task-manager-inline-menu" data-popover-menu="status" data-task-id="${task.id}" style="display: ${open ? "" : "none"};">
+    ${(["todo", "doing", "waiting", "completed", "cancelled"] as TaskStatus[]).map((status) => {
+      const itemCfg = STATUS_BADGE_CONFIG[status];
+      const active = status === task.status;
+      return `<button type="button" class="task-manager-inline-menu__item ${active ? "is-active" : ""}" data-popover-select="status" data-task-id="${task.id}" data-status-value="${status}">
+        <span class="task-manager-inline-menu__dot" style="--dot-color: ${itemCfg.dotColor};"></span>
+        <span class="task-manager-inline-menu__label">${escapeHtml(itemCfg.label)}</span>
+        ${active ? `<svg class="task-manager-inline-menu__check" viewBox="0 0 16 16" width="12" height="12"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}
+      </button>`;
+    }).join("")}
+  </div>
+</div>`;
   }
 
   private renderDateBadge(task: TaskItem): string {
     const info = formatSidebarDate(task);
-    return `<span class="task-tracker-dock__date task-tracker-dock__date--${info.kind}" title="${info.kind === "date" || info.kind === "overdue" ? info.dateKey : ""}">
-  ${escapeHtml(info.display)}
-</span>`;
+    return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--date task-tracker-dock__date-chip task-tracker-dock__date-chip--${info.kind}" title="${escapeHtml(info.kind === "date" || info.kind === "overdue" ? info.dateKey : "")}">
+  <span class="task-manager-card__meta-value">${escapeHtml(info.display)}</span>
+  <input class="task-manager-card__meta-date-input" data-field="${info.field || "dueDate"}" type="date" value="${escapeHtml(info.dateKey)}" aria-label="任务日期" />
+</label>`;
   }
 
   private renderChildCountBadge(count: number): string {
@@ -177,31 +200,202 @@ export class TaskDock {
   /* ── Event Binding ───────────────────────────────────────── */
 
   private bind(): void {
-    // Tab filter clicks
-    this.container.querySelectorAll<HTMLElement>("[data-filter]").forEach((button) => {
-      button.addEventListener("click", () => {
-        this.filter = button.dataset.filter as DockFilter;
-        this.render();
-      });
-    });
+    this.container.onclick = (event) => this.handleClick(event);
+    this.container.onchange = (event) => this.handleChange(event);
+    this.container.onkeydown = (event) => this.handleKeydown(event);
+  }
 
-    // Add / set-root actions
-    this.container.querySelector("[data-action='new']")?.addEventListener("click", () => this.actions.newTask());
-    this.container.querySelector("[data-action='set-root']")?.addEventListener("click", () => this.actions.setCurrentDocAsRoot());
+  private handleClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
 
-    // Per-task listeners
-    this.container.querySelectorAll<HTMLElement>("[data-task-id]").forEach((row) => {
-      const taskId = row.dataset.taskId;
-      const task = taskId ? this.service.store.get(taskId) : undefined;
-      if (!task) return;
+    const filterButton = target.closest<HTMLElement>("[data-filter]");
+    if (filterButton?.dataset.filter) {
+      this.filter = filterButton.dataset.filter as DockFilter;
+      this.render();
+      return;
+    }
 
-      row.querySelector("[data-action='open']")?.addEventListener("click", () => this.actions.openTask(task));
-
-      row.querySelector("[data-action='toggle-children']")?.addEventListener("click", (event) => {
+    const actionButton = target.closest<HTMLElement>("[data-action]");
+    if (actionButton) {
+      const action = actionButton.dataset.action;
+      if (action === "new") {
+        this.actions.newTask();
+        return;
+      }
+      if (action === "set-root") {
+        this.actions.setCurrentDocAsRoot();
+        return;
+      }
+      if (action === "toggle-children") {
         event.stopPropagation();
-        this.toggleChildren(task.id);
-      });
-    });
+        const task = this.taskFromElement(actionButton);
+        if (task) {
+          this.toggleChildren(task.id);
+        }
+        return;
+      }
+      if (action === "open") {
+        const task = this.taskFromElement(actionButton);
+        if (task) {
+          this.actions.openTask(task);
+        }
+        return;
+      }
+    }
+
+    const popoverToggle = target.closest<HTMLElement>("[data-popover-toggle]");
+    if (popoverToggle) {
+      event.preventDefault();
+      event.stopPropagation();
+      const field = popoverToggle.dataset.popoverToggle as DockPopoverField;
+      const taskId = popoverToggle.dataset.taskId;
+      if (field && taskId) {
+        if (this.activePopover?.taskId === taskId && this.activePopover?.field === field) {
+          this.closePopover();
+        } else {
+          this.openPopover(taskId, field, popoverToggle);
+        }
+      }
+      return;
+    }
+
+    const popoverSelect = target.closest<HTMLElement>("[data-popover-select]");
+    if (popoverSelect) {
+      event.preventDefault();
+      event.stopPropagation();
+      const taskId = popoverSelect.dataset.taskId;
+      const newStatus = popoverSelect.dataset.statusValue as TaskStatus | undefined;
+      const task = taskId ? this.service.store.get(taskId) : undefined;
+      if (!task || !newStatus || newStatus === task.status) {
+        this.closePopover();
+        return;
+      }
+      void this.runUpdate(() => this.service.updateTask(task.id, { status: newStatus }));
+      return;
+    }
+
+    if (this.activePopover && !target.closest("[data-popover]")) {
+      this.closePopover();
+    }
+
+    const dateChip = target.closest<HTMLElement>(".task-tracker-dock__date-chip");
+    if (dateChip) {
+      const input = dateChip.querySelector<HTMLInputElement>("input[type='date']");
+      if (input && event.target !== input) {
+        event.preventDefault();
+        event.stopPropagation();
+        input.focus();
+        if (typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          input.click();
+        }
+      }
+    }
+  }
+
+  private handleChange(event: Event): void {
+    const target = event.target as HTMLElement;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const field = target.dataset.field as "dueDate" | "planEnd" | "planStart" | undefined;
+    if (!field) {
+      return;
+    }
+
+    const task = this.taskFromElement(target);
+    if (!task) {
+      return;
+    }
+
+    if (field === "dueDate") {
+      void this.runUpdate(() => this.service.updateTask(task.id, {
+        dueDate: target.value || undefined
+      }));
+      return;
+    }
+
+    void this.runUpdate(() => this.service.updateTask(task.id, {
+      [field]: mergeDateInputWithExisting(target.value || undefined, task[field])
+    }));
+  }
+
+  private handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && this.activePopover) {
+      event.preventDefault();
+      this.closePopover();
+    }
+  }
+
+  private closePopover(): void {
+    this.activePopoverCleanup?.();
+    this.activePopoverCleanup = undefined;
+    this.activePopover = null;
+  }
+
+  private openPopover(taskId: string, field: DockPopoverField, trigger: HTMLElement): void {
+    this.closePopover();
+    this.activePopover = { taskId, field };
+    const container = trigger.closest<HTMLElement>("[data-popover]");
+    const menu = container?.querySelector<HTMLElement>(`[data-popover-menu="${field}"][data-task-id="${taskId}"]`);
+    if (!container || !menu) {
+      return;
+    }
+    trigger.classList.add("is-open");
+    menu.style.display = "";
+    const resetPosition = this.positionInlinePopover(menu, trigger);
+    const handleViewportChange = () => this.positionInlinePopover(menu, trigger);
+    window.addEventListener("resize", handleViewportChange);
+    const body = this.container.querySelector<HTMLElement>(".task-tracker-dock__body");
+    const list = this.container.querySelector<HTMLElement>(".task-tracker-dock__list");
+    body?.addEventListener("scroll", handleViewportChange, { passive: true });
+    list?.addEventListener("scroll", handleViewportChange, { passive: true });
+    this.activePopoverCleanup = () => {
+      window.removeEventListener("resize", handleViewportChange);
+      body?.removeEventListener("scroll", handleViewportChange);
+      list?.removeEventListener("scroll", handleViewportChange);
+      resetPosition();
+      trigger.classList.remove("is-open");
+      menu.style.display = "none";
+    };
+  }
+
+  private positionInlinePopover(menu: HTMLElement, trigger: HTMLElement): () => void {
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuHeight = Math.min(menu.offsetHeight || 220, 280);
+    const menuWidth = Math.max(menu.offsetWidth || 148, triggerRect.width);
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const spaceBelow = viewportHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    const fitsBelow = spaceBelow >= Math.min(menuHeight, 220);
+    const fitsAbove = spaceAbove >= Math.min(menuHeight, 220);
+    let top = fitsBelow || !fitsAbove
+      ? triggerRect.bottom + 4
+      : triggerRect.top - menuHeight - 4;
+    top = Math.max(8, Math.min(top, viewportHeight - menuHeight - 8));
+    let left = triggerRect.left;
+    left = Math.max(8, Math.min(left, viewportWidth - menuWidth - 8));
+
+    menu.style.position = "fixed";
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+    menu.style.minWidth = `${Math.max(triggerRect.width, 148)}px`;
+    menu.style.maxHeight = `${Math.min(Math.max(spaceBelow, spaceAbove), 280)}px`;
+    menu.style.overflowY = "auto";
+    menu.style.zIndex = "220";
+
+    return () => {
+      menu.style.position = "";
+      menu.style.top = "";
+      menu.style.left = "";
+      menu.style.minWidth = "";
+      menu.style.maxHeight = "";
+      menu.style.overflowY = "";
+      menu.style.zIndex = "";
+    };
   }
 
   private toggleChildren(taskId: string): void {
@@ -265,10 +459,12 @@ export class TaskDock {
   }
 
   private async runUpdate(action: () => Promise<unknown>): Promise<void> {
+    this.closePopover();
     try {
       await action();
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "更新任务失败", 5000, "error");
+      this.render();
     }
   }
 }

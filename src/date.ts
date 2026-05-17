@@ -266,32 +266,46 @@ export function formatSidebarDate(task: {
   planEnd?: string;
   dueDate?: string;
   status: string;
-}): { display: string; kind: "today" | "tomorrow" | "weekday" | "date" | "overdue" | "unset"; dateKey: string } {
-  const dateKey = toDateKey(task.dueDate) || toDateKey(task.planEnd) || toDateKey(task.planStart);
+}): {
+  display: string;
+  kind: "today" | "tomorrow" | "weekday" | "date" | "overdue" | "unset";
+  dateKey: string;
+  field: "dueDate" | "planEnd" | "planStart" | undefined;
+  value?: string;
+} {
+  const field: "dueDate" | "planEnd" | "planStart" | undefined = task.dueDate
+    ? "dueDate"
+    : task.planEnd
+      ? "planEnd"
+      : task.planStart
+        ? "planStart"
+        : undefined;
+  const sourceValue = field ? task[field] : undefined;
+  const dateKey = toDateKey(sourceValue);
   if (!dateKey) {
-    return { display: "未设置", kind: "unset", dateKey: "" };
+    return { display: "未设置", kind: "unset", dateKey: "", field: undefined, value: undefined };
   }
 
   const today = formatDateKey(new Date());
   const date = new Date(`${dateKey}T00:00:00`);
   if (Number.isNaN(date.getTime())) {
-    return { display: "未设置", kind: "unset", dateKey: "" };
+    return { display: "未设置", kind: "unset", dateKey: "", field: undefined, value: undefined };
   }
 
   // Overdue: date is before today and task is still active
   const isActive = task.status !== "completed" && task.status !== "cancelled";
   if (dateKey < today && isActive) {
-    return { display: "逾期", kind: "overdue", dateKey };
+    return { display: "逾期", kind: "overdue", dateKey, field, value: sourceValue };
   }
 
   if (dateKey === today) {
-    return { display: "今天", kind: "today", dateKey };
+    return { display: "今天", kind: "today", dateKey, field, value: sourceValue };
   }
 
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (dateKey === formatDateKey(tomorrow)) {
-    return { display: "明天", kind: "tomorrow", dateKey };
+    return { display: "明天", kind: "tomorrow", dateKey, field, value: sourceValue };
   }
 
   // Within current week (Mon-Sun)?
@@ -300,8 +314,8 @@ export function formatSidebarDate(task: {
   const weekStartKey = formatDateKey(weekStart);
   const weekEndKey = formatDateKey(weekEnd);
   if (dateKey >= weekStartKey && dateKey <= weekEndKey) {
-    return { display: WEEKDAY_NAMES[date.getDay()], kind: "weekday", dateKey };
+    return { display: WEEKDAY_NAMES[date.getDay()], kind: "weekday", dateKey, field, value: sourceValue };
   }
 
-  return { display: dateKey.slice(5), kind: "date", dateKey };
+  return { display: dateKey.slice(5), kind: "date", dateKey, field, value: sourceValue };
 }

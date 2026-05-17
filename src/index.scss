@@ -2109,30 +2109,13 @@
   border: 0;
   border-radius: 0;
   margin-left: 20px;
-  padding: 5px 8px 5px 5px;
+  padding: 1px 8px 1px 0;
   position: relative;
 }
 
-.task-tracker-dock__task--child::before {
-  border-left: 1px solid #E5EAF2;
-  bottom: 50%;
-  content: "";
-  left: -12px;
-  position: absolute;
-  top: 0;
-  width: 0;
-}
-
+.task-tracker-dock__task--child::before,
 .task-tracker-dock__task--child::after {
-  border-bottom: 1px solid #E5EAF2;
-  border-left: 1px solid #E5EAF2;
-  border-radius: 0 0 0 4px;
-  content: "";
-  height: 50%;
-  left: -12px;
-  position: absolute;
-  top: 50%;
-  width: 8px;
+  content: none;
 }
 
 .task-tracker-dock__task--child:hover {
@@ -2141,7 +2124,12 @@
 }
 
 .task-tracker-dock__task--child .task-tracker-dock__task-row {
-  gap: 5px;
+  gap: 1px;
+  margin-top: 0;
+}
+
+.task-tracker-dock__task--child .task-tracker-dock__task-row::after {
+  content: none;
 }
 
 .task-tracker-dock__task--context {
@@ -2187,8 +2175,48 @@
 }
 
 .task-tracker-dock__task-indent {
-  flex: 0 0 18px;
+  flex: 0 0 40px;
+  height: 32px;
+  position: relative;
+  width: 40px;
+}
+
+.task-tracker-dock__task-indent::before {
+  border-left: 1px solid #D9E2EF;
+  content: "";
+  left: 12px;
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+}
+
+.task-tracker-dock__task-indent::after {
+  border-bottom: 1px solid #D9E2EF;
+  border-left: 1px solid #D9E2EF;
+  border-radius: 0 0 0 8px;
+  content: "";
+  height: 8px;
+  left: 12px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-100%);
   width: 18px;
+}
+
+.task-tracker-dock__task--child .task-tracker-dock__task-row::before {
+  background: #D9E2EF;
+  border-radius: 999px;
+  content: "";
+  height: 4px;
+  left: 29px;
+  position: absolute;
+  top: 48%;
+  transform: translateY(-50%);
+  width: 4px;
+}
+
+.task-tracker-dock__task-children > .task-tracker-dock__task--child:last-child .task-tracker-dock__task-indent::before {
+  bottom: 50%;
 }
 
 /* ── Task Title ─────────────────────────────────────────────── */
@@ -2234,97 +2262,94 @@
   gap: 3px;
 }
 
-/* ── Status Badge ───────────────────────────────────────────── */
+.task-tracker-dock__task {
+  --task-tracker-dock-badge-font-size: 12px;
+  --task-tracker-dock-badge-height: 24px;
+  --task-tracker-dock-badge-padding-x: 7px;
+  --task-tracker-dock-badge-gap: 4px;
+  --task-tracker-dock-badge-radius: 7px;
+}
 
-.task-tracker-dock__status {
-  align-items: center;
-  border: 1px solid;
-  border-radius: 999px;
-  display: inline-flex;
+.task-tracker-dock__task--child {
+  --task-tracker-dock-badge-font-size: 11px;
+  --task-tracker-dock-badge-height: 22px;
+  --task-tracker-dock-badge-padding-x: 6px;
+  --task-tracker-dock-badge-gap: 4px;
+  --task-tracker-dock-badge-radius: 6px;
+}
+
+.task-tracker-dock__status-dropdown {
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 500;
-  height: 22px;
-  line-height: 22px;
-  padding: 0 6px;
+  max-width: 100%;
 }
 
-.task-tracker-dock__status--todo {
-  background: #FFF7ED;
-  border-color: #FED7AA;
-  color: #C2410C;
+.task-tracker-dock__inline-badge.task-manager-inline-badge--compact {
+  border-radius: var(--task-tracker-dock-badge-radius);
+  font-size: var(--task-tracker-dock-badge-font-size);
+  gap: var(--task-tracker-dock-badge-gap);
+  height: var(--task-tracker-dock-badge-height);
+  line-height: var(--task-tracker-dock-badge-height);
+  padding: 0 var(--task-tracker-dock-badge-padding-x);
 }
 
-.task-tracker-dock__status--doing {
-  background: #EFF6FF;
-  border-color: #BFDBFE;
-  color: #1D4ED8;
+.task-tracker-dock__inline-badge--text-only.task-manager-inline-badge--compact {
+  gap: 0;
+  justify-content: center;
+  min-width: 0;
 }
 
-.task-tracker-dock__status--waiting {
-  background: #F5F3FF;
-  border-color: #DDD6FE;
-  color: #6D28D9;
+.task-tracker-dock__inline-badge.task-manager-inline-badge--compact .task-manager-inline-badge__dot {
+  height: 6px;
+  width: 6px;
 }
 
-.task-tracker-dock__status--completed {
-  background: #F0FDF4;
-  border-color: #BBF7D0;
-  color: #15803D;
+.task-tracker-dock__inline-badge.task-manager-inline-badge--compact .task-manager-inline-badge__text {
+  font-size: inherit;
 }
 
-.task-tracker-dock__status--cancelled {
-  background: #F8FAFC;
-  border-color: #CBD5E1;
+.task-tracker-dock__date-chip {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--task-tracker-dock-badge-radius);
   color: #475569;
-}
-
-/* ── Date Badge ─────────────────────────────────────────────── */
-
-.task-tracker-dock__date {
-  align-items: center;
-  border: 1px solid;
-  border-radius: 999px;
-  display: inline-flex;
+  cursor: pointer;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--task-tracker-dock-badge-font-size);
   font-weight: 500;
-  height: 22px;
-  line-height: 22px;
-  padding: 0 6px;
+  gap: 0;
+  height: var(--task-tracker-dock-badge-height);
+  line-height: var(--task-tracker-dock-badge-height);
+  max-width: none;
+  min-height: var(--task-tracker-dock-badge-height);
+  padding: 0 var(--task-tracker-dock-badge-padding-x);
 }
 
-.task-tracker-dock__date--today {
+.task-tracker-dock__date-chip .task-manager-card__meta-value {
+  font-size: inherit;
+  line-height: 1;
+}
+
+.task-tracker-dock__date-chip--today {
   background: #EFF6FF;
   border-color: #BFDBFE;
   color: #2563EB;
 }
 
-.task-tracker-dock__date--tomorrow {
+.task-tracker-dock__date-chip--tomorrow,
+.task-tracker-dock__date-chip--weekday,
+.task-tracker-dock__date-chip--date {
   background: #FFFFFF;
   border-color: #E2E8F0;
   color: #475569;
 }
 
-.task-tracker-dock__date--weekday {
-  background: #FFFFFF;
-  border-color: #E2E8F0;
-  color: #475569;
-}
-
-.task-tracker-dock__date--date {
-  background: #FFFFFF;
-  border-color: #E2E8F0;
-  color: #475569;
-}
-
-.task-tracker-dock__date--overdue {
+.task-tracker-dock__date-chip--overdue {
   background: #FFF7ED;
   border-color: #FED7AA;
   color: #C2410C;
 }
 
-.task-tracker-dock__date--unset {
+.task-tracker-dock__date-chip--unset {
   background: #F8FAFC;
   border-color: #E2E8F0;
   color: #64748B;
@@ -2353,8 +2378,8 @@
 .task-tracker-dock__task-children {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 2px;
+  gap: 1px;
+  margin-top: 10px;
 }
 
 /* ── Empty State ────────────────────────────────────────────── */
