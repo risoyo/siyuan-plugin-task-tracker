@@ -275,18 +275,18 @@
   appearance: none;
   background: #FFFFFF;
   border: 1px solid #2563EB;
-  border-radius: 8px;
+  border-radius: 7px;
   box-sizing: border-box;
   color: #2563EB;
   cursor: pointer;
   display: inline-flex;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
-  gap: 6px;
-  height: 34px;
+  gap: 5px;
+  height: 30px;
   justify-content: center;
   min-width: 0;
-  padding: 0 14px;
+  padding: 0 11px;
   white-space: nowrap;
   width: auto;
 }
@@ -311,14 +311,14 @@
 .task-manager-filter-btn__arrow {
   color: currentColor;
   flex-shrink: 0;
-  height: 14px;
+  height: 12px;
   margin: 0;
-  width: 14px;
+  width: 12px;
 }
 
 .task-manager-filter-btn__arrow {
-  height: 13px;
-  width: 13px;
+  height: 11px;
+  width: 11px;
 }
 
 .task-manager-filter-dropdown__menu {
@@ -2963,6 +2963,16 @@
   transition: border-color 120ms ease, box-shadow 120ms ease;
   width: 100%;
   box-sizing: border-box;
+}
+
+.task-tracker-dialog-v3__textarea--detail {
+  min-height: 560px;
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.task-tracker-dialog-v3__detail-status.is-error {
+  color: #DC2626;
 }
 
 .task-tracker-dialog-v3__textarea:focus {

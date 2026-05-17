@@ -2,6 +2,10 @@ import { Dialog, Setting, showMessage } from "siyuan";
 import type { TaskService } from "./document";
 import { DEFAULT_TASK_TEMPLATE } from "./types";
 
+const MANAGED_DETAIL_SECTION_TITLE = "## 任务详情";
+const REQUIRED_TEMPLATE_PLACEHOLDERS = ["{{source}}", "{{status}}", "{{priority}}", "{{description}}"];
+const MANAGED_SUMMARY_HINT = "任务概要受控区支持引用块或 Markdown 表格两种形式；只要保留来源、状态、优先级、任务描述等受控字段，插件就能持续同步这一块。";
+
 export function createTaskSettings(
   service: TaskService,
   actions: {
@@ -28,11 +32,29 @@ export function createTaskSettings(
   templateInput.spellcheck = false;
   templateInput.value = service.store.getSettings().taskTemplate || DEFAULT_TASK_TEMPLATE;
 
+  const templateManagedHint = document.createElement("div");
+  templateManagedHint.className = "task-tracker-setting__template-managed";
+  templateManagedHint.innerHTML = `
+    <div><strong>插件管理的正文交互字段</strong></div>
+    <ul>
+      <li>${MANAGED_SUMMARY_HINT}</li>
+      <li><code>{{description}}</code>：对应任务描述，属于任务元信息字段。</li>
+      <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
+    </ul>
+    <div>保存模板时会校验是否仍保留插件管理所需字段；如果缺少必要字段，将拒绝保存并提示补回。</div>
+  `;
+
   const setting = new Setting({
     confirmCallback: async () => {
+      const normalizedTemplate = templateInput.value.trim();
+      const validationError = validateTaskTemplate(normalizedTemplate || DEFAULT_TASK_TEMPLATE);
+      if (validationError) {
+        showMessage(validationError, 7000, "error");
+        throw new Error(validationError);
+      }
       await service.store.setSettings({
         defaultProject: defaultProjectInput.value.trim() || undefined,
-        taskTemplate: templateInput.value.trim() || undefined
+        taskTemplate: normalizedTemplate || undefined
       });
       actions.refreshViews();
       showMessage("任务追踪设置已保存");
@@ -103,7 +125,7 @@ export function createTaskSettings(
 
   setting.addItem({
     title: "任务模板",
-    description: "新建任务文档时使用。保留元信息占位符后，任务追踪面板中的状态和日期会同步回笔记。",
+    description: "新建任务文档时使用。模板中的任务概要受控区与任务详情正文分区会由插件持续管理。",
     createActionElement: () => {
       const wrapper = document.createElement("div");
       wrapper.className = "task-tracker-setting__template-wrap";
@@ -119,7 +141,7 @@ export function createTaskSettings(
       });
 
       actionsRow.append(resetButton);
-      wrapper.append(templateInput, actionsRow);
+      wrapper.append(templateInput, templateManagedHint, actionsRow);
       return wrapper;
     }
   });
@@ -148,6 +170,14 @@ export function createTaskSettings(
   });
 
   return setting;
+}
+
+function validateTaskTemplate(template: string): string | undefined {
+  const missingPlaceholders = REQUIRED_TEMPLATE_PLACEHOLDERS.filter((placeholder) => !template.includes(placeholder));
+  if (missingPlaceholders.length) {
+    return `任务模板缺少基础创建所需占位符：${missingPlaceholders.join("、")}。请补回后再保存。`;
+  }
+  return undefined;
 }
 
 function showHelpDialog(): void {
@@ -202,8 +232,9 @@ function showHelpDialog(): void {
   <p>插件启动时会等待思源同步状态稳定，再尝试恢复和同步索引。换设备、同步异常或面板显示不完整时，可以手动执行重建。</p>
 
   <h2>八、任务模板占位符</h2>
-  <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>
-  <p>建议保留默认模板中的元信息引用块，或至少保留一个包含 <code>来源：</code> 的引用块。插件会同步更新这个块中的状态、优先级、日期和子任务链接。</p>
+  <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{description}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>
+  <p><code>{{description}}</code> 对应“任务描述”元信息字段；<code>${MANAGED_DETAIL_SECTION_TITLE}</code> 对应“任务详情”正文受控分区，不通过模板占位符填写，而是在创建后由插件自动补入并在编辑时持续写回。</p>
+  <p>${MANAGED_SUMMARY_HINT}</p>
 
   <h2>九、使用建议</h2>
   <ul>

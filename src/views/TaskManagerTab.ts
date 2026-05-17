@@ -196,6 +196,7 @@ export class TaskManagerTab {
   private viewFilters = new Map<TaskManagerView, "all" | TaskStatus>();
   private statusDropdownOpen = false;
   private activePopover: { taskId: string; field: "status" | "priority" } | null = null;
+  private activePopoverCleanup?: () => void;
   private month = monthStart(new Date());
   private calendarMode: "month" | "week" = "month";
   private weekStart = startOfWeek(new Date());
@@ -1419,8 +1420,76 @@ export class TaskManagerTab {
 </div>`;
   }
 
-  private closePopover(): void {
+  private closePopover(render = false): void {
+    this.activePopoverCleanup?.();
+    this.activePopoverCleanup = undefined;
     this.activePopover = null;
+    if (render) {
+      this.render();
+    }
+  }
+
+  private openPopover(taskId: string, field: "status" | "priority", trigger: HTMLElement): void {
+    this.closePopover();
+    this.activePopover = { taskId, field };
+    const container = trigger.closest<HTMLElement>("[data-popover]");
+    const menu = container?.querySelector<HTMLElement>(`[data-popover-menu="${field}"][data-task-id="${taskId}"]`);
+    if (!container || !menu) {
+      return;
+    }
+    trigger.classList.add("is-open");
+    menu.style.display = "";
+    const resetPosition = this.positionInlinePopover(menu, trigger);
+    const handleViewportChange = () => this.positionInlinePopover(menu, trigger);
+    window.addEventListener("resize", handleViewportChange);
+    const body = this.container.querySelector<HTMLElement>(".task-manager__body");
+    const list = this.container.querySelector<HTMLElement>(".task-manager-list");
+    body?.addEventListener("scroll", handleViewportChange, { passive: true });
+    list?.addEventListener("scroll", handleViewportChange, { passive: true });
+    this.activePopoverCleanup = () => {
+      window.removeEventListener("resize", handleViewportChange);
+      body?.removeEventListener("scroll", handleViewportChange);
+      list?.removeEventListener("scroll", handleViewportChange);
+      resetPosition();
+      trigger.classList.remove("is-open");
+      menu.style.display = "none";
+    };
+  }
+
+  private positionInlinePopover(menu: HTMLElement, trigger: HTMLElement): () => void {
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuHeight = Math.min(menu.offsetHeight || 220, 280);
+    const menuWidth = Math.max(menu.offsetWidth || 148, triggerRect.width);
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const spaceBelow = viewportHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    const fitsBelow = spaceBelow >= Math.min(menuHeight, 220);
+    const fitsAbove = spaceAbove >= Math.min(menuHeight, 220);
+    let top = fitsBelow || !fitsAbove
+      ? triggerRect.bottom + 4
+      : triggerRect.top - menuHeight - 4;
+    top = Math.max(8, Math.min(top, viewportHeight - menuHeight - 8));
+    let left = triggerRect.left;
+    left = Math.max(8, Math.min(left, viewportWidth - menuWidth - 8));
+
+    menu.style.position = "fixed";
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+    menu.style.minWidth = `${Math.max(triggerRect.width, 148)}px`;
+    menu.style.maxHeight = `${Math.min(Math.max(spaceBelow, spaceAbove), 280)}px`;
+    menu.style.overflowY = "auto";
+    menu.style.zIndex = "220";
+
+    return () => {
+      menu.style.position = "";
+      menu.style.top = "";
+      menu.style.left = "";
+      menu.style.minWidth = "";
+      menu.style.maxHeight = "";
+      menu.style.overflowY = "";
+      menu.style.zIndex = "";
+    };
   }
 
   private bind(): void {
@@ -1469,6 +1538,7 @@ export class TaskManagerTab {
         return;
       }
       if (action === "toggle-status-dropdown") {
+        event.preventDefault();
         event.stopPropagation();
         this.statusDropdownOpen = !this.statusDropdownOpen;
         this.render();
@@ -1586,6 +1656,7 @@ export class TaskManagerTab {
 
     const popoverToggle = target.closest<HTMLElement>("[data-popover-toggle]");
     if (popoverToggle) {
+      event.preventDefault();
       event.stopPropagation();
       const field = popoverToggle.dataset.popoverToggle as "status" | "priority";
       const taskId = popoverToggle.dataset.taskId;
@@ -1593,15 +1664,15 @@ export class TaskManagerTab {
         if (this.activePopover?.taskId === taskId && this.activePopover?.field === field) {
           this.closePopover();
         } else {
-          this.activePopover = { taskId, field };
+          this.openPopover(taskId, field, popoverToggle);
         }
-        this.render();
       }
       return;
     }
 
     const popoverSelect = target.closest<HTMLElement>("[data-popover-select]");
     if (popoverSelect) {
+      event.preventDefault();
       event.stopPropagation();
       const field = popoverSelect.dataset.popoverSelect as "status" | "priority";
       const taskId = popoverSelect.dataset.taskId;
@@ -1630,7 +1701,6 @@ export class TaskManagerTab {
     // Close inline popover when clicking outside
     if (this.activePopover && !target.closest("[data-popover]")) {
       this.closePopover();
-      this.render();
       return;
     }
 
@@ -1939,6 +2009,7 @@ export class TaskManagerTab {
   }
 
   private async runUpdate(action: () => Promise<unknown>): Promise<void> {
+    this.closePopover();
     try {
       await action();
     } catch (error) {

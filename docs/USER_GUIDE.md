@@ -129,6 +129,7 @@ Supported placeholders:
 - `{{project}}`
 - `{{status}}`
 - `{{priority}}`
+- `{{description}}`
 - `{{dueDate}}`
 - `{{planStart}}`
 - `{{planEnd}}`

@@ -36,7 +36,7 @@ Task Tracker turns SiYuan documents into trackable tasks. You choose one documen
 
 The plugin keeps a fast local index in `tasks.json` and stores settings in `settings.json`. Task metadata is also written to the task document's custom attributes, so the index can be rebuilt from the task library when needed.
 
-When a task is created, the plugin renders a task document from the configured template. The default template includes a quote block with source, parent, project, status, priority, created date, due date, planned date, and child task links. Keep that metadata block or another block containing `来源：` if you want task field changes in the panel to keep syncing back into the document body.
+When a task is created, the plugin renders a task document from the configured template. The default template includes a quote block with source, parent, project, status, priority, description, created date, due date, planned date, and child task links. Keep that metadata block or another block containing `来源：` if you want task field changes in the panel to keep syncing back into the document body.
 
 Deleting a task from the task control panel deletes the task document and its subtasks after confirmation. The maintenance action named "clean deleted task records" only removes plugin records whose SiYuan documents are already gone.
 
@@ -44,7 +44,7 @@ Deleting a task from the task control panel deletes the task document and its su
 
 The task template supports:
 
-`{{title}}`, `{{source}}`, `{{parent}}`, `{{project}}`, `{{status}}`, `{{priority}}`, `{{dueDate}}`, `{{planStart}}`, `{{planEnd}}`, `{{childTasks}}`, `{{childTaskList}}`, `{{createdAt}}`, `{{updatedAt}}`.
+`{{title}}`, `{{source}}`, `{{parent}}`, `{{project}}`, `{{status}}`, `{{priority}}`, `{{description}}`, `{{dueDate}}`, `{{planStart}}`, `{{planEnd}}`, `{{childTasks}}`, `{{childTaskList}}`, `{{createdAt}}`, `{{updatedAt}}`.
 
 ## Development
 

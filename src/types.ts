@@ -153,6 +153,7 @@ export interface TaskCreateInput {
   createdAt?: string;
   completedAt?: string;
   description?: string;
+  detail?: string;
 }
 
 export interface SourceContext {

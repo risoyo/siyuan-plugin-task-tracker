@@ -40,9 +40,8 @@ const ICONS = {
   edit: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg>`,
   doc: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4"/></svg>`,
   search: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>`,
+  save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`
 };
-
-// ── Reusable combobox / popover select HTML builders ──────────
 
 function buildComboboxSelect(name: string, value: string, placeholder: string, leftIcon: string, optionsHtml: string, extraAttrs: string = ""): string {
   return `<div class="task-tracker-dialog-v3__combobox" data-combobox="${name}">
@@ -67,8 +66,6 @@ function buildComboboxOption(value: string, label: string, active: boolean, icon
     ${active ? `<span class="task-tracker-dialog-v3__menu-check">${ICONS.check}</span>` : ""}
   </button>`;
 }
-
-// ── Status / Priority badge + dropdown ──
 
 function statusBadge(status: TaskStatus): string {
   const cfg = STATUS_BADGE_CONFIG[status];
@@ -114,8 +111,6 @@ function priorityDropdown(current: TaskPriority): string {
   }).join("");
 }
 
-// ── Segmented control ─────────────────────────────────────────
-
 function buildSegmentedControl(name: string, options: Array<{ value: string; label: string; icon: string }>, current: string): string {
   return `<div class="task-tracker-dialog-v3__segments" data-segments="${name}">
     ${options.map((opt) => {
@@ -128,8 +123,6 @@ function buildSegmentedControl(name: string, options: Array<{ value: string; lab
   </div>`;
 }
 
-// ── Section divider / title ───────────────────────────────────
-
 function sectionDivider(): string {
   return `<div class="task-tracker-dialog-v3__divider"></div>`;
 }
@@ -138,13 +131,10 @@ function sectionTitle(title: string): string {
   return `<div class="task-tracker-dialog-v3__section-title">${escapeHtml(title)}</div>`;
 }
 
-// ── Popup positioning helper ──────────────────────────────────
-
 function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
   const triggerRect = trigger.getBoundingClientRect();
   const menuHeight = menu.offsetHeight || 200;
   const viewportH = window.innerHeight;
-  // Prefer below, flip to above if not enough room
   const spaceBelow = viewportH - triggerRect.bottom;
   const spaceAbove = triggerRect.top;
   const fitsBelow = spaceBelow >= Math.min(menuHeight, 240);
@@ -157,7 +147,6 @@ function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
     top = triggerRect.top - Math.min(menuHeight, 240) - 4;
   }
 
-  // Clamp so menu stays in viewport
   const maxTop = viewportH - Math.min(menuHeight, 240) - 8;
   top = Math.max(8, Math.min(top, maxTop));
 
@@ -175,8 +164,6 @@ function resetPopupPosition(menu: HTMLElement): void {
   menu.style.minWidth = "";
   menu.style.zIndex = "";
 }
-
-// ── TaskDialog class ──────────────────────────────────────────
 
 export class TaskDialog {
   constructor(private options: TaskDialogOptions) {}
@@ -223,13 +210,11 @@ export class TaskDialog {
     const submitLabel = editMode ? "保存修改" : (this.options.parentId ? "创建子任务" : "创建任务");
     const submittingLabel = editMode ? "保存中..." : "创建中...";
 
-    // ── Build project options ──────────────────────────────
     const projectOptionsHtml = [
       buildComboboxOption("", "无项目", !defaultProject),
       ...projects.map((p) => buildComboboxOption(p, p, p === defaultProject, ICONS.folder)),
     ].join("");
 
-    // ── Build parent task options ──────────────────────────
     const parentOptionsHtml = (() => {
       const topLevel = activeTasks.filter((t) => !t.parentId);
       const children = activeTasks.filter((t) => t.parentId && !topLevel.includes(t));
@@ -243,7 +228,6 @@ export class TaskDialog {
       return html;
     })();
 
-    // ── Source segmented control ───────────────────────────
     const sourceSegmentHtml = buildSegmentedControl("sourceMode", [
       { value: "manual", label: "手动创建", icon: ICONS.edit },
       { value: "note", label: "笔记", icon: ICONS.doc },
@@ -257,7 +241,6 @@ export class TaskDialog {
     const dialog = new Dialog({
       title: "",
       content: `<div class="task-tracker-dialog-v3">
-  <!-- Header -->
   <div class="task-tracker-dialog-v3__header">
     <div class="task-tracker-dialog-v3__header-left">
       <div class="task-tracker-dialog-v3__icon-block">
@@ -275,7 +258,6 @@ export class TaskDialog {
 
   <form class="task-tracker-dialog-v3__body">
     <div class="task-tracker-dialog-v3__body-scroll">
-    <!-- Task info section -->
     <div class="task-tracker-dialog-v3__section">
       ${sectionTitle("任务信息")}
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--title">
@@ -344,7 +326,6 @@ export class TaskDialog {
 
     ${sectionDivider()}
 
-    <!-- Time info section -->
     <div class="task-tracker-dialog-v3__section">
       ${sectionTitle("时间信息")}
       <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--quad">
@@ -381,7 +362,6 @@ export class TaskDialog {
 
     ${sectionDivider()}
 
-    <!-- Notes & description section -->
     <div class="task-tracker-dialog-v3__section">
       ${sectionTitle("笔记信息")}
       <div class="task-tracker-dialog-v3__source-row">
@@ -399,11 +379,15 @@ export class TaskDialog {
           </label>
         </div>
       </div>
+      <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--detail">
+        <span class="task-tracker-dialog-v3__label">任务详情</span>
+        <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--detail" name="detail" rows="30" placeholder="编写任务正文内容、过程记录或补充说明"></textarea>
+        <span class="task-tracker-dialog-v3__hint task-tracker-dialog-v3__detail-status" data-detail-status>${editMode ? "读取正文中..." : "将在创建任务文档时写入正文受控分区。"}</span>
+      </label>
     </div>
     </div>
   </form>
 
-  <!-- Footer -->
   <div class="task-tracker-dialog-v3__footer">
     <button type="button" class="task-tracker-dialog-v3__btn-cancel" data-action="cancel">取消</button>
     <button type="submit" class="task-tracker-dialog-v3__btn-primary">${submitLabel}</button>
@@ -420,11 +404,23 @@ export class TaskDialog {
     const form = root.querySelector("form") as HTMLFormElement;
     const titleInput = root.querySelector<HTMLInputElement>("input[name='title']");
     const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
+    const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
+    const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     titleInput?.focus();
     titleInput?.select();
 
-    // ── Source mode ────────────────────────────────────────
+    let detailLoadedValue = "";
+    let detailSaveTimer: number | undefined;
+    let detailSaving = false;
+    let detailDirty = false;
+    let destroyed = false;
+
+    const setDetailStatus = (text: string, error = false) => {
+      if (!detailStatus) return;
+      detailStatus.textContent = text;
+      detailStatus.classList.toggle("is-error", error);
+    };
 
     const renderSourceMode = () => {
       if (sourceDocIdInput) {
@@ -457,8 +453,6 @@ export class TaskDialog {
 
     renderSourceMode();
 
-    // ── Popup helpers ──────────────────────────────────────
-
     const openMenu = (menu: HTMLElement, trigger: HTMLElement) => {
       menu.style.display = "";
       positionPopup(menu, trigger);
@@ -468,8 +462,6 @@ export class TaskDialog {
       menu.style.display = "none";
       resetPopupPosition(menu);
     };
-
-    // ── Combobox logic ────────────────────────────────────
 
     const initCombobox = (name: string) => {
       const combobox = root.querySelector<HTMLElement>(`[data-combobox="${name}"]`);
@@ -516,8 +508,6 @@ export class TaskDialog {
     initCombobox("project");
     initCombobox("parentId");
 
-    // ── Combobox close management ───────────────────────────
-
     const closeAllComboboxes = (except?: string) => {
       root.querySelectorAll<HTMLElement>("[data-combobox-menu]").forEach((menu) => {
         const name = menu.dataset.comboboxMenu;
@@ -532,8 +522,6 @@ export class TaskDialog {
         }
       });
     };
-
-    // ── Dropdown logic (status / priority) ──────────────────
 
     const closeAllDropdowns = () => {
       root.querySelectorAll<HTMLElement>("[data-dropdown-menu]").forEach((menu) => {
@@ -558,6 +546,92 @@ export class TaskDialog {
         toggle.classList.add("is-open");
       }
     };
+
+    const saveDetail = async (force = false) => {
+      if (!editMode || !editingTask || !detailTextarea || destroyed) {
+        return;
+      }
+      const value = detailTextarea.value;
+      if (!force && value === detailLoadedValue) {
+        detailDirty = false;
+        return;
+      }
+      if (detailSaving) {
+        detailDirty = true;
+        return;
+      }
+      detailSaving = true;
+      detailDirty = false;
+      setDetailStatus("正在保存正文详情...");
+      try {
+        await this.options.service.saveTaskDetail(editingTask.docId, value);
+        detailLoadedValue = value;
+        setDetailStatus("任务详情已保存到正文。", false);
+      } catch (error) {
+        detailDirty = true;
+        setDetailStatus(error instanceof Error ? error.message : "任务详情保存失败", true);
+        showMessage(error instanceof Error ? error.message : "任务详情保存失败", 5000, "error");
+      } finally {
+        detailSaving = false;
+        if (detailDirty && !destroyed) {
+          window.clearTimeout(detailSaveTimer);
+          detailSaveTimer = window.setTimeout(() => {
+            void saveDetail();
+          }, 800);
+        }
+      }
+    };
+
+    const scheduleDetailSave = () => {
+      if (!editMode || !detailTextarea) {
+        return;
+      }
+      detailDirty = detailTextarea.value !== detailLoadedValue;
+      if (!detailDirty) {
+        setDetailStatus("任务详情已保存到正文。", false);
+        return;
+      }
+      setDetailStatus("检测到变更，稍后写回正文...");
+      window.clearTimeout(detailSaveTimer);
+      detailSaveTimer = window.setTimeout(() => {
+        void saveDetail();
+      }, 800);
+    };
+
+    if (detailTextarea) {
+      if (editMode && editingTask) {
+        detailTextarea.disabled = true;
+        setDetailStatus("读取正文中...");
+        void this.options.service.getTaskDetail(editingTask.docId)
+          .then((detail) => {
+            if (destroyed || !detailTextarea) {
+              return;
+            }
+            detailTextarea.value = detail;
+            detailLoadedValue = detail;
+            detailTextarea.disabled = false;
+            setDetailStatus("任务详情会近实时写回正文受控分区。");
+          })
+          .catch((error) => {
+            if (destroyed || !detailTextarea) {
+              return;
+            }
+            detailTextarea.value = "";
+            detailLoadedValue = "";
+            detailTextarea.disabled = false;
+            setDetailStatus(error instanceof Error ? error.message : "任务详情读取失败", true);
+          });
+        detailTextarea.addEventListener("input", scheduleDetailSave);
+        detailTextarea.addEventListener("blur", () => {
+          if (detailTextarea.value !== detailLoadedValue) {
+            window.clearTimeout(detailSaveTimer);
+            void saveDetail(true);
+          }
+        });
+      } else {
+        setDetailStatus("将在创建任务文档时写入正文受控分区。");
+      }
+    }
 
     root.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
@@ -628,9 +702,9 @@ export class TaskDialog {
     };
     document.addEventListener("click", handleOutsideClick);
 
-    // ── Cancel / Close ────────────────────────────────────
-
     const cleanupDialog = () => {
+      destroyed = true;
+      window.clearTimeout(detailSaveTimer);
       document.removeEventListener("click", handleOutsideClick);
       dialog.destroy();
     };
@@ -638,8 +712,6 @@ export class TaskDialog {
     root.querySelectorAll<HTMLElement>("[data-action='cancel']").forEach((btn) => {
       btn.addEventListener("click", () => cleanupDialog());
     });
-
-    // ── Source mode ────────────────────────────────────────
 
     root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -650,8 +722,6 @@ export class TaskDialog {
         }
       });
     });
-
-    // ── Form submission ────────────────────────────────────
 
     submitButton?.addEventListener("click", () => form.requestSubmit());
 
@@ -680,10 +750,14 @@ export class TaskDialog {
           planStart: fromDatetimeLocal(String(data.get("planStart") || "")),
           planEnd: fromDatetimeLocal(String(data.get("planEnd") || "")),
           completedAt: fromDatetimeLocal(String(data.get("completedAt") || "")),
-          description: String(data.get("description") || "").trim() || undefined
+          description: String(data.get("description") || "").trim() || undefined,
+          detail: String(data.get("detail") || "")
         };
         if (!input.title) {
           throw new Error("请填写任务标题");
+        }
+        if (editMode && editingTask && detailTextarea && detailTextarea.value !== detailLoadedValue) {
+          await saveDetail(true);
         }
         const task = editMode && editingTask
           ? await this.options.service.updateTask(editingTask.id, input)
@@ -699,8 +773,6 @@ export class TaskDialog {
     });
   }
 }
-
-// ── Shared utilities ────────────────────────────────────────
 
 export function statusOptions(current: TaskStatus): string {
   return (Object.entries(TASK_STATUS_LABELS) as Array<[TaskStatus, string]>)

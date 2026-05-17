@@ -40,6 +40,7 @@ import {
 } from "./types";
 
 const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"] as const;
+const TASK_DETAIL_HEADING = "任务详情";
 
 type ChangeListener = () => void;
 
@@ -110,7 +111,7 @@ export class TaskService {
       notebookId,
       parentHPath,
       taskDocumentTitle(draftTask),
-      renderTaskMarkdown(draftTask, parent, [], settings)
+      renderTaskMarkdown(draftTask, parent, [], settings, input.detail)
     );
     let actualTask: TaskItem = {
       ...draftTask,
@@ -359,6 +360,19 @@ export class TaskService {
     return { docId: existing.id, title };
   }
 
+  async getTaskDetail(docId: string): Promise<string> {
+    const markdown = await readDocMarkdown(docId);
+    return extractTaskDetail(markdown);
+  }
+
+  async saveTaskDetail(docId: string, detail: string): Promise<void> {
+    const markdown = await readDocMarkdown(docId);
+    const nextMarkdown = rewriteTaskDetail(markdown, detail);
+    if (nextMarkdown === markdown) {
+      return;
+    }
+    await updateBlock(docId, nextMarkdown);
+  }
 
   private async syncTaskDocument(id: string): Promise<boolean> {
     const task = this.store.get(id);
@@ -366,14 +380,19 @@ export class TaskService {
       return false;
     }
 
-    const metadataBlock = await findTaskMetadataBlock(task.docId);
+    const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
       return false;
     }
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
     const children = this.store.all().filter((item) => item.parentId === task.id);
-    await updateBlock(metadataBlock.id, renderTaskMetadataBlock(task, parent, children));
+    await updateBlock(
+      metadataBlock.id,
+      metadataBlock.format === "table"
+        ? renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children)
+        : renderTaskMetadataBlock(task, parent, children)
+    );
     return true;
   }
 
@@ -903,7 +922,7 @@ async function getTaskPath(docId: string): Promise<string | undefined> {
 }
 
 async function getDocPathByHPath(notebookId: string, hpath: string): Promise<string | undefined> {
-  const rows = await sql<TaskMetadataBlock>(`select id, path from blocks
+  const rows = await sql<{ id: string; path?: string }>(`select id, path from blocks
 where box = '${sqlText(notebookId)}'
   and type = 'd'
   and hpath = '${sqlText(normalizeHPath(hpath))}'
@@ -1069,10 +1088,12 @@ function renderTaskMarkdown(
   task: TaskItem,
   parent?: TaskItem,
   children: TaskItem[] = [],
-  settings: TaskSettings = {}
+  settings: TaskSettings = {},
+  detail?: string
 ): string {
   const template = settings.taskTemplate?.trim() || DEFAULT_TASK_TEMPLATE;
-  return renderTemplate(template, task, parent, children);
+  const markdown = renderTemplate(template, task, parent, children);
+  return rewriteTaskDetail(markdown, detail || "");
 }
 
 function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
@@ -1135,6 +1156,51 @@ function renderChildRefs(children: TaskItem[], mode: "inline" | "list"): string 
 
 function formatTaskDate(value?: string): string {
   return formatLocalDateTimeOrEmpty(value) || "未设置";
+}
+
+function buildTaskDetailSection(detail: string): string {
+  const body = normalizeTaskDetailBody(detail);
+  return `## ${TASK_DETAIL_HEADING}\n${body ? `\n${body}\n` : "\n"}`;
+}
+
+function extractTaskDetail(markdown: string): string {
+  const section = findTaskDetailSection(markdown);
+  if (!section) {
+    return "";
+  }
+  return normalizeTaskDetailBody(markdown.slice(section.bodyStart, section.nextHeadingStart));
+}
+
+function rewriteTaskDetail(markdown: string, detail: string): string {
+  const normalizedMarkdown = markdown.replace(/\s+$/u, "");
+  const nextSection = buildTaskDetailSection(detail);
+  const section = findTaskDetailSection(normalizedMarkdown);
+  if (!section) {
+    return `${normalizedMarkdown}\n\n${nextSection}`.trimStart() + "\n";
+  }
+  const before = normalizedMarkdown.slice(0, section.headingStart).replace(/\s+$/u, "");
+  const after = normalizedMarkdown.slice(section.nextHeadingStart).replace(/^\s*/u, "");
+  return `${before}\n\n${nextSection}${after ? `\n\n${after}` : ""}`.trimStart() + "\n";
+}
+
+function normalizeTaskDetailBody(value: string): string {
+  return truncateTaskDetailDirtyTail(value)
+    .replace(/^\n+/u, "")
+    .replace(/\s+$/u, "");
+}
+
+function truncateTaskDetailDirtyTail(value: string): string {
+  const footnoteStart = /(?:^|\n)\[\^[^\]]+\]:\s+/m.exec(value)?.index;
+  return footnoteStart === undefined ? value : value.slice(0, footnoteStart);
+}
+
+function findTaskDetailSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
+  const sections = findNamedSectionBounds(markdown, TASK_DETAIL_HEADING, []);
+  if (sections.length !== 1) {
+    return undefined;
+  }
+  const [section] = sections;
+  return section;
 }
 
 function buildWeeklyReportMarkdown(title: string, itemsBody: string, summaryBody: string, planBody: string): string {
@@ -1206,10 +1272,15 @@ function normalizeSectionBody(value: string): string {
 
 function truncateWeeklyReportDirtyTail(value: string): string {
   const taskMetadataStart = /(?:^|\n)(?:>\s*)?来源：[^\n]*(?:\n(?:>\s*)?父任务：[^\n]*)?(?:\n(?:>\s*)?项目：[^\n]*)?(?:\n(?:>\s*)?状态：[^\n]*)?/m.exec(value)?.index;
-  return taskMetadataStart === undefined ? value : value.slice(0, taskMetadataStart);
+  const taskSummaryTableStart = /(?:^|\n)\|\s*项目\s*\|[^\n]*\|\s*来源\s*\|/m.exec(value)?.index;
+  const starts = [taskMetadataStart, taskSummaryTableStart].filter((index): index is number => index !== undefined);
+  if (!starts.length) {
+    return value;
+  }
+  return value.slice(0, Math.min(...starts));
 }
 
-function findNamedSectionBounds(markdown: string, heading: string, nextHeadings: string[]): Array<{ bodyStart: number; nextHeadingStart: number }> {
+function findNamedSectionBounds(markdown: string, heading: string, nextHeadings: string[]): Array<{ headingStart: number; bodyStart: number; nextHeadingStart: number }> {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(`^## ${escapedHeading}$`, "gm");
   const matches = Array.from(markdown.matchAll(regex));
@@ -1219,6 +1290,7 @@ function findNamedSectionBounds(markdown: string, heading: string, nextHeadings:
     const bodyStart = headingEnd < markdown.length && markdown[headingEnd] === "\n" ? headingEnd + 1 : headingEnd;
     const nextHeadingStart = findNextWeeklyReportSectionStart(markdown, bodyStart, nextHeadings);
     return {
+      headingStart,
       bodyStart,
       nextHeadingStart
     };
@@ -1252,20 +1324,89 @@ function compareWeeklyReportTaskOrder(a: TaskItem, b: TaskItem): number {
     || a.title.localeCompare(b.title, "zh-Hans-CN");
 }
 
-async function findTaskMetadataBlock(docId: string): Promise<TaskMetadataBlock | undefined> {
-  const rows = await sql<TaskMetadataBlock>(`select id, markdown, content from blocks
+type ManagedTaskSummaryBlock = {
+  id: string;
+  format: "quote" | "table";
+  markdown?: string;
+  content?: string;
+};
+
+type TaskSummaryValueMap = {
+  项目: string;
+  状态: string;
+  来源: string;
+  优先级: string;
+  创建时间: string;
+  截止时间: string;
+  计划时间: string;
+  父任务: string;
+  子任务: string;
+};
+
+function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): TaskSummaryValueMap {
+  const sourceRef = task.sourceBlockId ? blockRef(task.sourceBlockId, task.sourceText || "来源") : "手动创建";
+  const parentRef = parent ? blockRef(parent.docId, parent.title) : "无";
+  return {
+    项目: task.project || "未设置",
+    状态: TASK_STATUS_LABELS[task.status],
+    来源: sourceRef,
+    优先级: TASK_PRIORITY_LABELS[task.priority],
+    创建时间: formatTaskDate(task.createdAt),
+    截止时间: formatTaskDate(task.dueDate),
+    计划时间: formatTaskDate(task.planStart),
+    父任务: parentRef,
+    子任务: renderChildRefs(children, "inline")
+  };
+}
+
+function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
+  const lines = markdown.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => /^\|/.test(line) && line.includes("来源"));
+  if (headerIndex === -1 || headerIndex + 2 >= lines.length) {
+    return markdown;
+  }
+  const headerCells = parseMarkdownTableRow(lines[headerIndex]);
+  const alignmentLine = lines[headerIndex + 1];
+  const values = buildTaskSummaryValueMap(task, parent, children);
+  const nextRow = headerCells.map((cell) => values[cell as keyof TaskSummaryValueMap] ?? "");
+  const renderedRow = `| ${nextRow.join(" | ")} |`;
+  lines[headerIndex + 2] = renderedRow;
+  if (!/^\|/.test(alignmentLine)) {
+    return markdown;
+  }
+  return lines.join("\n");
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function isTaskSummaryTable(markdown?: string, content?: string): boolean {
+  const text = `${markdown || ""}\n${content || ""}`;
+  return text.includes("| 来源 ") || text.includes("|来源|") || text.includes("| 来源|") || text.includes("|来源 |");
+}
+
+async function findManagedTaskSummaryBlock(docId: string): Promise<ManagedTaskSummaryBlock | undefined> {
+  const quoteRows = await sql<ManagedTaskSummaryBlock>(`select id, markdown, content from blocks
 where root_id = '${sqlText(docId)}'
   and type = 'b'
   and (markdown like '%来源：%' or content like '%来源：%')
 limit 1`);
-  return rows[0];
-}
+  if (quoteRows[0]) {
+    return { ...quoteRows[0], format: "quote" };
+  }
 
-interface TaskMetadataBlock {
-  id: string;
-  path?: string;
-  markdown?: string;
-  content?: string;
+  const tableRows = await sql<ManagedTaskSummaryBlock>(`select id, markdown, content from blocks
+where root_id = '${sqlText(docId)}'
+  and type = 't'
+order by sort asc`);
+  const matched = tableRows.find((row) => isTaskSummaryTable(row.markdown, row.content));
+  return matched ? { ...matched, format: "table" } : undefined;
 }
 
 async function setTaskAttrs(task: TaskItem): Promise<void> {
