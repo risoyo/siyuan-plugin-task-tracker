@@ -3115,6 +3115,7 @@
   background: #FFFFFF;
   border: 1px solid #D8DEE8;
   border-radius: 8px;
+  box-sizing: border-box;
   color: #1F2937;
   cursor: pointer;
   display: flex;
@@ -3154,6 +3155,28 @@
 
 .task-tracker-dialog-v3__combobox-value:empty::before {
   content: attr(data-placeholder);
+  color: #94A3B8;
+}
+
+.task-tracker-dialog-v3__combobox-input {
+  background: none;
+  border: 0;
+  box-sizing: border-box;
+  color: #1F2937;
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+  height: 100%;
+  line-height: 40px;
+  margin: 0;
+  min-width: 0;
+  outline: none;
+  padding: 0;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.task-tracker-dialog-v3__combobox-input::placeholder {
   color: #94A3B8;
 }
 
@@ -3298,6 +3321,18 @@
 
 .task-tracker-dialog-v3__menu-item.is-indented {
   padding-left: 24px;
+}
+
+.task-tracker-dialog-v3__menu-item--create {
+  border-bottom: 1px solid #E5EAF2;
+  color: #2563EB;
+  font-weight: 500;
+  margin-bottom: 2px;
+  padding-bottom: 10px;
+}
+
+.task-tracker-dialog-v3__menu-item--create:hover {
+  background: #EFF6FF;
 }
 
 .task-tracker-dialog-v3__menu-item-icon {
