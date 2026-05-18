@@ -182,16 +182,17 @@ export const DEFAULT_SETTINGS: TaskSettings = {};
 
 export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 
-> 来源：{{source}}
-> 父任务：{{parent}}
-> 项目：{{project}}
-> 状态：{{status}}
-> 优先级：{{priority}}
-> 任务描述：{{description}}
-> 创建时间：{{createdAt}}
-> 截止时间：{{dueDate}}
-> 计划时间：{{planStart}}
-> 子任务：{{childTasks}}
+## 任务概要
+
+| 项目 | 状态 | 来源 | 优先级 | 创建时间 | 截止时间 | 计划时间 |
+| --- | --- | --- | --- | --- | --- | --- |
+| {{project}} | {{status}} | {{source}} | {{priority}} | {{createdAt}} | {{dueDate}} | {{planStart}} |
+
+**父任务** ：{{parent}}
+**子任务** ：{{childTasks}}
+**任务描述** ：{{description}}
+
+---
 
 ## 目标
 

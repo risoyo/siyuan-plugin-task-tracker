@@ -4,7 +4,7 @@ import { DEFAULT_TASK_TEMPLATE } from "./types";
 
 const MANAGED_DETAIL_SECTION_TITLE = "## 任务详情";
 const REQUIRED_TEMPLATE_PLACEHOLDERS = ["{{source}}", "{{status}}", "{{priority}}", "{{description}}"];
-const MANAGED_SUMMARY_HINT = "任务概要受控区支持引用块或 Markdown 表格两种形式；只要保留来源、状态、优先级、任务描述等受控字段，插件就能持续同步这一块。";
+const MANAGED_SUMMARY_HINT = "任务概要受控区正式支持 Markdown 表格，以及紧随表格后的父任务 / 子任务 / 任务描述标签行；插件会持续同步表格和这些标签行。";
 
 export function createTaskSettings(
   service: TaskService,

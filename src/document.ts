@@ -120,7 +120,7 @@ export class TaskService {
       ...draftTask,
       id: created.docId || docId,
       docId: created.docId || docId,
-      path: created.path
+      path: created.path || ""
     };
 
     await setTaskAttrs(actualTask);
@@ -385,18 +385,30 @@ export class TaskService {
 
     const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
-      return false;
+      return await syncManagedTaskDescriptionSection(task, false);
     }
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
     const children = this.store.all().filter((item) => item.parentId === task.id);
     let synced = false;
-    await updateBlock(
-      metadataBlock.id,
-      metadataBlock.format === "table"
-        ? renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children)
-        : renderTaskMetadataBlock(task, parent, children)
-    );
+    if (metadataBlock.format === "table") {
+      const summaryHeading = await findHeadingBlock(task.docId, ["任务概要"]);
+      if (summaryHeading) {
+        await replaceManagedHeadingSection(
+          task.docId,
+          ["任务概要"],
+          renderManagedTaskSummarySectionBody(
+            renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children),
+            buildTaskSummaryLabelLines(task, parent, children)
+          ),
+          { createIfMissing: false }
+        );
+      } else {
+        await updateBlock(metadataBlock.id, renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children));
+      }
+    } else {
+      await updateBlock(metadataBlock.id, renderTaskMetadataBlock(task, parent, children));
+    }
     synced = true;
     synced = await syncManagedTaskDescriptionSection(task, synced);
     return synced;
@@ -418,33 +430,24 @@ export class TaskService {
     }
 
     const settings = this.store.getSettings();
-    if (!settings.taskRootDocId || !settings.taskRootNotebookId || !task.path) {
+    if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
       return task;
     }
 
     const week = archiveWeek(task.completedAt || task.createdAt);
     const archivePath = await ensureArchiveWeekDoc(settings, week);
-    const taskPath = await getTaskPath(task.docId) || task.path;
-    if (!taskPath || isTaskUnderArchivePath(taskPath, archivePath)) {
+    const taskPath = await requireTaskPath(task.docId, `无法读取待归档任务路径：${task.title}`);
+    if (isTaskUnderArchivePath(taskPath, archivePath)) {
       return task;
     }
 
     await moveDocs([taskPath], settings.taskRootNotebookId, archivePath);
     const ids = expandWithDescendants(this.store.all(), [task.id]);
-    let archivedTask = task;
-    for (const id of ids) {
-      const current = this.store.get(id);
-      if (!current) {
-        continue;
-      }
-      const path = await getTaskPath(current.docId);
-      if (!path || path === current.path) {
-        continue;
-      }
-      const updated = await this.store.update(id, { path });
-      if (id === task.id) {
-        archivedTask = updated;
-      }
+    const pathMap = await refreshTaskPaths(this.store, ids);
+    let archivedTask = this.store.get(task.id) || task;
+    const refreshed = pathMap.get(task.id);
+    if (refreshed) {
+      archivedTask = refreshed;
     }
     await this.syncTaskDocuments(ids);
     return archivedTask;
@@ -456,10 +459,7 @@ export class TaskService {
       return task;
     }
 
-    const currentPath = await getTaskPath(task.docId) || task.path;
-    if (!currentPath) {
-      return task;
-    }
+    const currentPath = await requireTaskPath(task.docId, `无法读取待移动任务路径：${task.title}`);
 
     let targetDir: string;
     if (task.parentId) {
@@ -467,16 +467,14 @@ export class TaskService {
       if (!parent) {
         return task;
       }
-      const parentPath = await getTaskPath(parent.docId) || parent.path;
-      if (!parentPath) {
-        return task;
-      }
-      targetDir = parentPath.replace(/\.sy$/i, "");
+      const parentPath = await requireTaskPath(parent.docId, `无法读取父任务路径：${parent.title}`);
+      targetDir = taskDirectoryPath(parentPath);
     } else {
-      targetDir = settings.taskRootPath.replace(/\.sy$/i, "");
+      const rootPath = await requireTaskPath(settings.taskRootDocId, "无法读取事项库根文档路径");
+      targetDir = taskDirectoryPath(rootPath);
     }
 
-    const currentDir = currentPath.replace(/\/[^/]+\.sy$/, "");
+    const currentDir = taskDirectoryPath(currentPath);
     if (currentDir === targetDir) {
       return task;
     }
@@ -484,21 +482,8 @@ export class TaskService {
     await moveDocs([currentPath], task.notebookId, targetDir);
 
     const ids = expandWithDescendants(this.store.all(), [task.id]);
-    let movedTask = task;
-    for (const id of ids) {
-      const current = this.store.get(id);
-      if (!current) {
-        continue;
-      }
-      const path = await getTaskPath(current.docId);
-      if (!path || path === current.path) {
-        continue;
-      }
-      const updated = await this.store.update(id, { path });
-      if (id === task.id) {
-        movedTask = updated;
-      }
-    }
+    const pathMap = await refreshTaskPaths(this.store, ids);
+    const movedTask = pathMap.get(task.id) || this.store.get(task.id) || task;
     await this.syncTaskDocuments(ids);
     return movedTask;
   }
@@ -540,7 +525,11 @@ export class TaskService {
 
     for (const task of tasks) {
       if (task.parentId) {
-        continue;
+        const parentById = tasks.find((candidate) => candidate.id === task.parentId || candidate.docId === task.parentId);
+        if (parentById) {
+          task.parentId = parentById.id;
+          continue;
+        }
       }
       const parent = parentTaskFromPath(task, taskByDocId);
       if (parent) {
@@ -889,7 +878,7 @@ async function createTaskDocWithTitle(
   parentHPath: string,
   title: string,
   markdown: string
-): Promise<{ docId: string; path: string }> {
+): Promise<{ docId: string; path?: string }> {
   const baseName = sanitizeDocName(title);
   const parent = normalizeHPath(parentHPath);
   let lastError: unknown;
@@ -1367,6 +1356,60 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
   };
 }
 
+function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string[] {
+  const values = buildTaskSummaryValueMap(task, parent, children);
+  return [
+    `**父任务** ：${values["父任务"]}`,
+    `**子任务** ：${values["子任务"]}`,
+    `**任务描述** ：${values["任务描述"]}`
+  ];
+}
+
+function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: string[]): string {
+  const normalizedTable = tableMarkdown.replace(/\s+$/u, "");
+  const normalizedLines = lines.map((line) => line.trim()).filter(Boolean);
+  return [
+    normalizedTable,
+    "",
+    ...normalizedLines,
+    "",
+    "---"
+  ].join("\n");
+}
+
+async function requireTaskPath(docId: string, errorMessage: string, retries = 4): Promise<string> {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    const path = await getTaskPath(docId);
+    if (path) {
+      return path;
+    }
+    if (attempt < retries - 1) {
+      await delay(80);
+    }
+  }
+  throw new Error(errorMessage);
+}
+
+async function refreshTaskPaths(store: TaskStore, ids: string[]): Promise<Map<string, TaskItem>> {
+  const updated = new Map<string, TaskItem>();
+  for (const id of ids) {
+    const current = store.get(id);
+    if (!current) {
+      continue;
+    }
+    const path = await getTaskPath(current.docId);
+    if (!path || path === current.path) {
+      continue;
+    }
+    updated.set(id, await store.update(id, { path }));
+  }
+  return updated;
+}
+
+function taskDirectoryPath(path: string): string {
+  return path.replace(/\.sy$/i, "");
+}
+
 function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
   const lines = markdown.split(/\r?\n/);
   const headerIndex = lines.findIndex((line) => /^\|/.test(line) && line.includes("来源"));
@@ -1378,7 +1421,6 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
   const dataStart = headerIndex + 2;
   let dataLines = lines.slice(dataStart);
 
-  // Auto-add "完成时间" column if missing — insert after "创建时间", before "截止时间"
   if (!headerCells.includes("完成时间")) {
     const insertAfter = headerCells.indexOf("创建时间");
     const insertBefore = headerCells.indexOf("截止时间");
@@ -1416,8 +1458,7 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
 
   const values = buildTaskSummaryValueMap(task, parent, children);
   const nextRow = headerCells.map((cell) => values[cell as keyof TaskSummaryValueMap] ?? "");
-  const renderedRow = `| ${nextRow.join(" | ")} |`;
-  lines[dataStart] = renderedRow;
+  lines[dataStart] = `| ${nextRow.join(" | ")} |`;
 
   const alignmentLine = lines[headerIndex + 1];
   if (!/^\|/.test(alignmentLine)) {

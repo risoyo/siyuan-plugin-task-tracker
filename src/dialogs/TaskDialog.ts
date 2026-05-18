@@ -44,14 +44,30 @@ const ICONS = {
   save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`
 };
 
-function buildComboboxSelect(name: string, value: string, placeholder: string, leftIcon: string, optionsHtml: string, extraAttrs: string = ""): string {
-  return `<div class="task-tracker-dialog-v3__combobox" data-combobox="${name}">
+type ComboboxMode = "select-only" | "editable";
+
+function buildComboboxSelect(
+  name: string,
+  value: string,
+  placeholder: string,
+  leftIcon: string,
+  optionsHtml: string,
+  mode: ComboboxMode = "select-only",
+  extraAttrs: string = ""
+): string {
+  const editableInput = mode === "editable"
+    ? `<input class="task-tracker-dialog-v3__combobox-input" name="${name}" value="${escapeAttr(value)}" placeholder="${escapeAttr(placeholder)}" autocomplete="off" ${extraAttrs} />`
+    : `<span class="task-tracker-dialog-v3__combobox-value" data-combobox-value="${name}">${escapeHtml(value || placeholder)}</span>`;
+  const hiddenInput = mode === "editable"
+    ? ""
+    : `<input type="hidden" name="${name}" value="${escapeAttr(value)}" ${extraAttrs} />`;
+  return `<div class="task-tracker-dialog-v3__combobox ${mode === "editable" ? "is-editable" : ""}" data-combobox="${name}" data-combobox-mode="${mode}">
     <button type="button" class="task-tracker-dialog-v3__combobox-trigger" data-combobox-toggle="${name}">
       <span class="task-tracker-dialog-v3__combobox-icon">${leftIcon}</span>
-      <span class="task-tracker-dialog-v3__combobox-value" data-combobox-value="${name}">${escapeHtml(value || placeholder)}</span>
+      ${editableInput}
       <span class="task-tracker-dialog-v3__combobox-arrow">${ICONS.chevronDown}</span>
     </button>
-    <input type="hidden" name="${name}" value="${escapeAttr(value)}" ${extraAttrs} />
+    ${hiddenInput}
     <div class="task-tracker-dialog-v3__menu" data-combobox-menu="${name}" style="display:none;">
       <div class="task-tracker-dialog-v3__menu-scroll">
         ${optionsHtml}
@@ -59,6 +75,7 @@ function buildComboboxSelect(name: string, value: string, placeholder: string, l
     </div>
   </div>`;
 }
+
 
 function buildComboboxOption(value: string, label: string, active: boolean, icon?: string, indent?: boolean): string {
   return `<button type="button" class="task-tracker-dialog-v3__menu-item ${active ? "is-active" : ""} ${indent ? "is-indented" : ""}" data-combobox-option="${escapeAttr(value)}">
@@ -207,7 +224,6 @@ export class TaskDialog {
     const defaultSourceDocId = effectiveSource?.docId || "";
     const isSubtasks = Boolean(!editMode && this.options.parentId);
     const dialogTitle = editMode ? "编辑任务" : (this.options.parentId ? "创建子任务" : "新建任务");
-    const subtitle = editMode ? "修改任务信息并保存" : (this.options.parentId ? "在当前任务下创建一个子任务" : "创建一个新的跟踪任务");
     const headerTaskTitle = editingTask?.title || defaultTitle || dialogTitle;
     const submitLabel = editMode ? "保存修改" : (this.options.parentId ? "创建子任务" : "创建任务");
     const submittingLabel = editMode ? "保存中..." : "创建中...";
@@ -275,7 +291,7 @@ export class TaskDialog {
       <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--project-parent">
         <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--proj">
           <span class="task-tracker-dialog-v3__label">项目</span>
-          ${buildComboboxSelect("project", defaultProject, "选择或输入项目", ICONS.folder, projectOptionsHtml)}
+          ${buildComboboxSelect("project", defaultProject, "选择或输入项目", ICONS.folder, projectOptionsHtml, "editable")}
         </label>
         <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--parent">
           <span class="task-tracker-dialog-v3__label">父任务</span>
@@ -474,41 +490,112 @@ export class TaskDialog {
       const combobox = root.querySelector<HTMLElement>(`[data-combobox="${name}"]`);
       if (!combobox) return;
 
+      const mode = (combobox.dataset.comboboxMode as ComboboxMode | undefined) || "select-only";
       const toggle = combobox.querySelector<HTMLElement>(`[data-combobox-toggle="${name}"]`);
       const menu = combobox.querySelector<HTMLElement>(`[data-combobox-menu="${name}"]`);
-      const hidden = combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      const hidden = mode === "editable" ? null : combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      const input = mode === "editable" ? combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`) : null;
       const valueEl = combobox.querySelector<HTMLElement>(`[data-combobox-value="${name}"]`);
+      let isComposing = false;
+      let ignoreBlur = false;
 
-      const updateDisplay = (val: string, label: string) => {
-        if (valueEl) valueEl.textContent = label || "无";
-        if (menu) closeMenu(menu);
-        toggle?.classList.remove("is-open");
+      const syncActiveOption = (val: string) => {
         menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((opt) => {
-          opt.classList.toggle("is-active", opt.dataset.comboboxOption === val);
+          opt.classList.toggle("is-active", (opt.dataset.comboboxOption || "") === val);
         });
       };
 
-      toggle?.addEventListener("click", () => {
+      const updateDisplay = (val: string, label: string) => {
+        if (input) {
+          input.value = val;
+        }
+        if (hidden) {
+          hidden.value = val;
+        }
+        if (valueEl) {
+          valueEl.textContent = label || "无";
+        }
+        syncActiveOption(val);
+        if (menu) closeMenu(menu);
+        toggle?.classList.remove("is-open");
+      };
+
+      const openCurrentMenu = () => {
+        if (!menu || !toggle) {
+          return;
+        }
+        closeAllDropdowns();
+        closeAllComboboxes(name);
+        openMenu(menu, toggle);
+        toggle.classList.add("is-open");
+      };
+
+      toggle?.addEventListener("click", (event) => {
+        if (mode === "editable" && input && event.target === input) {
+          return;
+        }
         const isOpen = menu && menu.style.display !== "none";
         closeAllDropdowns();
         if (isOpen && menu) {
           closeMenu(menu);
           toggle?.classList.remove("is-open");
-        } else if (!isOpen && menu && toggle) {
-          closeAllComboboxes(name);
-          openMenu(menu, toggle);
-          toggle.classList.add("is-open");
+        } else if (!isOpen) {
+          openCurrentMenu();
+          if (input) {
+            window.setTimeout(() => input.focus(), 0);
+          }
         }
       });
 
+      if (input) {
+        input.addEventListener("focus", () => {
+          openCurrentMenu();
+        });
+        input.addEventListener("input", () => {
+          syncActiveOption(input.value);
+          openCurrentMenu();
+        });
+        input.addEventListener("compositionstart", () => {
+          isComposing = true;
+        });
+        input.addEventListener("compositionend", () => {
+          isComposing = false;
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && !isComposing) {
+            event.preventDefault();
+            updateDisplay(input.value.trim(), input.value.trim());
+          }
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            if (menu) closeMenu(menu);
+            toggle?.classList.remove("is-open");
+          }
+        });
+        input.addEventListener("blur", () => {
+          if (ignoreBlur) {
+            return;
+          }
+          window.setTimeout(() => {
+            updateDisplay(input.value.trim(), input.value.trim());
+          }, 0);
+        });
+      }
+
+      menu?.addEventListener("mousedown", () => {
+        ignoreBlur = true;
+      });
       menu?.addEventListener("click", (e) => {
         const option = (e.target as HTMLElement).closest<HTMLElement>("[data-combobox-option]");
         if (!option) return;
         e.stopPropagation();
         const val = option.dataset.comboboxOption || "";
         const label = option.querySelector<HTMLElement>(".task-tracker-dialog-v3__menu-label")?.textContent || val;
-        if (hidden) hidden.value = val;
-        updateDisplay(val, label);
+        updateDisplay(val, val ? label : "");
+        ignoreBlur = false;
+      });
+      menu?.addEventListener("mouseup", () => {
+        ignoreBlur = false;
       });
     };
 
