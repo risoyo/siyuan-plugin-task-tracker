@@ -175,7 +175,15 @@ export class TaskService {
       task = await this.archiveCompletedParentTask(task);
     }
     if (parentIdChanged) {
-      task = await this.moveTaskToParent(task);
+      try {
+        task = await this.moveTaskToParent(task);
+      } catch (error) {
+        await this.store.update(id, {
+          parentId: current.parentId,
+          path: current.path
+        });
+        throw error;
+      }
     }
     await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
@@ -461,25 +469,25 @@ export class TaskService {
 
     const currentPath = await requireTaskPath(task.docId, `无法读取待移动任务路径：${task.title}`);
 
-    let targetDir: string;
+    let targetParentPath: string;
     if (task.parentId) {
       const parent = this.store.get(task.parentId);
       if (!parent) {
         return task;
       }
       const parentPath = await requireTaskPath(parent.docId, `无法读取父任务路径：${parent.title}`);
-      targetDir = taskDirectoryPath(parentPath);
+      targetParentPath = parentPath;
     } else {
       const rootPath = await requireTaskPath(settings.taskRootDocId, "无法读取事项库根文档路径");
-      targetDir = taskDirectoryPath(rootPath);
+      targetParentPath = rootPath;
     }
 
-    const currentDir = taskDirectoryPath(currentPath);
-    if (currentDir === targetDir) {
+    const currentParentPath = parentTaskPath(currentPath);
+    if (currentParentPath === targetParentPath) {
       return task;
     }
 
-    await moveDocs([currentPath], task.notebookId, targetDir);
+    await moveDocs([currentPath], task.notebookId, targetParentPath);
 
     const ids = expandWithDescendants(this.store.all(), [task.id]);
     const pathMap = await refreshTaskPaths(this.store, ids);
@@ -1404,10 +1412,6 @@ async function refreshTaskPaths(store: TaskStore, ids: string[]): Promise<Map<st
     updated.set(id, await store.update(id, { path }));
   }
   return updated;
-}
-
-function taskDirectoryPath(path: string): string {
-  return path.replace(/\.sy$/i, "");
 }
 
 function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
