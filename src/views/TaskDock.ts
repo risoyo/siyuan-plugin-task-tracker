@@ -26,6 +26,7 @@ export class TaskDock {
     private actions: {
       newTask: () => void;
       createSubtask: (parentId: string) => void;
+      editTask: (task: TaskItem) => void;
       openTask: (task: TaskItem) => void;
       openTaskManager: () => void;
       setCurrentDocAsRoot: () => void;
@@ -237,7 +238,7 @@ export class TaskDock {
       if (action === "open") {
         const task = this.taskFromElement(actionButton);
         if (task) {
-          this.actions.openTask(task);
+          this.actions.editTask(task);
         }
         return;
       }

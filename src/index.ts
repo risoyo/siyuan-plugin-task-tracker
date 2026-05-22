@@ -187,6 +187,7 @@ export default class TaskTrackerPlugin extends Plugin {
     return {
       newTask: () => void this.showTaskDialog(),
       createSubtask: (parentId: string) => void this.showTaskDialog({ parentId }),
+      editTask: (task: TaskItem) => void this.showTaskDialog({ task }),
       openTask: (task: TaskItem) => void this.openTask(task),
       openTaskManager: () => void this.openTaskManager(),
       setCurrentDocAsRoot: () => void this.setCurrentDocAsRoot()
