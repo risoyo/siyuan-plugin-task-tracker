@@ -432,8 +432,11 @@ export class TaskDialog {
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
-    titleInput?.focus();
-    titleInput?.select();
+    const shouldAutoFocusTitle = !(isMobileFrontend && editMode);
+    if (shouldAutoFocusTitle) {
+      titleInput?.focus();
+      titleInput?.select();
+    }
 
     let detailLoadedValue = "";
     let detailSaveTimer: number | undefined;

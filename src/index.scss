@@ -3660,6 +3660,9 @@ body > [data-name="dialog"] .b3-dialog__close {
     border-radius: 12px;
     max-height: calc(100vh - 16px);
     max-width: calc(100vw - 16px);
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
   }
 
   .task-manager-toolbar__header {
@@ -3813,7 +3816,9 @@ body > [data-name="dialog"] .b3-dialog__close {
   }
 
   .task-tracker-dialog-v3__body {
+    overflow-x: hidden;
     padding: 14px;
+    touch-action: pan-y;
   }
 
   .task-tracker-dialog-v3__row,
@@ -3823,7 +3828,16 @@ body > [data-name="dialog"] .b3-dialog__close {
   }
 
   .task-tracker-dialog-v3__status-priority-row {
-    flex-direction: column;
+    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .task-tracker-dialog-v3__sp-item {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .task-tracker-dialog-v3__source-row {
@@ -3847,6 +3861,13 @@ body > [data-name="dialog"] .b3-dialog__close {
   .task-tracker-dialog-v3__textarea--detail {
     max-height: 42vh;
     min-height: 220px;
+  }
+
+  .task-tracker-dialog-v3,
+  .task-tracker-dialog-v3__body-scroll {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
   }
 
   .task-tracker-dialog-v3__footer {
