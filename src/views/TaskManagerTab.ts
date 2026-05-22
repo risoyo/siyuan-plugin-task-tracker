@@ -211,6 +211,8 @@ export class TaskManagerTab {
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
   private resizeCleanup?: () => void;
+  private pendingTableScrollRestore?: { bodyTop: number; bodyLeft: number; wrapTop: number; wrapLeft: number };
+  private pendingTableFocusTaskId?: string;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
   private unsubscribe?: () => void;
@@ -236,7 +238,7 @@ export class TaskManagerTab {
     const settings = this.service.store.getSettings();
     this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
     this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
-    this.unsubscribe = this.service.onChange(() => this.render());
+    this.unsubscribe = this.service.onChange(() => this.render({ preserveTableScroll: this.view === "table" }));
   }
 
   destroy(): void {
@@ -251,7 +253,13 @@ export class TaskManagerTab {
     this.container.removeEventListener("compositionend", this.compositionEndListener);
   }
 
-  render(): void {
+  render(options: { preserveTableScroll?: boolean } = {}): void {
+    if (options.preserveTableScroll && this.view === "table") {
+      this.captureTableScrollPosition();
+    } else {
+      this.pendingTableScrollRestore = undefined;
+    }
+
     const tasks = this.tasksForCurrentView();
 
     this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
@@ -262,6 +270,46 @@ export class TaskManagerTab {
 </div>`;
 
     this.bind();
+    this.restoreTableScrollPosition();
+  }
+
+  private captureTableScrollPosition(): void {
+    const body = this.container.querySelector<HTMLElement>(".task-manager__body");
+    const wrap = this.container.querySelector<HTMLElement>(".task-manager-table-wrap");
+    if (!body && !wrap) {
+      this.pendingTableScrollRestore = undefined;
+      return;
+    }
+    this.pendingTableScrollRestore = {
+      bodyTop: body?.scrollTop || 0,
+      bodyLeft: body?.scrollLeft || 0,
+      wrapTop: wrap?.scrollTop || 0,
+      wrapLeft: wrap?.scrollLeft || 0
+    };
+  }
+
+  private restoreTableScrollPosition(): void {
+    if (this.view !== "table") {
+      this.pendingTableScrollRestore = undefined;
+      this.pendingTableFocusTaskId = undefined;
+      return;
+    }
+    const body = this.container.querySelector<HTMLElement>(".task-manager__body");
+    const wrap = this.container.querySelector<HTMLElement>(".task-manager-table-wrap");
+    if (body && this.pendingTableScrollRestore) {
+      body.scrollTop = this.pendingTableScrollRestore.bodyTop;
+      body.scrollLeft = this.pendingTableScrollRestore.bodyLeft;
+    }
+    if (wrap && this.pendingTableScrollRestore) {
+      wrap.scrollTop = this.pendingTableScrollRestore.wrapTop;
+      wrap.scrollLeft = this.pendingTableScrollRestore.wrapLeft;
+    }
+    if (this.pendingTableFocusTaskId) {
+      const row = this.container.querySelector<HTMLElement>(`.task-manager-table__row[data-task-id="${this.pendingTableFocusTaskId}"]`);
+      row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      this.pendingTableFocusTaskId = undefined;
+    }
+    this.pendingTableScrollRestore = undefined;
   }
 
   private renderToolbar(tasks: TaskItem[]): string {
@@ -1958,6 +2006,9 @@ export class TaskManagerTab {
   private handleTaskAction(action: string, task: TaskItem, element?: HTMLElement): void {
     if (action === "open") {
       if (this.view === "table" || this.view === "calendar") {
+        if (this.view === "table") {
+          this.pendingTableFocusTaskId = task.id;
+        }
         this.actions.editTask(task);
       } else {
         this.actions.openTask(task);
@@ -1968,6 +2019,9 @@ export class TaskManagerTab {
         this.actions.openSourceDoc?.(docId);
       }
     } else if (action === "edit") {
+      if (this.view === "table") {
+        this.pendingTableFocusTaskId = task.id;
+      }
       this.actions.editTask(task);
     } else if (action === "subtask") {
       this.actions.createSubtask(task.id);
