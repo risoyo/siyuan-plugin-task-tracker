@@ -1,4 +1,4 @@
-import { Dialog, showMessage } from "siyuan";
+import { Dialog, getFrontend, showMessage } from "siyuan";
 import { formatDateKey, fromDatetimeLocal, toDatetimeLocal } from "../date";
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
@@ -255,6 +255,8 @@ export class TaskDialog {
     const priorityBadgeHtml = priorityBadge(defaultPriority);
     const statusDropdownHtml = statusDropdown(defaultStatus);
     const priorityDropdownHtml = priorityDropdown(defaultPriority);
+    const frontend = getFrontend();
+    const isMobileFrontend = frontend === "mobile" || frontend === "browser-mobile";
 
     const dialog = new Dialog({
       title: "",
@@ -416,7 +418,7 @@ export class TaskDialog {
     <button type="submit" class="task-tracker-dialog-v3__btn-primary">${submitLabel}</button>
   </div>
 </div>`,
-      width: "1080px"
+      width: isMobileFrontend ? "calc(100vw - 16px)" : "1080px"
     });
 
     const root = dialog.element.querySelector<HTMLElement>(".task-tracker-dialog-v3");

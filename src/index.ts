@@ -1,4 +1,6 @@
 import {
+  getFrontend,
+  openMobileFileById,
   Plugin,
   Setting,
   openTab,
@@ -22,6 +24,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private service: TaskService;
   private ready: Promise<void>;
   private taskDock?: TaskDock;
+  private frontend = getFrontend();
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
   private startupRetryTimers = new Set<number>();
   private docMenuHandler = this.handleDocumentMenu.bind(this);
@@ -63,6 +66,10 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   onLayoutReady(): void {
+    if (this.isMobileFrontend()) {
+      return;
+    }
+
     this.addTopBar({
       icon: "iconTaskTracker",
       title: "任务追踪",
@@ -101,7 +108,9 @@ export default class TaskTrackerPlugin extends Plugin {
         dock.element.innerHTML = `<div class="task-tracker task-tracker-empty">任务追踪加载中...</div>`;
         void this.ready.then(() => {
           this.taskDock?.destroy();
-          this.taskDock = new TaskDock(dock.element as HTMLElement, this.service, this.viewActions());
+          this.taskDock = new TaskDock(dock.element as HTMLElement, this.service, this.viewActions(), {
+            mode: this.isMobileFrontend() ? "mobile" : "desktop"
+          });
           this.taskDock.render();
         }).catch((error) => {
           dock.element.innerHTML = `<div class="task-tracker task-tracker-empty">加载失败：${error?.message || error}</div>`;
@@ -325,6 +334,10 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private async openTaskManager(): Promise<void> {
+    if (this.isMobileFrontend()) {
+      showMessage("移动端请从插件侧栏入口打开任务追踪页面", 4000, "info");
+      return;
+    }
     await this.ready;
     openTab({
       app: this.app,
@@ -342,6 +355,10 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private openDocById(docId: string): void {
+    if (this.isMobileFrontend()) {
+      openMobileFileById(this.app, docId);
+      return;
+    }
     openTab({
       app: this.app,
       doc: {
@@ -389,5 +406,9 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private getCurrentProtyle(): any {
     return (this as any).getEditor?.()?.protyle;
+  }
+
+  private isMobileFrontend(): boolean {
+    return this.frontend === "mobile" || this.frontend === "browser-mobile";
   }
 }

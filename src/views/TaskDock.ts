@@ -12,6 +12,7 @@ import {
 type DockFilter = "all" | "important" | "today";
 
 type DockPopoverField = "status";
+type TaskDockMode = "desktop" | "mobile";
 
 export class TaskDock {
   private filter: DockFilter = "all";
@@ -19,6 +20,8 @@ export class TaskDock {
   private activePopover: { taskId: string; field: DockPopoverField } | null = null;
   private activePopoverCleanup?: () => void;
   private unsubscribe?: () => void;
+  private readonly mode: TaskDockMode;
+  private readonly isMobile: boolean;
 
   constructor(
     private container: HTMLElement,
@@ -30,8 +33,13 @@ export class TaskDock {
       openTask: (task: TaskItem) => void;
       openTaskManager: () => void;
       setCurrentDocAsRoot: () => void;
-    }
+    },
+    options: {
+      mode?: TaskDockMode;
+    } = {}
   ) {
+    this.mode = options.mode || "desktop";
+    this.isMobile = this.mode === "mobile";
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
@@ -49,7 +57,7 @@ export class TaskDock {
     const counts = this.counts();
 
     this.closePopover();
-    this.container.innerHTML = `<div class="task-tracker task-tracker--dock">
+    this.container.innerHTML = `<div class="task-tracker task-tracker--dock ${this.isMobile ? "task-tracker--mobile" : ""}">
   ${this.renderHeader()}
   ${settings.taskRootDocId ? this.renderContent(tree, counts) : this.renderEmptyRoot()}
 </div>`;
@@ -120,11 +128,10 @@ export class TaskDock {
 
     return `<div class="task-tracker-dock__task ${childClass}${contextClass}${parentClass}" data-task-id="${task.id}" data-depth="${depth}">
   <div class="task-tracker-dock__task-row">
-    ${depth > 0
-      ? `<span class="task-tracker-dock__task-indent"></span>`
-      : (childCount
-        ? `<button class="task-tracker-dock__task-toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
-        : `<span class="task-tracker-dock__task-toggle-placeholder"></span>`)}
+    ${depth > 0 ? `<span class="task-tracker-dock__task-indent"></span>` : ""}
+    ${childCount
+      ? `<button class="task-tracker-dock__task-toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
+      : `<span class="task-tracker-dock__task-toggle-placeholder"></span>`}
     <span class="task-tracker-dock__task-title ${isParent ? "is-parent" : ""}" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</span>
     <span class="task-tracker-dock__task-badges">
       ${this.renderStatusBadge(task)}
@@ -142,6 +149,11 @@ export class TaskDock {
 
   private renderStatusBadge(task: TaskItem): string {
     const cfg = STATUS_BADGE_CONFIG[task.status];
+    if (this.isMobile) {
+      return `<span class="task-manager-inline-badge task-manager-inline-badge--compact task-tracker-dock__inline-badge task-tracker-dock__inline-badge--text-only is-readonly" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
+  <span class="task-manager-inline-badge__text">${escapeHtml(cfg.label)}</span>
+</span>`;
+    }
     const open = this.activePopover?.taskId === task.id && this.activePopover?.field === "status";
     return `<div class="task-manager-inline-dropdown task-tracker-dock__status-dropdown" data-popover="status" data-task-id="${task.id}">
   <button type="button" class="task-manager-inline-badge task-manager-inline-badge--compact task-tracker-dock__inline-badge task-tracker-dock__inline-badge--text-only ${open ? "is-open" : ""}" data-popover-toggle="status" data-task-id="${task.id}" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
@@ -163,6 +175,11 @@ export class TaskDock {
 
   private renderDateBadge(task: TaskItem): string {
     const info = formatSidebarDate(task);
+    if (this.isMobile) {
+      return `<span class="task-manager-card__meta-chip task-manager-card__meta-chip--date task-tracker-dock__date-chip task-tracker-dock__date-chip--${info.kind}" title="${escapeHtml(info.kind === "date" || info.kind === "overdue" ? info.dateKey : "")}">
+  <span class="task-manager-card__meta-value">${escapeHtml(info.display)}</span>
+</span>`;
+    }
     return `<label class="task-manager-card__meta-chip task-manager-card__meta-chip--date task-tracker-dock__date-chip task-tracker-dock__date-chip--${info.kind}" title="${escapeHtml(info.kind === "date" || info.kind === "overdue" ? info.dateKey : "")}">
   <span class="task-manager-card__meta-value">${escapeHtml(info.display)}</span>
   <input class="task-manager-card__meta-date-input" data-field="${info.field || "dueDate"}" type="date" value="${escapeHtml(info.dateKey)}" aria-label="任务日期" />
@@ -244,7 +261,7 @@ export class TaskDock {
       }
     }
 
-    const popoverToggle = target.closest<HTMLElement>("[data-popover-toggle]");
+    const popoverToggle = this.isMobile ? null : target.closest<HTMLElement>("[data-popover-toggle]");
     if (popoverToggle) {
       event.preventDefault();
       event.stopPropagation();
@@ -279,7 +296,7 @@ export class TaskDock {
       this.closePopover();
     }
 
-    const dateChip = target.closest<HTMLElement>(".task-tracker-dock__date-chip");
+    const dateChip = this.isMobile ? null : target.closest<HTMLElement>(".task-tracker-dock__date-chip");
     if (dateChip) {
       const input = dateChip.querySelector<HTMLInputElement>("input[type='date']");
       if (input && event.target !== input) {
@@ -296,6 +313,10 @@ export class TaskDock {
   }
 
   private handleChange(event: Event): void {
+    if (this.isMobile) {
+      return;
+    }
+
     const target = event.target as HTMLElement;
     if (!(target instanceof HTMLInputElement)) {
       return;
