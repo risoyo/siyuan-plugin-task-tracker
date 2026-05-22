@@ -8,6 +8,7 @@ import {
 } from "siyuan";
 import pluginManifest from "../plugin.json";
 import "./index.scss";
+import { resolveCapabilities, type TaskFeatureCapabilities } from "./capabilities";
 import { sourceFromBlock, TaskService } from "./document";
 import { TaskDialog } from "./dialogs/TaskDialog";
 import { createTaskSettings } from "./settings";
@@ -134,14 +135,21 @@ export default class TaskTrackerPlugin extends Plugin {
         const tab = this as any;
         tab.element.innerHTML = `<div class="task-manager task-manager-empty">任务控制面板加载中...</div>`;
         void plugin.ready.then(() => {
+          const capabilities = plugin.getCapabilities();
           const view = new TaskManagerTab(tab.element, plugin.service, {
             newTask: (options) => void plugin.showTaskDialog(options || {}),
-            createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId }),
+            createSubtask: (parentId: string) => {
+              if (!capabilities.canStructureEdit) {
+                showMessage("当前协作模式下此端不支持结构操作", 4000, "info");
+                return;
+              }
+              void plugin.showTaskDialog({ parentId });
+            },
             editTask: (task: TaskItem) => void plugin.showTaskDialog({ task }),
             openTask: (task: TaskItem) => void plugin.openTask(task),
             openSourceDoc: (docId: string) => void plugin.openDocById(docId),
-            sync: () => plugin.syncDeletedTasks()
-          }, tab.data || {});
+            sync: () => plugin.refreshTaskIndex()
+          }, tab.data || {}, capabilities);
           plugin.managerViews.set(tab.element, view);
           view.render();
         }).catch((error) => {
@@ -188,32 +196,44 @@ export default class TaskTrackerPlugin extends Plugin {
       setRootDocId: (docId: string) => this.setRootDocId(docId),
       syncDeletedTasks: () => this.syncDeletedTasks(),
       rebuildTaskIndex: () => this.rebuildTaskIndex(),
+      reconcileAffectedTaskSummaries: () => this.reconcileAffectedTaskSummaries(),
       refreshViews: () => this.refreshViews()
     }, pluginManifest.version);
   }
 
   private viewActions() {
+    const capabilities = this.getCapabilities();
     return {
       newTask: () => void this.showTaskDialog(),
-      createSubtask: (parentId: string) => void this.showTaskDialog({ parentId }),
+      createSubtask: (parentId: string) => {
+        if (!capabilities.canStructureEdit) {
+          showMessage("当前协作模式下此端不支持结构操作", 4000, "info");
+          return;
+        }
+        void this.showTaskDialog({ parentId });
+      },
       editTask: (task: TaskItem) => void this.showTaskDialog({ task }),
       openTask: (task: TaskItem) => void this.openTask(task),
       openTaskManager: () => void this.openTaskManager(),
-      setCurrentDocAsRoot: () => void this.setCurrentDocAsRoot()
+      setCurrentDocAsRoot: () => void this.setCurrentDocAsRoot(),
+      canArchive: capabilities.canArchive
     };
   }
 
   private handleDocumentMenu({ detail }: any): void {
+    const capabilities = this.getCapabilities();
     const docId = detail?.protyle?.block?.rootID;
     if (!detail?.menu || !docId) {
       return;
     }
 
-    detail.menu.addItem({
-      icon: "iconAdd",
-      label: "从当前文档创建任务",
-      click: () => void this.createTaskFromCurrentDocument(detail.protyle)
-    });
+    if (capabilities.canSingleDocEdit) {
+      detail.menu.addItem({
+        icon: "iconAdd",
+        label: "从当前文档创建任务",
+        click: () => void this.createTaskFromCurrentDocument(detail.protyle)
+      });
+    }
     detail.menu.addItem({
       icon: "iconDatabase",
       label: "将当前文档设为事项库",
@@ -222,30 +242,36 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleBlockMenu({ detail }: any): void {
+    const capabilities = this.getCapabilities();
     const blockElements = Array.isArray(detail?.blockElements) ? detail.blockElements : [];
     const firstBlockId = blockElements[0]?.getAttribute?.("data-node-id");
     if (!detail?.menu || !firstBlockId) {
       return;
     }
 
-    detail.menu.addItem({
-      icon: "iconAdd",
-      label: blockElements.length > 1 ? "从第一个选中块创建任务" : "从当前块创建任务",
-      click: () => void this.createTaskFromBlock(firstBlockId)
-    });
+    if (capabilities.canSingleDocEdit) {
+      detail.menu.addItem({
+        icon: "iconAdd",
+        label: blockElements.length > 1 ? "从第一个选中块创建任务" : "从当前块创建任务",
+        click: () => void this.createTaskFromBlock(firstBlockId)
+      });
+    }
   }
 
   private handleWsMain({ detail }: any): void {
     if (detail?.cmd === "removeDoc") {
       void this.ready
-        .then(() => this.service.syncDeletedDocs())
+        .then(() => this.service.syncDeletedDocs({ reconcileParents: false }))
         .catch((error) => console.warn("Task Tracker: failed to sync deleted docs", error));
       return;
     }
 
     if (detail?.cmd === "sync-end" || detail?.cmd === "syncFinish" || detail?.cmd === "sync-finish") {
       void this.ready
-        .then(() => this.service.startupSync({ skipDeletedCleanup: true }))
+        .then(async () => {
+          await this.service.refreshAfterSync();
+          this.refreshViews();
+        })
         .catch((error) => console.warn("Task Tracker: failed to refresh after sync", error));
     }
   }
@@ -265,6 +291,7 @@ export default class TaskTrackerPlugin extends Plugin {
       presetTitle: options.presetTitle,
       presetPlanDate: options.presetPlanDate,
       task: options.task,
+      allowStructureEdit: this.getCapabilities().canStructureEdit,
       onOpenTask: (task) => void this.openTask(task)
     }).show();
   }
@@ -369,8 +396,20 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private async syncDeletedTasks(): Promise<void> {
     await this.ready;
-    const count = await this.service.syncDeletedDocs();
-    showMessage(count > 0 ? `已清理 ${count} 个已删除任务记录` : "没有需要清理的任务记录");
+    const count = await this.service.syncDeletedDocs({ reconcileParents: false });
+    showMessage(count > 0 ? `已清理 ${count} 个已删除任务记录，相关父任务可按需执行“整理受影响任务摘要”` : "没有需要清理的任务记录");
+  }
+
+  private async refreshTaskIndex(): Promise<void> {
+    await this.ready;
+    const removed = await this.service.syncDeletedDocs({ reconcileParents: false });
+    const refreshed = await this.service.refreshAfterSync();
+    this.refreshViews();
+    const refreshText = refreshed.rebuilt
+      ? `已重建索引并刷新 ${refreshed.refreshed} 个任务`
+      : `已刷新 ${refreshed.refreshed} 个变更任务索引`;
+    const prefix = removed > 0 ? `已清理 ${removed} 个已删除任务记录，` : "";
+    showMessage(`${prefix}${refreshText}（不包含摘要整理）`);
   }
 
   private async rebuildTaskIndex(): Promise<void> {
@@ -378,6 +417,26 @@ export default class TaskTrackerPlugin extends Plugin {
     const count = await this.service.rebuildTaskIndex();
     showMessage(count > 0 ? `已重建 ${count} 个任务索引` : "事项库中没有可重建的任务文档");
     this.refreshViews();
+  }
+
+  private async reconcileAffectedTaskSummaries(): Promise<void> {
+    await this.ready;
+    const capabilities = this.getCapabilities();
+    if (!capabilities.canBatchMaintenance) {
+      showMessage("当前协作模式下此端不支持批量整理摘要", 4000, "info");
+      return;
+    }
+    const result = await this.service.reconcilePendingTaskDocuments();
+    if (result.total === 0) {
+      showMessage("当前没有需要整理的任务摘要");
+      return;
+    }
+    this.refreshViews();
+    if (result.failedTaskIds.length > 0) {
+      showMessage(`已整理 ${result.reconciled}/${result.total} 个任务摘要，失败 ${result.failedTaskIds.length} 个`, 6000, "error");
+      return;
+    }
+    showMessage(`已整理 ${result.reconciled} 个任务摘要`);
   }
 
   private refreshViews(): void {
@@ -396,7 +455,7 @@ export default class TaskTrackerPlugin extends Plugin {
     for (const delayMs of delays) {
       const timer = window.setTimeout(() => {
         this.startupRetryTimers.delete(timer);
-        void this.service.startupSync({ skipDeletedCleanup: true })
+        void this.service.refreshAfterSync()
           .then(() => this.refreshViews())
           .catch((error) => console.warn("Task Tracker: deferred startup recovery failed", error));
       }, delayMs);
@@ -410,5 +469,10 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private isMobileFrontend(): boolean {
     return this.frontend === "mobile" || this.frontend === "browser-mobile";
+  }
+
+  private getCapabilities(): TaskFeatureCapabilities {
+    const mode = this.store?.getSettings?.().collaborationMode || "strict";
+    return resolveCapabilities(this.frontend, mode);
   }
 }

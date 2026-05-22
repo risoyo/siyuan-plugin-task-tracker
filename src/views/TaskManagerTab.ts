@@ -1,4 +1,5 @@
 import { Dialog, showMessage } from "siyuan";
+import type { TaskFeatureCapabilities } from "../capabilities";
 import {
   addMonths,
   formatCompletedWeekLabel,
@@ -221,7 +222,16 @@ export class TaskManagerTab {
     private container: HTMLElement,
     private service: TaskService,
     private actions: TaskManagerTabActions,
-    data?: TaskManagerTabData
+    data?: TaskManagerTabData,
+    private capabilities: TaskFeatureCapabilities = {
+      canView: true,
+      canSingleDocEdit: true,
+      canStructureEdit: true,
+      canArchive: true,
+      canDeleteTree: true,
+      canBatchMaintenance: true,
+      canTemplateMigration: true
+    }
   ) {
     if (data?.view && VIEWS.some((view) => view.value === data.view)) {
       this.view = data.view;
@@ -235,9 +245,9 @@ export class TaskManagerTab {
         this.month = monthStart(date);
       }
     }
-    const settings = this.service.store.getSettings();
-    this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
-    this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
+    const localPrefs = this.service.store.getLocalPreferences();
+    this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, localPrefs.tableColumnWidths);
+    this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, localPrefs.completedTableColumnWidths);
     this.unsubscribe = this.service.onChange(() => this.render({ preserveTableScroll: this.view === "table" }));
   }
 
@@ -329,7 +339,7 @@ export class TaskManagerTab {
         <svg><use xlink:href="#iconSearch"></use></svg>
         <input class="b3-text-field" data-field="search" value="${escapeAttr(this.search)}" placeholder="搜索任务、项目或关键词" />
       </label>
-      <button class="block__icon ariaLabel" data-action="sync" aria-label="同步任务文档" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>
+      ${this.capabilities.canBatchMaintenance ? `<button class="block__icon ariaLabel" data-action="sync" aria-label="刷新索引（不整理摘要）" data-position="south"><svg><use xlink:href="#iconRefresh"></use></svg></button>` : ""}
       <button class="task-manager-btn-primary" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>新建任务</span></button>
     </div>
   </div>
@@ -642,7 +652,7 @@ export class TaskManagerTab {
   }
 
   private getTablePageConfig(): TablePageConfig {
-    return this.service.store.getSettings().pageConfigs?.table || {
+    return this.service.store.getLocalPreferences().pageConfigs?.table || {
       visibleColumns: [...TABLE_PAGE_COLUMNS],
       columnOrder: [...TABLE_PAGE_COLUMNS],
       currentSort: { column: "default" }
@@ -650,10 +660,10 @@ export class TaskManagerTab {
   }
 
   private async updateTablePageConfig(patch: Partial<TablePageConfig>): Promise<void> {
-    const settings = this.service.store.getSettings();
-    await this.service.store.setSettings({
+    const localPrefs = this.service.store.getLocalPreferences();
+    await this.service.store.setLocalPreferences({
       pageConfigs: {
-        ...settings.pageConfigs,
+        ...localPrefs.pageConfigs,
         table: {
           ...this.getTablePageConfig(),
           ...patch
@@ -663,7 +673,7 @@ export class TaskManagerTab {
   }
 
   private getCompletedPageConfig(): CompletedPageConfig {
-    return this.service.store.getSettings().pageConfigs?.completed || {
+    return this.service.store.getLocalPreferences().pageConfigs?.completed || {
       visibleColumns: [...COMPLETED_PAGE_COLUMNS],
       columnOrder: [...COMPLETED_PAGE_COLUMNS],
       currentSort: { column: "default" }
@@ -671,10 +681,10 @@ export class TaskManagerTab {
   }
 
   private async updateCompletedPageConfig(patch: Partial<CompletedPageConfig>): Promise<void> {
-    const settings = this.service.store.getSettings();
-    await this.service.store.setSettings({
+    const localPrefs = this.service.store.getLocalPreferences();
+    await this.service.store.setLocalPreferences({
       pageConfigs: {
-        ...settings.pageConfigs,
+        ...localPrefs.pageConfigs,
         completed: {
           ...this.getCompletedPageConfig(),
           ...patch
@@ -1401,7 +1411,9 @@ export class TaskManagerTab {
       ? `<button class="${buttonClass}" data-task-action="edit" aria-label="${editLabel}" title="${editLabel}"${positionAttr}><svg><use xlink:href="#iconEdit"></use></svg></button>`
       : "";
     const deleteButton = (options.showDelete || options.deleteOnly || options.completedView)
-      ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconTaskTrackerTrash"></use></svg></button>`
+      ? (this.capabilities.canDeleteTree
+        ? `<button class="${buttonClass}" data-task-action="delete" aria-label="${deleteLabel}" title="${deleteLabel}"${positionAttr}><svg><use xlink:href="#iconTaskTrackerTrash"></use></svg></button>`
+        : "")
       : "";
 
     if (options.deleteOnly) {
@@ -1418,7 +1430,7 @@ export class TaskManagerTab {
 
     return `<span class="task-manager-actions${listClass}">
   ${editButton}
-  <button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
+  ${this.capabilities.canStructureEdit ? `<button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>` : ""}
   ${task.status === "completed"
     ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
     : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
@@ -1740,6 +1752,11 @@ export class TaskManagerTab {
       if (field === "status") {
         const newStatus = popoverSelect.dataset.statusValue as TaskStatus;
         if (newStatus && newStatus !== task.status) {
+          if (newStatus === "completed" && !task.parentId && !this.capabilities.canArchive) {
+            showMessage("当前协作模式下此端不支持顶层归档操作", 4000, "info");
+            this.closePopover();
+            return;
+          }
           void this.runUpdate(() => this.service.updateTask(task.id, { status: newStatus }));
         }
       } else {
@@ -1940,11 +1957,11 @@ export class TaskManagerTab {
 
   private async persistTableColumnWidths(): Promise<void> {
     if (this.view === "completed") {
-      await this.service.store.setSettings({ completedTableColumnWidths: this.completedTableColumnWidths });
+      await this.service.store.setLocalPreferences({ completedTableColumnWidths: this.completedTableColumnWidths });
       return;
     }
 
-    await this.service.store.setSettings({ tableColumnWidths: this.tableColumnWidths });
+    await this.service.store.setLocalPreferences({ tableColumnWidths: this.tableColumnWidths });
   }
 
 
@@ -2024,12 +2041,24 @@ export class TaskManagerTab {
       }
       this.actions.editTask(task);
     } else if (action === "subtask") {
+      if (!this.capabilities.canStructureEdit) {
+        showMessage("当前协作模式下此端不支持结构操作", 4000, "info");
+        return;
+      }
       this.actions.createSubtask(task.id);
     } else if (action === "complete") {
+      if (!this.capabilities.canArchive && !task.parentId) {
+        showMessage("当前协作模式下此端不支持顶层归档操作", 4000, "info");
+        return;
+      }
       void this.runUpdate(() => this.service.completeTask(task.id));
     } else if (action === "reopen") {
       void this.runUpdate(() => this.service.reopenTask(task.id));
     } else if (action === "delete") {
+      if (!this.capabilities.canDeleteTree) {
+        showMessage("当前协作模式下此端不支持删除任务树", 4000, "info");
+        return;
+      }
       void this.deleteTask(task);
     } else if (action === "toggle-children") {
       if (this.collapsedTaskIds.has(task.id)) {
@@ -2060,15 +2089,17 @@ export class TaskManagerTab {
     try {
       if (this.actions.sync) {
         await this.actions.sync();
-        showMessage("任务面板已同步");
         return;
       }
 
-      const removed = await this.service.syncDeletedDocs();
-      const synced = await this.service.syncAllTaskDocuments();
-      showMessage(removed > 0 ? `已清理 ${removed} 个已删除任务记录，同步 ${synced} 个任务文档` : `已同步 ${synced} 个任务文档`);
+      const removed = await this.service.syncDeletedDocs({ reconcileParents: false });
+      const refreshed = await this.service.refreshAfterSync();
+      const text = refreshed.rebuilt
+        ? `已重建索引并刷新 ${refreshed.refreshed} 个任务`
+        : `已刷新 ${refreshed.refreshed} 个变更任务索引`;
+      showMessage((removed > 0 ? `已清理 ${removed} 个已删除任务记录，${text}` : text) + "（不包含摘要整理）");
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : "同步任务失败", 5000, "error");
+      showMessage(error instanceof Error ? error.message : "刷新索引失败", 5000, "error");
     }
   }
 

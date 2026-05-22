@@ -28,24 +28,43 @@ import {
 import { TaskStore } from "./taskStore";
 import {
   ACTIVE_TASK_STATUSES,
+  TASK_INDEX_SCHEMA_VERSION,
   DEFAULT_TASK_TEMPLATE,
+  ARCHIVE_ROOT_KIND,
+  ARCHIVE_WEEK_KIND,
   REPORT_ATTRS,
   SOURCE_TASK_IDS_ATTR,
   TASK_ATTRS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  WEEKLY_REPORT_ROOT_KIND,
   WEEKLY_REPORT_KIND,
   type BlockRow,
   type SourceContext,
+  type StructureTransactionOptions,
   type TaskCreateInput,
   type TaskItem,
+  type TaskRevisionSnapshot,
   type TaskSettings
 } from "./types";
 
 const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"] as const;
 const TASK_DETAIL_HEADING = "任务详情";
+const SYNC_INCREMENTAL_OVERLAP_MS = 90 * 1000;
+const SESSION_EDITOR_ID = `session:${Math.random().toString(36).slice(2, 10)}`;
 
 type ChangeListener = () => void;
+type CollectedTaskResult = {
+  tasks: TaskItem[];
+  recoveredDocIds: string[];
+};
+
+export class RevisionConflictError extends Error {
+  constructor(message = "该任务已在其他设备更新，请先刷新后再编辑") {
+    super(message);
+    this.name = "RevisionConflictError";
+  }
+}
 
 export class TaskService {
   private listeners = new Set<ChangeListener>();
@@ -75,7 +94,38 @@ export class TaskService {
     return settings;
   }
 
-  async createTask(input: TaskCreateInput): Promise<TaskItem> {
+  private async getSettingsWithFreshRootPath(): Promise<TaskSettings> {
+    const settings = this.store.getSettings();
+    if (!settings.taskRootDocId) {
+      return settings;
+    }
+    const [actualRootPath, actualRootHPath] = await Promise.all([
+      getTaskPath(settings.taskRootDocId).catch(() => undefined),
+      getHPathById(settings.taskRootDocId).catch(() => undefined)
+    ]);
+    const normalizedRootHPath = actualRootHPath ? normalizeHPath(actualRootHPath) : settings.taskRootHPath;
+    const nextRootTitle = actualRootHPath || settings.taskRootTitle;
+    if (
+      (!actualRootPath || actualRootPath === settings.taskRootPath)
+      && normalizedRootHPath === settings.taskRootHPath
+      && nextRootTitle === settings.taskRootTitle
+    ) {
+      return settings;
+    }
+    await this.store.setSettings({
+      taskRootPath: actualRootPath || settings.taskRootPath,
+      taskRootHPath: normalizedRootHPath,
+      taskRootTitle: nextRootTitle
+    });
+    return {
+      ...settings,
+      taskRootPath: actualRootPath || settings.taskRootPath,
+      taskRootHPath: normalizedRootHPath,
+      taskRootTitle: nextRootTitle
+    };
+  }
+
+  async createTask(input: TaskCreateInput, options: StructureTransactionOptions = {}): Promise<TaskItem> {
     const settings = this.store.getSettings();
     if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
       throw new Error("请先将一个文档设为事项库");
@@ -107,45 +157,99 @@ export class TaskService {
       description: input.description?.trim() || undefined,
       createdAt,
       updatedAt: now,
-      completedAt: input.status === "completed" ? now : undefined
+      completedAt: input.status === "completed" ? now : undefined,
+      taskRevision: 0,
+      taskLastEditedAt: now,
+      taskLastEditedBy: undefined,
+      taskLastOpId: undefined
     };
 
-    const created = await createTaskDocWithTitle(
-      notebookId,
-      parentHPath,
-      taskDocumentTitle(draftTask),
-      renderTaskMarkdown(draftTask, parent, [], settings, input.detail)
-    );
-    let actualTask: TaskItem = {
-      ...draftTask,
-      id: created.docId || docId,
-      docId: created.docId || docId,
-      path: created.path || ""
+    const opId = options.opId || defaultOpId();
+    const editorId = options.editorId || defaultEditorId();
+    let actualTask: TaskItem | undefined;
+    const doCreate = async () => {
+      const created = await createTaskDocWithTitle(
+        notebookId,
+        parentHPath,
+        taskDocumentTitle(draftTask),
+        renderTaskMarkdown(draftTask, parent, [], settings, input.detail)
+      );
+      const resolvedPath = await requireTaskPath(created.docId, `创建任务后无法读取真实路径：${title}`);
+      actualTask = {
+        ...draftTask,
+        id: created.docId || docId,
+        docId: created.docId || docId,
+        path: resolvedPath,
+        taskRevision: 1,
+        taskLastEditedAt: now,
+        taskLastEditedBy: editorId,
+        taskLastOpId: opId
+      };
+
+      await setTaskAttrs(actualTask);
+      if (actualTask.sourceBlockId) {
+        await appendSourceTaskId(actualTask.sourceBlockId, actualTask.id);
+      }
+      await this.store.upsert(actualTask);
     };
 
-    await setTaskAttrs(actualTask);
-    if (actualTask.sourceBlockId) {
-      await appendSourceTaskId(actualTask.sourceBlockId, actualTask.id);
+    if (parent?.id) {
+      await this.runStructureTransaction({
+        rootTaskId: parent.id,
+        affectedTaskIds: [parent.id]
+      }, doCreate, { opId, editorId });
+    } else {
+      await doCreate();
     }
-    await this.store.upsert(actualTask);
+
+    if (!actualTask) {
+      throw new Error("创建任务失败");
+    }
+
     if (actualTask.status === "completed" && !actualTask.parentId) {
-      actualTask = await this.archiveCompletedParentTask(actualTask);
+      actualTask = await this.archiveCompletedParentTask(actualTask, { opId, editorId });
     }
-    await this.syncTaskDocument(actualTask.id);
+    const reconcileIds = new Set<string>([actualTask.id]);
     if (actualTask.parentId) {
-      await this.syncTaskDocument(actualTask.parentId);
+      reconcileIds.add(actualTask.parentId);
     }
+    await this.syncTaskDocuments(Array.from(reconcileIds));
+    await this.clearTasksNeedsReconcile(Array.from(reconcileIds));
     this.emit();
     return actualTask;
   }
 
-  async updateTask(id: string, patch: Partial<TaskItem>): Promise<TaskItem> {
+  async updateTask(
+    id: string,
+    patch: Partial<TaskItem>,
+    options: {
+      expectedRevision?: number;
+      opId?: string;
+      editorId?: string;
+      allowStructural?: boolean;
+    } = {}
+  ): Promise<TaskItem> {
     const current = this.store.get(id);
     if (!current) {
       throw new Error("任务不存在");
     }
 
     const normalizedPatch = normalizeTaskPatch(patch);
+    if (!options.allowStructural && "parentId" in normalizedPatch && normalizedPatch.parentId !== current.parentId) {
+      throw new Error("当前操作属于结构变更，请使用结构事务接口");
+    }
+
+    const opId = options.opId || defaultOpId();
+    const editorId = options.editorId || defaultEditorId();
+    const latestSnapshot = await this.readTaskRevisionSnapshot(current.docId, current.id);
+    const expectedRevision = options.expectedRevision ?? current.taskRevision;
+    if (latestSnapshot.taskLastOpId && latestSnapshot.taskLastOpId === opId) {
+      return current;
+    }
+    if (latestSnapshot.revision !== expectedRevision) {
+      throw new RevisionConflictError();
+    }
+
     const title = normalizedPatch.title?.trim();
     if (title === "") {
       throw new Error("请填写任务标题");
@@ -169,30 +273,29 @@ export class TaskService {
     if ((normalized.status ?? current.status) === "completed" && !normalized.completedAt) {
       throw new Error("已完成任务必须填写完成时间");
     }
-    let task = await this.store.update(id, normalized);
-    const parentIdChanged = current.parentId !== task.parentId;
-    if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
-      task = await this.archiveCompletedParentTask(task);
-    }
-    if (parentIdChanged) {
-      try {
-        task = await this.moveTaskToParent(task);
-      } catch (error) {
-        await this.store.update(id, {
-          parentId: current.parentId,
-          path: current.path
-        });
-        throw error;
-      }
-    }
+    let task = await this.store.update(id, {
+      ...normalized,
+      taskRevision: latestSnapshot.revision + 1,
+      taskLastEditedAt: nowIso(),
+      taskLastEditedBy: editorId,
+      taskLastOpId: opId
+    });
+
     await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
     await this.syncTaskDocument(task.id);
-    if (current.parentId && current.parentId !== task.id) {
-      await this.syncTaskDocument(current.parentId);
+    await this.clearTasksNeedsReconcile([task.id, task.parentId || ""]);
+
+    const savedSnapshot = await this.readTaskRevisionSnapshot(task.docId, task.id);
+    if (savedSnapshot.taskLastOpId !== opId) {
+      throw new RevisionConflictError("任务已被更新覆盖，请刷新后重试");
     }
-    if (task.parentId && task.parentId !== current.parentId) {
-      await this.syncTaskDocument(task.parentId);
+
+    if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
+      task = await this.archiveCompletedParentTask(task, {
+        opId,
+        editorId
+      });
     }
     this.emit();
     return task;
@@ -221,6 +324,7 @@ export class TaskService {
     const removed = await this.store.removeMany(ids);
     if (removed > 0) {
       await this.syncTaskDocuments(parentIds);
+      await this.clearTasksNeedsReconcile(parentIds);
       this.emit();
     }
     return removed;
@@ -247,17 +351,26 @@ export class TaskService {
       });
     }
 
-    await deleteTaskDocuments(selectedTasks);
+    await this.runStructureTransaction(
+      {
+        rootTaskId: id,
+        affectedTaskIds: Array.from(new Set([...ids, ...parentIds]))
+      },
+      async () => {
+        await deleteTaskDocuments(selectedTasks);
+      }
+    );
 
     const removed = await this.store.removeMany(ids);
     if (removed > 0) {
       await this.syncTaskDocuments(parentIds);
+      await this.clearTasksNeedsReconcile(parentIds);
       this.emit();
     }
     return removed;
   }
 
-  async syncDeletedDocs(): Promise<number> {
+  async syncDeletedDocs(options: { reconcileParents?: boolean } = {}): Promise<number> {
     const missingIds: string[] = [];
 
     for (const task of this.store.all()) {
@@ -274,15 +387,53 @@ export class TaskService {
     const ids = expandWithDescendants(this.store.all(), missingIds);
     const parentIds = parentIdsForTasks(this.store.all(), ids);
     const removed = await this.store.removeMany(ids);
-    if (removed > 0) {
+    if (removed > 0 && options.reconcileParents !== false) {
       await this.syncTaskDocuments(parentIds);
+      await this.clearTasksNeedsReconcile(parentIds);
+    }
+    if (removed > 0 && options.reconcileParents === false) {
+      await this.markTasksNeedsReconcile(parentIds);
+    }
+    if (removed > 0) {
       this.emit();
     }
     return removed;
   }
 
   async syncAllTaskDocuments(): Promise<number> {
-    return this.syncTaskDocuments(this.store.all().map((task) => task.id));
+    // 4.0: this is now an explicit reconcile entry that only processes pending items.
+    const result = await this.reconcilePendingTaskDocuments();
+    return result.reconciled;
+  }
+
+  async reconcilePendingTaskDocuments(): Promise<{ total: number; reconciled: number; failedTaskIds: string[] }> {
+    const ids = this.store.all().filter((task) => task.needsReconcile).map((task) => task.id);
+    if (!ids.length) {
+      return { total: 0, reconciled: 0, failedTaskIds: [] };
+    }
+
+    const succeeded: string[] = [];
+    const failedTaskIds: string[] = [];
+    for (const id of Array.from(new Set(ids))) {
+      try {
+        await this.syncTaskDocument(id);
+        succeeded.push(id);
+      } catch (error) {
+        failedTaskIds.push(id);
+        console.warn("Task Tracker: failed to reconcile task summary", id, error);
+      }
+    }
+
+    if (succeeded.length) {
+      await this.clearTasksNeedsReconcile(succeeded);
+      this.emit();
+    }
+
+    return {
+      total: ids.length,
+      reconciled: succeeded.length,
+      failedTaskIds
+    };
   }
 
   activeTasks(): TaskItem[] {
@@ -303,42 +454,88 @@ export class TaskService {
     }
   }
 
-  async startupSync(options: { skipDeletedCleanup?: boolean } = {}): Promise<{ removed: number; synced: number }> {
+  async startupSync(options: { skipDeletedCleanup?: boolean; forceRebuild?: boolean } = {}): Promise<{ removed: number; refreshed: number; rebuilt: boolean }> {
     await this.waitForStartupSync({
       maxWaitMs: this.store.getSettings().startupSyncGraceMs ?? 12000
     });
 
-    let removed = 0;
-    const indexedTasks = this.store.all();
-    const discoveredTasks = await this.collectTasksFromRoot();
-    if (indexedTasks.length === 0) {
-      if (discoveredTasks.length > 0) {
-        await this.store.replaceAll(discoveredTasks);
-        this.emit();
-      }
-    } else {
-      const discoveredIds = new Set(discoveredTasks.map((task) => task.id));
-      const indexedIds = new Set(indexedTasks.map((task) => task.id));
-      const missingCount = Array.from(discoveredIds).filter((id) => !indexedIds.has(id)).length;
-      if (missingCount > 0) {
-        const rebuilt = mergeRecoveredTasks(indexedTasks, discoveredTasks);
-        await this.store.replaceAll(rebuilt);
-        this.emit();
-      } else if (!options.skipDeletedCleanup && discoveredTasks.length >= indexedTasks.length) {
-        removed = await this.syncDeletedDocs();
-      }
+    const settings = await this.getSettingsWithFreshRootPath();
+    const cacheMeta = this.store.getCacheMeta();
+    const shouldRebuild = options.forceRebuild
+      || this.shouldRebuildIndex({
+        settings,
+        cacheMeta,
+        hasCacheTasks: this.store.all().length > 0
+      });
+
+    if (shouldRebuild) {
+      const collected = await this.collectTasksFromRoot(settings);
+      await this.backfillRecoveredTaskAttrs(collected);
+      await this.store.replaceAll(collected.tasks, {
+        schemaVersion: TASK_INDEX_SCHEMA_VERSION,
+        lastRootDocId: settings.taskRootDocId,
+        lastRootPath: settings.taskRootPath,
+        lastDocUpdatedMax: maxDocUpdated(collected.tasks),
+        corrupt: false
+      });
+      this.emit();
+      return { removed: 0, refreshed: collected.tasks.length, rebuilt: true };
     }
 
-    const synced = await this.syncAllTaskDocuments();
-    return { removed, synced };
+    let removed = 0;
+    if (!options.skipDeletedCleanup) {
+      removed = await this.syncDeletedDocs({ reconcileParents: false });
+    }
+
+    const refreshed = await this.refreshIndexIncremental({
+      reason: "startup",
+      forceWindow: true
+    });
+    return { removed, refreshed, rebuilt: false };
   }
 
   async rebuildTaskIndex(): Promise<number> {
-    const tasks = await this.collectTasksFromRoot();
-    await this.store.replaceAll(tasks);
-    await this.syncAllTaskDocuments();
+    const settings = await this.getSettingsWithFreshRootPath();
+    const collected = await this.collectTasksFromRoot(settings);
+    await this.backfillRecoveredTaskAttrs(collected);
+    await this.store.replaceAll(collected.tasks, {
+      schemaVersion: TASK_INDEX_SCHEMA_VERSION,
+      lastRootDocId: settings.taskRootDocId,
+      lastRootPath: settings.taskRootPath,
+      lastDocUpdatedMax: maxDocUpdated(collected.tasks),
+      corrupt: false
+    });
     this.emit();
-    return tasks.length;
+    return collected.tasks.length;
+  }
+
+  async refreshAfterSync(): Promise<{ refreshed: number; rebuilt: boolean }> {
+    await this.waitForStartupSync({
+      maxWaitMs: 6000,
+      pollMs: 500
+    });
+
+    const settings = await this.getSettingsWithFreshRootPath();
+    const cacheMeta = this.store.getCacheMeta();
+    const shouldRebuild = this.shouldRebuildIndex({
+      settings,
+      cacheMeta,
+      hasCacheTasks: this.store.all().length > 0
+    });
+    if (shouldRebuild) {
+      const count = await this.rebuildTaskIndex();
+      return { refreshed: count, rebuilt: true };
+    }
+
+    const refreshed = await this.refreshIndexIncremental({
+      reason: "sync-end",
+      forceWindow: false
+    });
+    await this.validateIndexedTasksExistence(80);
+    if (refreshed > 0) {
+      this.emit();
+    }
+    return { refreshed, rebuilt: false };
   }
 
   async exportCompletedWeekReport(week: string): Promise<{ docId: string; title: string }> {
@@ -383,6 +580,220 @@ export class TaskService {
     await replaceManagedHeadingSection(docId, [TASK_DETAIL_HEADING], normalizeTaskDetailBody(detail), {
       createIfMissing: true
     });
+  }
+
+  async saveTaskDetailByTaskId(
+    taskId: string,
+    detail: string,
+    options: {
+      expectedRevision?: number;
+      opId?: string;
+      editorId?: string;
+    } = {}
+  ): Promise<TaskItem> {
+    const task = this.store.get(taskId);
+    if (!task) {
+      throw new Error("任务不存在");
+    }
+    const opId = options.opId || defaultOpId();
+    const editorId = options.editorId || defaultEditorId();
+    const snapshot = await this.readTaskRevisionSnapshot(task.docId, task.id);
+    const expectedRevision = options.expectedRevision ?? task.taskRevision;
+    if (snapshot.taskLastOpId && snapshot.taskLastOpId === opId) {
+      return task;
+    }
+    if (snapshot.revision !== expectedRevision) {
+      throw new RevisionConflictError();
+    }
+    await replaceManagedHeadingSection(task.docId, [TASK_DETAIL_HEADING], normalizeTaskDetailBody(detail), {
+      createIfMissing: true
+    });
+    const next = await this.store.update(task.id, {
+      taskRevision: snapshot.revision + 1,
+      taskLastEditedAt: nowIso(),
+      taskLastEditedBy: editorId,
+      taskLastOpId: opId
+    });
+    await setTaskAttrs(next);
+    const savedSnapshot = await this.readTaskRevisionSnapshot(next.docId, next.id);
+    if (savedSnapshot.taskLastOpId !== opId) {
+      throw new RevisionConflictError("任务详情已被其他设备覆盖，请刷新后重试");
+    }
+    await this.clearTasksNeedsReconcile([next.id, next.parentId || ""]);
+    this.emit();
+    return next;
+  }
+
+  async readTaskRevisionSnapshot(docId: string, taskId: string): Promise<TaskRevisionSnapshot> {
+    const attrs = await getBlockAttrs(docId).catch(() => ({}));
+    const revision = parseTaskRevision(attrs[TASK_ATTRS.taskRevision]);
+    return {
+      taskId,
+      docId,
+      revision,
+      taskLastOpId: attrs[TASK_ATTRS.taskLastOpId] || undefined
+    };
+  }
+
+  private async runStructureTransaction(
+    payload: {
+      rootTaskId: string;
+      affectedTaskIds: string[];
+    },
+    action: () => Promise<void>,
+    options: StructureTransactionOptions = {}
+  ): Promise<void> {
+    const opId = options.opId || defaultOpId();
+    const editorId = options.editorId || defaultEditorId();
+    const snapshots = await this.collectRevisionSnapshots(payload.affectedTaskIds);
+    for (const [taskId, snapshot] of snapshots.entries()) {
+      const cached = this.store.get(taskId);
+      if (!cached) {
+        continue;
+      }
+      if ((cached.taskRevision || 0) !== snapshot.revision) {
+        throw new RevisionConflictError();
+      }
+    }
+
+    for (const snapshot of snapshots.values()) {
+      if (snapshot.taskLastOpId === opId) {
+        return;
+      }
+    }
+
+    await action();
+
+    const verify = await this.collectRevisionSnapshots(payload.affectedTaskIds);
+    for (const [taskId, before] of snapshots.entries()) {
+      const current = this.store.get(taskId);
+      if (!current) {
+        continue;
+      }
+      const after = verify.get(taskId);
+      if (!after) {
+        throw new RevisionConflictError("结构操作完成后校验失败，请刷新后重试");
+      }
+      if (after.revision < before.revision) {
+        throw new RevisionConflictError("结构操作检测到过期状态，请刷新后重试");
+      }
+      if (after.revision === before.revision) {
+        const bumped = await this.store.update(taskId, {
+          taskRevision: before.revision + 1,
+          taskLastEditedAt: nowIso(),
+          taskLastEditedBy: editorId,
+          taskLastOpId: opId
+        });
+        await setTaskAttrs(bumped);
+      }
+    }
+  }
+
+  private async collectRevisionSnapshots(taskIds: string[]): Promise<Map<string, TaskRevisionSnapshot>> {
+    const result = new Map<string, TaskRevisionSnapshot>();
+    for (const id of Array.from(new Set(taskIds))) {
+      const task = this.store.get(id);
+      if (!task) {
+        continue;
+      }
+      result.set(id, await this.readTaskRevisionSnapshot(task.docId, task.id));
+    }
+    return result;
+  }
+
+  async changeTaskParent(
+    taskId: string,
+    parentId: string | undefined,
+    options: StructureTransactionOptions = {}
+  ): Promise<TaskItem> {
+    const current = this.store.get(taskId);
+    if (!current) {
+      throw new Error("任务不存在");
+    }
+    if (current.parentId === parentId) {
+      return current;
+    }
+
+    const allTasks = this.store.all();
+    const subtreeIds = expandWithDescendants(allTasks, [taskId]);
+    if (parentId && subtreeIds.includes(parentId)) {
+      throw new Error("不能将任务移动到自己的子任务下");
+    }
+
+    const affectedTaskIds = new Set<string>(subtreeIds);
+    if (current.parentId) {
+      affectedTaskIds.add(current.parentId);
+    }
+    if (parentId) {
+      affectedTaskIds.add(parentId);
+    }
+
+    const now = nowIso();
+    const opId = options.opId || defaultOpId();
+    const editorId = options.editorId || defaultEditorId();
+    await this.runStructureTransaction(
+      {
+        rootTaskId: taskId,
+        affectedTaskIds: Array.from(affectedTaskIds)
+      },
+      async () => {
+        const previous = this.store.get(taskId) || current;
+        const updated = await this.store.update(taskId, {
+          parentId,
+          taskRevision: previous.taskRevision + 1,
+          taskLastEditedAt: now,
+          taskLastEditedBy: editorId,
+          taskLastOpId: opId
+        });
+        await setTaskAttrs(updated);
+        try {
+          await this.moveTaskToParent(updated);
+        } catch (error) {
+          try {
+            const actualPath = await getTaskPath(previous.docId);
+            if (actualPath && previous.path && actualPath !== previous.path) {
+              const settings = await this.getSettingsWithFreshRootPath();
+              let rollbackTargetPath = "";
+              if (previous.parentId) {
+                const previousParent = this.store.get(previous.parentId);
+                if (previousParent) {
+                  const previousParentPath = await requireTaskPath(previousParent.docId, `回滚时无法读取旧父任务路径：${previousParent.title}`);
+                  rollbackTargetPath = previousParentPath;
+                }
+              } else if (settings.taskRootDocId) {
+                const rootPath = await requireTaskPath(settings.taskRootDocId, "回滚时无法读取事项库根文档路径");
+                rollbackTargetPath = rootPath;
+              }
+              if (rollbackTargetPath) {
+                await moveDocs([actualPath], previous.notebookId, rollbackTargetPath);
+              }
+            }
+          } catch (rollbackMoveError) {
+            console.warn("Task Tracker: failed to rollback task document move", rollbackMoveError);
+          }
+          const rollback = await this.store.update(taskId, {
+            parentId: previous.parentId,
+            path: previous.path,
+            taskRevision: previous.taskRevision,
+            taskLastEditedAt: previous.taskLastEditedAt,
+            taskLastEditedBy: previous.taskLastEditedBy,
+            taskLastOpId: previous.taskLastOpId
+          });
+          await setTaskAttrs(rollback).catch(() => undefined);
+          throw error;
+        }
+      },
+      { ...options, opId, editorId }
+    );
+
+    const task = this.store.get(taskId);
+    if (!task) {
+      throw new Error("任务不存在");
+    }
+    await this.syncTaskDocuments(Array.from(affectedTaskIds));
+    await this.clearTasksNeedsReconcile(Array.from(affectedTaskIds));
+    this.emit();
+    return task;
   }
 
   private async syncTaskDocument(id: string): Promise<boolean> {
@@ -432,7 +843,18 @@ export class TaskService {
     return count;
   }
 
-  private async archiveCompletedParentTask(task: TaskItem): Promise<TaskItem> {
+  private async markTasksNeedsReconcile(ids: string[]): Promise<number> {
+    return this.store.markNeedsReconcile(ids);
+  }
+
+  private async clearTasksNeedsReconcile(ids: string[]): Promise<number> {
+    return this.store.clearNeedsReconcile(ids);
+  }
+
+  private async archiveCompletedParentTask(
+    task: TaskItem,
+    options: StructureTransactionOptions = {}
+  ): Promise<TaskItem> {
     if (task.parentId) {
       return task;
     }
@@ -448,8 +870,18 @@ export class TaskService {
     if (isTaskUnderArchivePath(taskPath, archivePath)) {
       return task;
     }
+    const subtreeIds = expandWithDescendants(this.store.all(), [task.id]);
 
-    await moveDocs([taskPath], settings.taskRootNotebookId, archivePath);
+    await this.runStructureTransaction(
+      {
+        rootTaskId: task.id,
+        affectedTaskIds: subtreeIds
+      },
+      async () => {
+        await moveDocs([taskPath], settings.taskRootNotebookId, archivePath);
+      },
+      options
+    );
     const ids = expandWithDescendants(this.store.all(), [task.id]);
     const pathMap = await refreshTaskPaths(this.store, ids);
     let archivedTask = this.store.get(task.id) || task;
@@ -458,65 +890,66 @@ export class TaskService {
       archivedTask = refreshed;
     }
     await this.syncTaskDocuments(ids);
+    await this.clearTasksNeedsReconcile(ids);
     return archivedTask;
   }
 
   private async moveTaskToParent(task: TaskItem): Promise<TaskItem> {
-    const settings = this.store.getSettings();
+    const settings = await this.getSettingsWithFreshRootPath();
     if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
       return task;
     }
 
     const currentPath = await requireTaskPath(task.docId, `无法读取待移动任务路径：${task.title}`);
 
-    let targetParentPath: string;
+    let targetPath: string;
     if (task.parentId) {
       const parent = this.store.get(task.parentId);
       if (!parent) {
         return task;
       }
       const parentPath = await requireTaskPath(parent.docId, `无法读取父任务路径：${parent.title}`);
-      targetParentPath = parentPath;
+      targetPath = parentPath;
     } else {
       const rootPath = await requireTaskPath(settings.taskRootDocId, "无法读取事项库根文档路径");
-      targetParentPath = rootPath;
+      targetPath = rootPath;
     }
 
-    const currentParentPath = parentTaskPath(currentPath);
-    if (currentParentPath === targetParentPath) {
+    const currentParentTaskPath = parentTaskPath(currentPath);
+    if (currentParentTaskPath === targetPath) {
       return task;
     }
 
-    await moveDocs([currentPath], task.notebookId, targetParentPath);
+    await moveDocs([currentPath], task.notebookId, targetPath);
 
     const ids = expandWithDescendants(this.store.all(), [task.id]);
     const pathMap = await refreshTaskPaths(this.store, ids);
     const movedTask = pathMap.get(task.id) || this.store.get(task.id) || task;
-    await this.syncTaskDocuments(ids);
     return movedTask;
   }
 
-  private async collectTasksFromRoot(): Promise<TaskItem[]> {
-    const settings = this.store.getSettings();
+  private async collectTasksFromRoot(settings = this.store.getSettings()): Promise<CollectedTaskResult> {
     const candidates = await listTaskDocCandidates(settings);
     if (!candidates.length) {
-      return [];
+      return { tasks: [], recoveredDocIds: [] };
     }
 
     const tasks: TaskItem[] = [];
     const taskByDocId = new Map<string, TaskItem>();
+    const recoveredDocIds = new Set<string>();
+    const legacySpecialContainerIds = collectLegacySpecialContainerDocIds(candidates, settings);
     const batchSize = 12;
 
     for (let start = 0; start < candidates.length; start += batchSize) {
       const batch = candidates.slice(start, start + batchSize);
       const batchTasks = await Promise.all(batch.map(async (doc) => {
         const attrs = await getBlockAttrs(doc.id).catch(() => ({}));
-        if (attrs[REPORT_ATTRS.kind] === WEEKLY_REPORT_KIND || isWeeklyReportPath(doc.path, settings)) {
+        const taskId = attrs[TASK_ATTRS.id]?.trim();
+        if (legacySpecialContainerIds.has(doc.id) || isSpecialContainerDoc(doc, attrs, settings, taskId)) {
           return undefined;
         }
-        const taskId = attrs[TASK_ATTRS.id]?.trim();
         if (!taskId) {
-          return undefined;
+          recoveredDocIds.add(doc.id);
         }
 
         const task = taskFromDoc(doc, attrs);
@@ -545,7 +978,194 @@ export class TaskService {
       }
     }
 
-    return tasks.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+    return {
+      tasks: tasks.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN")),
+      recoveredDocIds: Array.from(recoveredDocIds)
+    };
+  }
+
+  private async backfillRecoveredTaskAttrs(collected: CollectedTaskResult): Promise<void> {
+    if (!collected.recoveredDocIds.length) {
+      return;
+    }
+    const recoveredSet = new Set(collected.recoveredDocIds);
+    const recoveredTasks = collected.tasks.filter((task) => recoveredSet.has(task.docId));
+    const batchSize = 12;
+    for (let start = 0; start < recoveredTasks.length; start += batchSize) {
+      const batch = recoveredTasks.slice(start, start + batchSize);
+      await Promise.all(batch.map((task) => setTaskAttrs(task)));
+    }
+  }
+
+  private shouldRebuildIndex(options: {
+    settings: TaskSettings;
+    cacheMeta: ReturnType<TaskStore["getCacheMeta"]>;
+    hasCacheTasks: boolean;
+  }): boolean {
+    const { settings, cacheMeta, hasCacheTasks } = options;
+    if (!settings.taskRootDocId || !settings.taskRootPath || !settings.taskRootNotebookId) {
+      return !hasCacheTasks;
+    }
+    if (!hasCacheTasks && !cacheMeta.lastRootDocId) {
+      return true;
+    }
+    if (!cacheMeta || cacheMeta.corrupt) {
+      return true;
+    }
+    if (cacheMeta.schemaVersion !== TASK_INDEX_SCHEMA_VERSION) {
+      return true;
+    }
+    if (cacheMeta.lastRootDocId !== settings.taskRootDocId) {
+      return true;
+    }
+    if (cacheMeta.lastRootPath !== settings.taskRootPath) {
+      return true;
+    }
+    return false;
+  }
+
+  private async refreshIndexIncremental(options: { reason: "startup" | "sync-end"; forceWindow: boolean }): Promise<number> {
+    const settings = this.store.getSettings();
+    if (!settings.taskRootDocId || !settings.taskRootNotebookId || !settings.taskRootPath) {
+      return 0;
+    }
+    const cacheMeta = this.store.getCacheMeta();
+    const indexedById = new Map(this.store.all().map((task) => [task.id, task]));
+    const indexedByDocId = new Map(this.store.all().map((task) => [task.docId, task]));
+    const changedDocs = await this.listChangedTaskDocCandidates({
+      settings,
+      cacheMeta,
+      forceWindow: options.forceWindow
+    });
+
+    if (!changedDocs.length) {
+      return 0;
+    }
+
+    const nextTasks = [...this.store.all()];
+    const reconcileCandidates = new Set<string>();
+    let changedCount = 0;
+    for (const doc of changedDocs) {
+      const attrs = await getBlockAttrs(doc.id).catch(() => ({}));
+      const taskId = attrs[TASK_ATTRS.id]?.trim();
+      if (isSpecialContainerDoc(doc, attrs, settings, taskId)) {
+        continue;
+      }
+      if (!taskId) {
+        continue;
+      }
+      const recovered = taskFromDoc(doc, attrs);
+      recovered.docUpdated = updatedToIso(doc.updated);
+      const current = indexedById.get(taskId) || indexedByDocId.get(recovered.docId);
+      if (!current) {
+        nextTasks.push(recovered);
+        indexedById.set(recovered.id, recovered);
+        indexedByDocId.set(recovered.docId, recovered);
+        this.collectReconcileCandidatesForExternalChange(reconcileCandidates, undefined, recovered);
+        changedCount += 1;
+        continue;
+      }
+
+      const merged = normalizeRecoveredTaskFromDoc(current, recovered);
+      if (hasTaskMeaningfulDiff(current, merged)) {
+        const idx = nextTasks.findIndex((task) => task.id === current.id);
+        if (idx >= 0) {
+          nextTasks[idx] = merged;
+          indexedById.set(merged.id, merged);
+          indexedByDocId.set(merged.docId, merged);
+          this.collectReconcileCandidatesForExternalChange(reconcileCandidates, current, merged);
+          changedCount += 1;
+        }
+      }
+    }
+
+    if (changedCount > 0) {
+      for (const task of nextTasks) {
+        if (reconcileCandidates.has(task.id)) {
+          task.needsReconcile = true;
+        }
+      }
+      await this.store.replaceAll(nextTasks, {
+        lastRootDocId: settings.taskRootDocId,
+        lastRootPath: settings.taskRootPath,
+        lastDocUpdatedMax: maxDocUpdated(nextTasks),
+        corrupt: false
+      });
+      this.emit();
+    } else {
+      await this.store.setCacheMeta({
+        lastRootDocId: settings.taskRootDocId,
+        lastRootPath: settings.taskRootPath,
+        lastDocUpdatedMax: maxDocUpdated(this.store.all()),
+        corrupt: false
+      });
+    }
+
+    return changedCount;
+  }
+
+  private async listChangedTaskDocCandidates(options: {
+    settings: TaskSettings;
+    cacheMeta: ReturnType<TaskStore["getCacheMeta"]>;
+    forceWindow: boolean;
+  }): Promise<BlockRow[]> {
+    const { settings, cacheMeta, forceWindow } = options;
+    if (!settings.taskRootNotebookId || !settings.taskRootPath || !settings.taskRootDocId) {
+      return [];
+    }
+    const rootPath = stripDocSuffix(settings.taskRootPath);
+    const since = forceWindow
+      ? toSiyuanUpdated(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      : (toSiyuanUpdated(cacheMeta.lastDocUpdatedMax)
+        || toSiyuanUpdated(new Date(Date.now() - SYNC_INCREMENTAL_OVERLAP_MS).toISOString()));
+    const rows = await sql<BlockRow>(`select id, box, path, content, hpath, updated from blocks
+where box = '${sqlText(settings.taskRootNotebookId)}'
+  and type = 'd'
+  and id != '${sqlText(settings.taskRootDocId)}'
+  and path like '${sqlText(rootPath)}/%'
+  and updated >= '${sqlText(since)}'
+order by updated asc, path asc`);
+    return rows;
+  }
+
+  private async validateIndexedTasksExistence(limit: number): Promise<void> {
+    const tasks = this.store.all()
+      .sort((a, b) => (b.docUpdated || b.updatedAt || "").localeCompare(a.docUpdated || a.updatedAt || ""))
+      .slice(0, Math.max(1, limit));
+    if (!tasks.length) {
+      return;
+    }
+    const missingIds: string[] = [];
+    for (const task of tasks) {
+      const block = await getBlockById(task.docId).catch(() => undefined);
+      if (!block) {
+        missingIds.push(task.id);
+      }
+    }
+    if (!missingIds.length) {
+      return;
+    }
+    const ids = expandWithDescendants(this.store.all(), missingIds);
+    const parentIds = parentIdsForTasks(this.store.all(), ids);
+    const removed = await this.store.removeMany(ids);
+    if (removed > 0) {
+      await this.markTasksNeedsReconcile(parentIds);
+      this.emit();
+    }
+  }
+
+  private collectReconcileCandidatesForExternalChange(
+    target: Set<string>,
+    previous: TaskItem | undefined,
+    current: TaskItem
+  ): void {
+    target.add(current.id);
+    if (current.parentId) {
+      target.add(current.parentId);
+    }
+    if (previous?.parentId) {
+      target.add(previous.parentId);
+    }
   }
 
   private emit(): void {
@@ -727,6 +1347,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function defaultEditorId(): string {
+  return SESSION_EDITOR_ID;
+}
+
+function defaultOpId(): string {
+  return newSiyuanId();
+}
+
 function isDescendantPath(path: string, parentPath: string): boolean {
   return path.startsWith(`${parentPath}/`);
 }
@@ -748,7 +1376,7 @@ where box = '${sqlText(settings.taskRootNotebookId)}'
   and id != '${sqlText(settings.taskRootDocId)}'
   and path like '${sqlText(rootPath)}/%'
 order by path asc`);
-  return rows.filter((row) => !isWeeklyReportPath(row.path, settings));
+  return rows;
 }
 
 function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
@@ -774,7 +1402,12 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
     createdAt: attrs[TASK_ATTRS.createdAt] || updatedToIso(doc.updated) || nowIso(),
     updatedAt: updatedToIso(doc.updated) || nowIso(),
     completedAt: attrs[TASK_ATTRS.completedAt] || undefined,
-    description: attrs[TASK_ATTRS.description]?.trim() || undefined
+    description: attrs[TASK_ATTRS.description]?.trim() || undefined,
+    taskRevision: parseTaskRevision(attrs[TASK_ATTRS.taskRevision]),
+    taskLastEditedAt: attrs[TASK_ATTRS.taskLastEditedAt] || updatedToIso(doc.updated) || nowIso(),
+    taskLastEditedBy: attrs[TASK_ATTRS.taskLastEditedBy] || undefined,
+    taskLastOpId: attrs[TASK_ATTRS.taskLastOpId] || undefined,
+    docUpdated: updatedToIso(doc.updated)
   };
 }
 
@@ -829,6 +1462,26 @@ function updatedToIso(value?: string): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+function toSiyuanUpdated(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function parseTaskRevision(value?: string): number {
+  const n = Number(value || "0");
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(n));
+}
+
 function parentTaskFromPath(task: TaskItem, byDocId: Map<string, TaskItem>): TaskItem | undefined {
   const parentPath = parentTaskPath(task.path);
   if (!parentPath) {
@@ -843,12 +1496,14 @@ function parentTaskFromPath(task: TaskItem, byDocId: Map<string, TaskItem>): Tas
 }
 
 function parentTaskPath(path?: string): string | undefined {
-  const normalized = path?.trim();
-  if (!normalized) {
+  const parentContainer = docParentContainerPath(path);
+  if (!parentContainer || parentContainer === "/") {
     return undefined;
   }
-  const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash > 0 ? `${normalized.slice(0, lastSlash)}.sy` : undefined;
+  if (parentContainer.endsWith(".sy")) {
+    return normalizeHPath(parentContainer);
+  }
+  return normalizeHPath(`${parentContainer}.sy`);
 }
 
 function mergeRecoveredTasks(currentTasks: TaskItem[], recoveredTasks: TaskItem[]): TaskItem[] {
@@ -860,6 +1515,49 @@ function mergeRecoveredTasks(currentTasks: TaskItem[], recoveredTasks: TaskItem[
     }
   }
   return merged.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
+}
+
+function normalizeRecoveredTaskFromDoc(current: TaskItem, recovered: TaskItem): TaskItem {
+  return {
+    ...current,
+    ...recovered,
+    needsReconcile: current.needsReconcile || recovered.needsReconcile
+  };
+}
+
+function hasTaskMeaningfulDiff(a: TaskItem, b: TaskItem): boolean {
+  const keys: Array<keyof TaskItem> = [
+    "title",
+    "path",
+    "parentId",
+    "sourceBlockId",
+    "sourceDocId",
+    "sourceText",
+    "project",
+    "priority",
+    "status",
+    "dueDate",
+    "planStart",
+    "planEnd",
+    "createdAt",
+    "updatedAt",
+    "completedAt",
+    "description",
+    "taskRevision",
+    "taskLastEditedAt",
+    "taskLastEditedBy",
+    "taskLastOpId",
+    "docUpdated"
+  ];
+  return keys.some((key) => a[key] !== b[key]);
+}
+
+function maxDocUpdated(tasks: TaskItem[]): string | undefined {
+  const values = tasks.map((task) => task.docUpdated || task.updatedAt).filter(Boolean);
+  if (!values.length) {
+    return undefined;
+  }
+  return values.sort().at(-1);
 }
 
 async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
@@ -886,7 +1584,7 @@ async function createTaskDocWithTitle(
   parentHPath: string,
   title: string,
   markdown: string
-): Promise<{ docId: string; path?: string }> {
+): Promise<{ docId: string }> {
   const baseName = sanitizeDocName(title);
   const parent = normalizeHPath(parentHPath);
   let lastError: unknown;
@@ -896,7 +1594,7 @@ async function createTaskDocWithTitle(
     const path = `${parent === "/" ? "" : parent}/${name}.sy`;
     try {
       const docId = await createDocWithMd(notebookId, path, markdown);
-      return { docId, path };
+      return { docId };
     } catch (error) {
       lastError = error;
       const message = String(error instanceof Error ? error.message : error).toLowerCase();
@@ -957,14 +1655,18 @@ async function ensureArchiveDoc(settings: TaskSettings, parentHPath: string, nam
 
 async function ensureArchiveRootDoc(settings: TaskSettings): Promise<string> {
   const rootHPath = await resolveParentHPath(settings);
-  return ensureArchiveDoc(settings, rootHPath, "已完成");
+  const archivePath = await ensureArchiveDoc(settings, rootHPath, "已完成");
+  await markContainerDocKindByHPath(settings, `${rootHPath === "/" ? "" : rootHPath}/已完成`, ARCHIVE_ROOT_KIND);
+  return archivePath;
 }
 
 async function ensureArchiveWeekDoc(settings: TaskSettings, week: string): Promise<string> {
   const rootHPath = await resolveParentHPath(settings);
   const archiveHPath = normalizeHPath(`${rootHPath === "/" ? "" : rootHPath}/已完成`);
   await ensureArchiveRootDoc(settings);
-  return ensureArchiveDoc(settings, archiveHPath, week);
+  const weekPath = await ensureArchiveDoc(settings, archiveHPath, week);
+  await markContainerDocKindByHPath(settings, `${archiveHPath === "/" ? "" : archiveHPath}/${week}`, ARCHIVE_WEEK_KIND);
+  return weekPath;
 }
 
 interface WeeklyReportRootRef {
@@ -976,6 +1678,7 @@ async function ensureWeeklyReportRoot(settings: TaskSettings): Promise<WeeklyRep
   const rootHPath = await resolveParentHPath(settings);
   const reportRootHPath = normalizeHPath(`${rootHPath === "/" ? "" : rootHPath}/周报`);
   const path = await ensureArchiveDoc(settings, rootHPath, "周报");
+  await markContainerDocKindByHPath(settings, reportRootHPath, WEEKLY_REPORT_ROOT_KIND);
   return {
     hpath: reportRootHPath,
     path
@@ -1040,13 +1743,96 @@ async function markWeeklyReportDoc(docId: string): Promise<void> {
   });
 }
 
-function isWeeklyReportPath(path: string | undefined, settings: TaskSettings): boolean {
-  if (!path || !settings.taskRootPath) {
+async function markContainerDocKindByHPath(settings: TaskSettings, hpath: string, kind: string): Promise<void> {
+  if (!settings.taskRootNotebookId) {
+    return;
+  }
+  const doc = await getDocRefByHPath(settings.taskRootNotebookId, hpath).catch(() => undefined);
+  if (!doc?.id) {
+    return;
+  }
+  await setBlockAttrs(doc.id, {
+    [REPORT_ATTRS.kind]: kind
+  }).catch(() => undefined);
+}
+
+function collectLegacySpecialContainerDocIds(candidates: BlockRow[], settings: TaskSettings): Set<string> {
+  const result = new Set<string>();
+  const rootDocPath = settings.taskRootPath ? normalizeHPath(settings.taskRootPath) : undefined;
+  if (!rootDocPath) {
+    return result;
+  }
+
+  let archiveRootPath: string | undefined;
+  let reportRootPath: string | undefined;
+
+  for (const doc of candidates) {
+    const title = doc.content?.trim();
+    if (!title || parentTaskPath(doc.path) !== rootDocPath) {
+      continue;
+    }
+    if (title === "已完成") {
+      archiveRootPath = normalizeHPath(doc.path);
+      result.add(doc.id);
+      continue;
+    }
+    if (title === "周报") {
+      reportRootPath = normalizeHPath(doc.path);
+      result.add(doc.id);
+    }
+  }
+
+  for (const doc of candidates) {
+    const normalizedPath = normalizeHPath(doc.path);
+    const title = doc.content?.trim() || "";
+    if (reportRootPath && isDescendantPath(stripDocSuffix(normalizedPath), stripDocSuffix(reportRootPath))) {
+      result.add(doc.id);
+      continue;
+    }
+    if (archiveRootPath && parentTaskPath(normalizedPath) === archiveRootPath && /^\d{4}-\d{2}-\d{2}$/.test(title)) {
+      result.add(doc.id);
+    }
+  }
+
+  return result;
+}
+
+function isSpecialContainerDoc(
+  doc: Pick<BlockRow, "hpath">,
+  attrs: Record<string, string>,
+  settings: TaskSettings,
+  taskId?: string
+): boolean {
+  const kind = attrs[REPORT_ATTRS.kind];
+  if (kind === WEEKLY_REPORT_KIND || kind === WEEKLY_REPORT_ROOT_KIND || kind === ARCHIVE_ROOT_KIND || kind === ARCHIVE_WEEK_KIND) {
+    return true;
+  }
+
+  const docHPath = normalizeHPath(doc.hpath || "");
+  if (!docHPath || docHPath === "/") {
     return false;
   }
-  const rootPath = stripDocSuffix(settings.taskRootPath);
-  const reportRoot = `${rootPath}/周报`;
-  return stripDocSuffix(path).startsWith(reportRoot);
+
+  const rootHPath = normalizeHPath(settings.taskRootHPath || settings.taskRootTitle || "");
+  if (!rootHPath || rootHPath === "/") {
+    return false;
+  }
+
+  const reportRoot = normalizeHPath(`${rootHPath}/周报`);
+  if (docHPath === reportRoot || docHPath.startsWith(`${reportRoot}/`)) {
+    return true;
+  }
+
+  const archiveRoot = normalizeHPath(`${rootHPath}/已完成`);
+  if (docHPath === archiveRoot) {
+    return true;
+  }
+
+  if (docHPath.startsWith(`${archiveRoot}/`) && !taskId) {
+    return true;
+  }
+
+  return false;
 }
 
 function archiveWeek(value?: string): string {
@@ -1082,6 +1868,19 @@ function normalizeHPath(value: string): string {
 function stripDocSuffix(path: string): string {
   const withoutSuffix = path.endsWith(".sy") ? path.slice(0, -3) : path;
   return normalizeHPath(withoutSuffix);
+}
+
+function docContainerPath(path: string): string {
+  return stripDocSuffix(path);
+}
+
+function docParentContainerPath(path?: string): string {
+  const normalized = normalizeHPath(path || "/");
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash <= 0) {
+    return "/";
+  }
+  return normalizeHPath(normalized.slice(0, lastSlash));
 }
 
 function renderTaskMarkdown(
@@ -1582,7 +2381,11 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.sourceBlockId]: task.sourceBlockId || "",
     [TASK_ATTRS.sourceDocId]: task.sourceDocId || "",
     [TASK_ATTRS.sourceText]: task.sourceText || "",
-    [TASK_ATTRS.description]: task.description || ""
+    [TASK_ATTRS.description]: task.description || "",
+    [TASK_ATTRS.taskRevision]: String(Number.isFinite(task.taskRevision) ? task.taskRevision : 0),
+    [TASK_ATTRS.taskLastEditedAt]: task.taskLastEditedAt || "",
+    [TASK_ATTRS.taskLastEditedBy]: task.taskLastEditedBy || "",
+    [TASK_ATTRS.taskLastOpId]: task.taskLastOpId || ""
   });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "siyuan-plugin-task-tracker",
-  "version": "3.5.1",
+  "version": "4.0.0",
   "description": "A SiYuan plugin for task tracking with task-note documents and calendar views.",
   "main": "dist/index.js",
   "scripts": {

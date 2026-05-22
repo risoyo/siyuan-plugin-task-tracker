@@ -13,6 +13,7 @@ export function createTaskSettings(
     setRootDocId: (docId: string) => Promise<void>;
     syncDeletedTasks: () => Promise<void>;
     rebuildTaskIndex: () => Promise<void>;
+    reconcileAffectedTaskSummaries: () => Promise<void>;
     refreshViews: () => void;
   },
   version: string
@@ -54,17 +55,32 @@ export function createTaskSettings(
       }
       await service.store.setSettings({
         defaultProject: defaultProjectInput.value.trim() || undefined,
-        taskTemplate: normalizedTemplate || undefined
+        taskTemplate: normalizedTemplate || undefined,
+        collaborationMode: collaborationModeSelect.value === "single-workspace" ? "single-workspace" : "strict"
       });
       actions.refreshViews();
       showMessage("任务追踪设置已保存");
     }
   });
 
+  const collaborationModeSelect = document.createElement("select");
+  collaborationModeSelect.className = "b3-select fn__block";
+  collaborationModeSelect.innerHTML = `
+    <option value="strict">严格协作</option>
+    <option value="single-workspace">单工作区</option>
+  `;
+  collaborationModeSelect.value = service.store.getSettings().collaborationMode || "strict";
+
   setting.addItem({
     title: "默认项目",
     description: "新建任务时自动填入，可在创建时修改。",
     createActionElement: () => defaultProjectInput
+  });
+
+  setting.addItem({
+    title: "协作模式",
+    description: "严格协作用于多副本同步（桌面/手机），单工作区用于同一后端多会话并发（Docker/浏览器同工作区）。",
+    createActionElement: () => collaborationModeSelect
   });
 
   setting.addItem({
@@ -98,7 +114,7 @@ export function createTaskSettings(
 
   setting.addItem({
     title: "任务维护",
-    description: "清理失效索引，或在换设备/同步异常后从事项库文档重建任务索引。",
+    description: "清理失效索引、刷新/重建任务索引，或显式整理受影响任务摘要（仅处理待整理集合）。",
     createActionElement: () => {
       const wrapper = document.createElement("div");
       wrapper.className = "fn__flex task-tracker-setting__root";
@@ -118,7 +134,15 @@ export function createTaskSettings(
         void actions.rebuildTaskIndex();
       });
 
-      wrapper.append(cleanupButton, rebuildButton);
+      const reconcileButton = document.createElement("button");
+      reconcileButton.className = "b3-button b3-button--outline fn__size200";
+      reconcileButton.textContent = "整理受影响任务摘要";
+      reconcileButton.title = "仅整理 needsReconcile 的任务，不会全库重写";
+      reconcileButton.addEventListener("click", () => {
+        void actions.reconcileAffectedTaskSummaries();
+      });
+
+      wrapper.append(cleanupButton, rebuildButton, reconcileButton);
       return wrapper;
     }
   });
@@ -227,9 +251,11 @@ function showHelpDialog(): void {
   <h2>七、维护与恢复</h2>
   <ul>
     <li><strong>清理已删除任务记录</strong>：移除文档已经不存在的任务索引。</li>
-    <li><strong>从事项库重建任务索引</strong>：扫描事项库下带有任务属性的文档，并重建 <code>tasks.json</code>。</li>
+    <li><strong>刷新索引</strong>：刷新并校正任务索引，不会自动整理任务文档摘要。</li>
+    <li><strong>从事项库重建任务索引</strong>：扫描事项库下带有任务属性的文档，并重建 <code>tasks.json</code> 索引缓存。</li>
+    <li><strong>整理受影响任务摘要</strong>：仅整理被标记为待整理的任务摘要，不会全库重写。</li>
   </ul>
-  <p>插件启动时会等待思源同步状态稳定，再尝试恢复和同步索引。换设备、同步异常或面板显示不完整时，可以手动执行重建。</p>
+  <p>插件启动时会等待思源同步状态稳定，再尝试恢复和刷新索引。换设备、同步异常或面板显示不完整时，可以手动刷新或重建索引；如果是父子展示或摘要过期，再执行“整理受影响任务摘要”。</p>
 
   <h2>八、任务模板占位符</h2>
   <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{description}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>

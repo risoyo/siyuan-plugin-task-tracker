@@ -33,6 +33,7 @@ export class TaskDock {
       openTask: (task: TaskItem) => void;
       openTaskManager: () => void;
       setCurrentDocAsRoot: () => void;
+      canArchive?: boolean;
     },
     options: {
       mode?: TaskDockMode;
@@ -285,6 +286,11 @@ export class TaskDock {
       const newStatus = popoverSelect.dataset.statusValue as TaskStatus | undefined;
       const task = taskId ? this.service.store.get(taskId) : undefined;
       if (!task || !newStatus || newStatus === task.status) {
+        this.closePopover();
+        return;
+      }
+      if (newStatus === "completed" && !task.parentId && this.actions.canArchive === false) {
+        showMessage("当前协作模式下此端不支持顶层归档操作", 4000, "info");
         this.closePopover();
         return;
       }

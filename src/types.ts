@@ -1,6 +1,7 @@
 export type TaskStatus = "todo" | "doing" | "waiting" | "completed" | "cancelled";
 
 export type TaskPriority = "none" | "low" | "medium" | "high";
+export type CollaborationMode = "strict" | "single-workspace";
 
 /** Centralized badge color configuration for each status — Badge + Popover dropdowns. */
 export interface StatusBadgeConfig {
@@ -77,6 +78,12 @@ export interface TaskItem {
   updatedAt: string;
   completedAt?: string;
   description?: string;
+  taskRevision: number;
+  taskLastEditedAt?: string;
+  taskLastEditedBy?: string;
+  taskLastOpId?: string;
+  needsReconcile?: boolean;
+  docUpdated?: string;
 }
 
 export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "planStart" | "completedAt";
@@ -127,15 +134,59 @@ export interface TaskSettings {
   taskRootPath?: string;
   taskRootHPath?: string;
   taskRootTitle?: string;
+  collaborationMode?: CollaborationMode;
   defaultProject?: string;
   taskTemplate?: string;
+  startupSyncGraceMs?: number;
+  // Deprecated shared UI settings kept for migration compatibility only.
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   pageConfigs?: {
     table?: TablePageConfig;
     completed?: CompletedPageConfig;
   };
-  startupSyncGraceMs?: number;
+}
+
+export interface TaskIndexMeta {
+  schemaVersion: number;
+  builtAt: string;
+  lastRootDocId?: string;
+  lastRootPath?: string;
+  lastDocUpdatedMax?: string;
+  corrupt?: boolean;
+}
+
+export interface TaskIndexCacheFile {
+  schemaVersion: number;
+  tasks: TaskItem[];
+  meta: TaskIndexMeta;
+}
+
+export interface TaskLocalPreferences {
+  tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
+  completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
+  pageConfigs?: {
+    table?: TablePageConfig;
+    completed?: CompletedPageConfig;
+  };
+}
+
+export interface TaskRevisionSnapshot {
+  taskId: string;
+  docId: string;
+  revision: number;
+  taskLastOpId?: string;
+}
+
+export interface UpdateTaskOptions {
+  expectedRevision?: number;
+  opId?: string;
+  editorId?: string;
+}
+
+export interface StructureTransactionOptions {
+  opId?: string;
+  editorId?: string;
 }
 
 export interface TaskCreateInput {
@@ -178,7 +229,9 @@ export interface BlockRow {
 export const TASKS_DATA_FILE = "tasks.json";
 export const SETTINGS_DATA_FILE = "settings.json";
 
-export const DEFAULT_SETTINGS: TaskSettings = {};
+export const DEFAULT_SETTINGS: TaskSettings = {
+  collaborationMode: "strict"
+};
 
 export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 
@@ -241,13 +294,22 @@ export const TASK_ATTRS = {
   sourceBlockId: "custom-task-tracker-source",
   sourceDocId: "custom-task-tracker-source-doc",
   sourceText: "custom-task-tracker-source-text",
-  description: "custom-task-tracker-description"
+  description: "custom-task-tracker-description",
+  taskRevision: "custom-task-tracker-revision",
+  taskLastEditedAt: "custom-task-tracker-last-edited-at",
+  taskLastEditedBy: "custom-task-tracker-last-edited-by",
+  taskLastOpId: "custom-task-tracker-last-op-id"
 } as const;
+
+export const TASK_INDEX_SCHEMA_VERSION = 4;
 
 export const REPORT_ATTRS = {
   kind: "custom-task-tracker-doc-kind"
 } as const;
 
 export const WEEKLY_REPORT_KIND = "weekly-report";
+export const WEEKLY_REPORT_ROOT_KIND = "weekly-report-root";
+export const ARCHIVE_ROOT_KIND = "archive-root";
+export const ARCHIVE_WEEK_KIND = "archive-week";
 
 export const SOURCE_TASK_IDS_ATTR = "custom-task-tracker-task-ids";

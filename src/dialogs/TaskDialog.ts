@@ -1,5 +1,5 @@
 import { Dialog, getFrontend, showMessage } from "siyuan";
-import { formatDateKey, fromDatetimeLocal, toDatetimeLocal } from "../date";
+import { formatDateKey, fromDatetimeLocal, newSiyuanId, toDatetimeLocal } from "../date";
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import {
@@ -21,6 +21,7 @@ export interface TaskDialogOptions {
   presetTitle?: string;
   presetPlanDate?: string;
   task?: TaskItem;
+  allowStructureEdit?: boolean;
   onSaved?: (task: TaskItem) => void;
   onOpenTask?: (task: TaskItem) => void;
 }
@@ -189,6 +190,15 @@ export class TaskDialog {
   show(): void {
     const editingTask = this.options.task;
     const editMode = Boolean(editingTask);
+    const allowStructureEdit = this.options.allowStructureEdit !== false;
+    let revisionCursor = editingTask?.taskRevision ?? 0;
+    if (editMode && editingTask) {
+      void this.options.service.readTaskRevisionSnapshot(editingTask.docId, editingTask.id)
+        .then((snapshot) => {
+          revisionCursor = snapshot.revision;
+        })
+        .catch(() => undefined);
+    }
     const editSource = editingTask
       ? {
         blockId: editingTask.sourceBlockId,
@@ -304,7 +314,14 @@ export class TaskDialog {
               <span class="task-tracker-dialog-v3__parent-hint">当前任务将作为所选父任务的子任务</span>
             </div>
             <input type="hidden" name="parentId" value="${escapeAttr(defaultParentId)}" />`
-            : buildComboboxSelect("parentId", defaultParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml)
+            : (!allowStructureEdit && editMode
+              ? `<div class="task-tracker-dialog-v3__parent-locked">
+              <span class="task-tracker-dialog-v3__parent-icon">${ICONS.hierarchy}</span>
+              <span class="task-tracker-dialog-v3__parent-text">${escapeHtml(activeTasks.find((t) => t.id === defaultParentId)?.title || "无（顶层任务）")}</span>
+              <span class="task-tracker-dialog-v3__parent-hint">当前端仅支持轻编辑，不可修改父任务关系</span>
+            </div>
+            <input type="hidden" name="parentId" value="${escapeAttr(defaultParentId)}" />`
+              : buildComboboxSelect("parentId", defaultParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml))
           }
         </label>
       </div>
@@ -663,7 +680,11 @@ export class TaskDialog {
       detailDirty = false;
       setDetailStatus("正在保存正文详情...");
       try {
-        await this.options.service.saveTaskDetail(editingTask.docId, value);
+        const saved = await this.options.service.saveTaskDetailByTaskId(editingTask.id, value, {
+          expectedRevision: revisionCursor,
+          opId: newSiyuanId()
+        });
+        revisionCursor = saved.taskRevision;
         detailLoadedValue = value;
         setDetailStatus("任务详情已保存到正文。", false);
       } catch (error) {
@@ -845,6 +866,7 @@ export class TaskDialog {
       submitButton.textContent = submittingLabel;
 
       try {
+        const opId = newSiyuanId();
         const data = new FormData(form);
         if (sourceMode === "note") {
           await applyDocIdSource();
@@ -873,9 +895,28 @@ export class TaskDialog {
         if (editMode && editingTask && detailTextarea && detailTextarea.value !== detailLoadedValue) {
           await saveDetail(true);
         }
-        const task = editMode && editingTask
-          ? await this.options.service.updateTask(editingTask.id, input)
-          : await this.options.service.createTask(input);
+        let task: TaskItem;
+        if (editMode && editingTask) {
+          const parentChanged = (input.parentId || undefined) !== (editingTask.parentId || undefined);
+          if (parentChanged && !allowStructureEdit) {
+            throw new Error("当前端仅支持轻编辑，不可修改父任务关系");
+          }
+          const updatePatch: Partial<TaskItem> = {
+            ...input,
+            parentId: editingTask.parentId
+          };
+          task = await this.options.service.updateTask(editingTask.id, updatePatch, {
+            expectedRevision: revisionCursor,
+            opId
+          });
+          revisionCursor = task.taskRevision;
+          if (parentChanged) {
+            task = await this.options.service.changeTaskParent(editingTask.id, input.parentId, { opId });
+            revisionCursor = task.taskRevision;
+          }
+        } else {
+          task = await this.options.service.createTask(input);
+        }
         showMessage(editMode ? "任务已更新" : "任务文档已创建");
         this.options.onSaved?.(task);
         cleanupDialog();
