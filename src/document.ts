@@ -656,12 +656,6 @@ export class TaskService {
       }
     }
 
-    for (const snapshot of snapshots.values()) {
-      if (snapshot.taskLastOpId === opId) {
-        return;
-      }
-    }
-
     await action();
 
     const verify = await this.collectRevisionSnapshots(payload.affectedTaskIds);
@@ -1414,13 +1408,18 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>): TaskItem {
 function normalizeRecoveredTitle(doc: BlockRow): string {
   const title = doc.content?.trim();
   if (title) {
-    return title;
+    return stripTaskTitlePrefix(title);
   }
   const fromPath = doc.path.split("/").pop()?.replace(/\.sy$/i, "").trim();
   if (!fromPath) {
     return doc.id;
   }
-  return fromPath.replace(/^\d{4}-/u, "").trim() || fromPath;
+  const normalized = stripTaskTitlePrefix(fromPath);
+  return normalized || fromPath;
+}
+
+function stripTaskTitlePrefix(value: string): string {
+  return value.replace(/^\d{4}-/u, "").trim();
 }
 
 function normalizeTaskStatus(value?: string): TaskItem["status"] {
@@ -1789,7 +1788,7 @@ function collectLegacySpecialContainerDocIds(candidates: BlockRow[], settings: T
       result.add(doc.id);
       continue;
     }
-    if (archiveRootPath && parentTaskPath(normalizedPath) === archiveRootPath && /^\d{4}-\d{2}-\d{2}$/.test(title)) {
+    if (archiveRootPath && parentTaskPath(normalizedPath) === archiveRootPath && /^\d{4}-\d{2}(?:-\d{2})?$/.test(title)) {
       result.add(doc.id);
     }
   }

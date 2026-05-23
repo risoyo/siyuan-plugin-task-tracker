@@ -593,6 +593,7 @@
 .task-manager-table__row--child .task-manager-table__task-text {
   color: #475569;
   font-weight: 400;
+  margin-left: -20px;
 }
 
 .task-manager-table__child-count {
@@ -2247,6 +2248,7 @@
   color: #475569;
   font-size: 12px;
   font-weight: 400;
+  margin-left: -20px;
 }
 
 .task-tracker-dock__task--child .task-tracker-dock__task-title:hover {

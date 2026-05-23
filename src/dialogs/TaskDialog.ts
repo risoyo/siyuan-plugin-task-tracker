@@ -448,6 +448,10 @@ export class TaskDialog {
     const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
+    const comboboxValues = new Map<string, string>([
+      ["project", defaultProject],
+      ["parentId", defaultParentId]
+    ]);
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     const shouldAutoFocusTitle = !(isMobileFrontend && editMode);
     if (shouldAutoFocusTitle) {
@@ -528,6 +532,7 @@ export class TaskDialog {
       };
 
       const updateDisplay = (val: string, label: string) => {
+        comboboxValues.set(name, val);
         if (input) {
           input.value = val;
         }
@@ -875,11 +880,11 @@ export class TaskDialog {
         }
         const input: TaskCreateInput = {
           title: String(data.get("title") || "").trim(),
-          parentId: String(data.get("parentId") || "") || undefined,
+          parentId: (comboboxValues.get("parentId") ?? String(data.get("parentId") || "")) || undefined,
           sourceBlockId: selectedSource?.blockId,
           sourceDocId: selectedSource?.docId,
           sourceText: selectedSource?.text,
-          project: String(data.get("project") || "").trim() || undefined,
+          project: String(comboboxValues.get("project") ?? data.get("project") ?? "").trim() || undefined,
           status: String(data.get("status") || "todo") as TaskStatus,
           priority: String(data.get("priority") || "medium") as TaskPriority,
           dueDate: String(data.get("dueDate") || "") || undefined,
