@@ -354,7 +354,8 @@ export class TaskService {
     await this.runStructureTransaction(
       {
         rootTaskId: id,
-        affectedTaskIds: Array.from(new Set([...ids, ...parentIds]))
+        affectedTaskIds: Array.from(new Set([...ids, ...parentIds])),
+        removedTaskIds: ids
       },
       async () => {
         await deleteTaskDocuments(selectedTasks);
@@ -639,12 +640,14 @@ export class TaskService {
     payload: {
       rootTaskId: string;
       affectedTaskIds: string[];
+      removedTaskIds?: string[];
     },
     action: () => Promise<void>,
     options: StructureTransactionOptions = {}
   ): Promise<void> {
     const opId = options.opId || defaultOpId();
     const editorId = options.editorId || defaultEditorId();
+    const removedTaskIds = new Set(payload.removedTaskIds || []);
     const snapshots = await this.collectRevisionSnapshots(payload.affectedTaskIds);
     for (const [taskId, snapshot] of snapshots.entries()) {
       const cached = this.store.get(taskId);
@@ -658,10 +661,19 @@ export class TaskService {
 
     await action();
 
-    const verify = await this.collectRevisionSnapshots(payload.affectedTaskIds);
+    const verify = await this.collectRevisionSnapshots(
+      payload.affectedTaskIds.filter((taskId) => !removedTaskIds.has(taskId))
+    );
     for (const [taskId, before] of snapshots.entries()) {
       const current = this.store.get(taskId);
       if (!current) {
+        continue;
+      }
+      if (removedTaskIds.has(taskId)) {
+        const removed = await waitForTaskDocumentsRemoved([current.docId], { attempts: 12, delayMs: 120 });
+        if (!removed) {
+          throw new Error(`结构操作完成后仍可读取已删除任务文档：${current.title}`);
+        }
         continue;
       }
       const after = verify.get(taskId);
@@ -1292,7 +1304,7 @@ async function deleteTaskDocuments(tasks: TaskItem[]): Promise<void> {
     });
   }
 
-  await waitForTaskDocumentsRemoved(documents.map((doc) => doc.docId));
+  await waitForTaskDocumentsRemoved(documents.map((doc) => doc.docId), { attempts: 12, delayMs: 120 });
 }
 
 async function resolveTaskDocuments(tasks: TaskItem[]): Promise<Array<{ taskId: string; docId: string; title: string; notebookId: string; path: string; key: string; exists: boolean }>> {
@@ -1323,14 +1335,20 @@ async function resolveTaskDocuments(tasks: TaskItem[]): Promise<Array<{ taskId: 
   return documents;
 }
 
-async function waitForTaskDocumentsRemoved(docIds: string[]): Promise<void> {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+async function waitForTaskDocumentsRemoved(
+  docIds: string[],
+  options: { attempts?: number; delayMs?: number } = {}
+): Promise<boolean> {
+  const attempts = options.attempts ?? 4;
+  const delayMs = options.delayMs ?? 80;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const exists = await Promise.all(docIds.map(taskDocumentExists));
     if (exists.every((value) => !value)) {
-      return;
+      return true;
     }
-    await delay(80);
+    await delay(delayMs);
   }
+  return false;
 }
 
 async function taskDocumentExists(docId: string): Promise<boolean> {

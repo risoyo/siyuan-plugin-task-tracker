@@ -136,7 +136,7 @@ export function createTaskSettings(
     "warning",
     "iconTrashcan",
     "清理已删除任务记录",
-    "清理失效索引和已删除的任务记录",
+    "清理文档已不存在的失效任务索引",
     () => {
       void actions.syncDeletedTasks();
     }
@@ -145,22 +145,22 @@ export function createTaskSettings(
     "primary",
     "iconRefresh",
     "从事项库重建任务索引",
-    "扫描事项库重建任务索引和关系",
+    "重新扫描事项库中的任务文档并重建索引",
     () => {
       void actions.rebuildTaskIndex();
     }
   );
-  rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
+  rebuildButton.title = "重新扫描事项库中的可识别任务文档，重建任务索引缓存";
   const reconcileButton = buildMaintenanceAction(
     "success",
     "iconList",
     "整理受影响任务摘要",
-    "整理任务受影响情况并生成摘要",
+    "仅整理待整理任务的摘要展示",
     () => {
       void actions.reconcileAffectedTaskSummaries();
     }
   );
-  reconcileButton.title = "仅整理 needsReconcile 的任务，不会全库重写";
+  reconcileButton.title = "仅整理被标记为待整理的任务摘要，不会全库重写";
   maintenanceGrid.append(cleanupButton, rebuildButton, reconcileButton);
 
   setting.addItem({
@@ -170,7 +170,7 @@ export function createTaskSettings(
     actionElement: buildSettingsCard({
       icon: "iconTaskTracker",
       title: "任务维护",
-      description: "清理索引、重建索引，或整理受影响的任务摘要。",
+      description: "清理失效索引、重建任务索引，或整理待处理的任务摘要。",
       actionElement: maintenanceGrid,
       className: "task-settings-card--stacked"
     })
@@ -468,10 +468,10 @@ function showHelpDialog(): void {
   <ul>
     <li><strong>清理已删除任务记录</strong>：移除文档已经不存在的任务索引。</li>
     <li><strong>刷新索引</strong>：刷新并校正任务索引，不会自动整理任务文档摘要。</li>
-    <li><strong>从事项库重建任务索引</strong>：扫描事项库下带有任务属性的文档，并重建 <code>tasks.json</code> 索引缓存。</li>
+    <li><strong>从事项库重建任务索引</strong>：重新扫描事项库中的可识别任务文档，重建 <code>tasks.json</code> 索引缓存；会跳过周报、已完成等容器性文档。</li>
     <li><strong>整理受影响任务摘要</strong>：仅整理被标记为待整理的任务摘要，不会全库重写。</li>
   </ul>
-  <p>插件启动时会等待思源同步状态稳定，再尝试恢复和刷新索引。换设备、同步异常或面板显示不完整时，可以手动刷新或重建索引；如果是父子展示或摘要过期，再执行“整理受影响任务摘要”。</p>
+  <p>插件启动时会等待思源同步状态稳定，再尝试恢复和刷新索引。换设备、同步异常、任务列表不完整时，可以先“刷新索引”或“从事项库重建任务索引”；如果任务都在，但父子展示、任务概要或派生摘要过期，再执行“整理受影响任务摘要”。</p>
 
   <h2>八、任务模板占位符</h2>
   <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{description}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>
