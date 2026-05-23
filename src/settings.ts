@@ -10,6 +10,7 @@ export function createTaskSettings(
   service: TaskService,
   actions: {
     setCurrentDocAsRoot: () => Promise<void>;
+    openTaskRootDoc: () => Promise<void>;
     setRootDocId: (docId: string) => Promise<void>;
     syncDeletedTasks: () => Promise<void>;
     rebuildTaskIndex: () => Promise<void>;
@@ -18,32 +19,25 @@ export function createTaskSettings(
   },
   version: string
 ): Setting {
+  const settingsState = service.store.getSettings();
   const defaultProjectInput = document.createElement("input");
-  defaultProjectInput.className = "b3-text-field fn__block";
+  defaultProjectInput.className = "b3-text-field fn__block task-settings-control task-settings-input";
   defaultProjectInput.placeholder = "例如：工作 / 产品 / 客户A";
-  defaultProjectInput.value = service.store.getSettings().defaultProject || "";
+  defaultProjectInput.value = settingsState.defaultProject || "";
 
   const rootDocIdInput = document.createElement("input");
-  rootDocIdInput.className = "b3-text-field fn__block task-tracker-setting__doc-id";
+  rootDocIdInput.className = "b3-text-field fn__block task-settings-control task-settings-input task-settings-doc-id";
   rootDocIdInput.placeholder = "粘贴文档 ID，例如：20260506092200-qynf33g";
-  rootDocIdInput.value = service.store.getSettings().taskRootDocId || "";
+  rootDocIdInput.value = settingsState.taskRootDocId || "";
+  rootDocIdInput.title = rootDocIdInput.value || "";
+  rootDocIdInput.addEventListener("input", () => {
+    rootDocIdInput.title = rootDocIdInput.value || "";
+  });
 
   const templateInput = document.createElement("textarea");
-  templateInput.className = "b3-text-field fn__block task-tracker-setting__template";
+  templateInput.className = "b3-text-field fn__block task-settings-template-editor";
   templateInput.spellcheck = false;
-  templateInput.value = service.store.getSettings().taskTemplate || DEFAULT_TASK_TEMPLATE;
-
-  const templateManagedHint = document.createElement("div");
-  templateManagedHint.className = "task-tracker-setting__template-managed";
-  templateManagedHint.innerHTML = `
-    <div><strong>插件管理的正文交互字段</strong></div>
-    <ul>
-      <li>${MANAGED_SUMMARY_HINT}</li>
-      <li><code>{{description}}</code>：对应任务描述，属于任务元信息字段。</li>
-      <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
-    </ul>
-    <div>保存模板时会校验是否仍保留插件管理所需字段；如果缺少必要字段，将拒绝保存并提示补回。</div>
-  `;
+  templateInput.value = settingsState.taskTemplate || DEFAULT_TASK_TEMPLATE;
 
   const setting = new Setting({
     confirmCallback: async () => {
@@ -64,136 +58,358 @@ export function createTaskSettings(
   });
 
   const collaborationModeSelect = document.createElement("select");
-  collaborationModeSelect.className = "b3-select fn__block";
+  collaborationModeSelect.className = "b3-select fn__block task-settings-control task-settings-select";
   collaborationModeSelect.innerHTML = `
     <option value="strict">严格协作</option>
     <option value="single-workspace">单工作区</option>
   `;
-  collaborationModeSelect.value = service.store.getSettings().collaborationMode || "strict";
+  collaborationModeSelect.value = settingsState.collaborationMode || "strict";
 
+  const header = buildSettingsHeader(() => showHelpDialog());
   setting.addItem({
-    title: "默认项目",
-    description: "新建任务时自动填入，可在创建时修改。",
-    createActionElement: () => defaultProjectInput
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: header
   });
 
   setting.addItem({
-    title: "协作模式",
-    description: "严格协作用于多副本同步（桌面/手机），单工作区用于同一后端多会话并发（Docker/浏览器同工作区）。",
-    createActionElement: () => collaborationModeSelect
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconEdit",
+      title: "默认项目",
+      description: "新建任务时自动填入，可在创建时修改。",
+      actionElement: defaultProjectInput
+    })
   });
 
   setting.addItem({
-    title: "事项库",
-    description: service.store.getSettings().taskRootTitle
-      ? `当前：${service.store.getSettings().taskRootTitle}`
-      : "尚未设置。请在文档菜单中复制 ID，粘贴到右侧后绑定。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "fn__flex task-tracker-setting__root";
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconSettings",
+      title: "协作模式",
+      description: "严格协作用于多副本同步（桌面/手机），单工作区用于同一后端多会话并发。",
+      actionElement: collaborationModeSelect
+    })
+  });
 
-      const bindButton = document.createElement("button");
-      bindButton.className = "b3-button b3-button--outline fn__size160";
-      bindButton.textContent = "绑定 ID";
-      bindButton.addEventListener("click", () => {
-        void actions.setRootDocId(rootDocIdInput.value);
-      });
+  const rootRow = document.createElement("div");
+  rootRow.className = "task-settings-root-row";
 
-      const currentButton = document.createElement("button");
-      currentButton.className = "b3-button b3-button--outline fn__size160";
-      currentButton.textContent = "当前文档";
-      currentButton.title = "快捷设置，若识别失败请使用文档 ID";
-      currentButton.addEventListener("click", () => {
-        void actions.setCurrentDocAsRoot();
-      });
+  const bindButton = document.createElement("button");
+  bindButton.className = "b3-button b3-button--outline task-settings-btn task-settings-btn--outline";
+  bindButton.textContent = "绑定 ID";
+  bindButton.addEventListener("click", () => {
+    void actions.setRootDocId(rootDocIdInput.value);
+  });
 
-      wrapper.append(rootDocIdInput, bindButton, currentButton);
-      return wrapper;
+  const openButton = document.createElement("button");
+  openButton.className = "b3-button b3-button--outline task-settings-btn task-settings-btn--outline";
+  openButton.textContent = "打开文档";
+  openButton.title = "打开当前事项库文档";
+  openButton.addEventListener("click", () => {
+    void actions.openTaskRootDoc();
+  });
+
+  rootRow.append(rootDocIdInput, bindButton, openButton);
+
+  setting.addItem({
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconFolder",
+      title: "事项库",
+      description: "存储所有任务和项目的根目录。",
+      actionElement: rootRow
+    })
+  });
+
+  const maintenanceGrid = document.createElement("div");
+  maintenanceGrid.className = "task-settings-maintenance-grid";
+
+  const cleanupButton = buildMaintenanceAction(
+    "warning",
+    "iconTrashcan",
+    "清理已删除任务记录",
+    "清理失效索引和已删除的任务记录",
+    () => {
+      void actions.syncDeletedTasks();
     }
-  });
+  );
+  const rebuildButton = buildMaintenanceAction(
+    "primary",
+    "iconRefresh",
+    "从事项库重建任务索引",
+    "扫描事项库重建任务索引和关系",
+    () => {
+      void actions.rebuildTaskIndex();
+    }
+  );
+  rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
+  const reconcileButton = buildMaintenanceAction(
+    "success",
+    "iconList",
+    "整理受影响任务摘要",
+    "整理任务受影响情况并生成摘要",
+    () => {
+      void actions.reconcileAffectedTaskSummaries();
+    }
+  );
+  reconcileButton.title = "仅整理 needsReconcile 的任务，不会全库重写";
+  maintenanceGrid.append(cleanupButton, rebuildButton, reconcileButton);
 
   setting.addItem({
-    title: "任务维护",
-    description: "清理失效索引、刷新/重建任务索引，或显式整理受影响任务摘要（仅处理待整理集合）。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "fn__flex task-tracker-setting__root";
-
-      const cleanupButton = document.createElement("button");
-      cleanupButton.className = "b3-button b3-button--outline fn__size200";
-      cleanupButton.textContent = "清理已删除任务记录";
-      cleanupButton.addEventListener("click", () => {
-        void actions.syncDeletedTasks();
-      });
-
-      const rebuildButton = document.createElement("button");
-      rebuildButton.className = "b3-button b3-button--outline fn__size200";
-      rebuildButton.textContent = "从事项库重建任务索引";
-      rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
-      rebuildButton.addEventListener("click", () => {
-        void actions.rebuildTaskIndex();
-      });
-
-      const reconcileButton = document.createElement("button");
-      reconcileButton.className = "b3-button b3-button--outline fn__size200";
-      reconcileButton.textContent = "整理受影响任务摘要";
-      reconcileButton.title = "仅整理 needsReconcile 的任务，不会全库重写";
-      reconcileButton.addEventListener("click", () => {
-        void actions.reconcileAffectedTaskSummaries();
-      });
-
-      wrapper.append(cleanupButton, rebuildButton, reconcileButton);
-      return wrapper;
-    }
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconTaskTracker",
+      title: "任务维护",
+      description: "清理索引、重建索引，或整理受影响的任务摘要。",
+      actionElement: maintenanceGrid,
+      className: "task-settings-card--stacked"
+    })
   });
+
+  const templateWrapper = document.createElement("div");
+  templateWrapper.className = "task-settings-template-wrap";
+
+  const templateTop = document.createElement("div");
+  templateTop.className = "task-settings-template-top";
+
+  const resetButton = document.createElement("button");
+  resetButton.className = "b3-button b3-button--outline task-settings-btn task-settings-btn--outline";
+  resetButton.textContent = "恢复默认模板";
+  resetButton.addEventListener("click", () => {
+    templateInput.value = DEFAULT_TASK_TEMPLATE;
+  });
+  templateTop.append(resetButton);
+
+  const variableRow = document.createElement("div");
+  variableRow.className = "task-settings-template-tags";
+  const variableLabel = document.createElement("span");
+  variableLabel.className = "task-settings-template-tags__label";
+  variableLabel.textContent = "可用变量：";
+  variableRow.append(variableLabel);
+  [
+    "{{project}}",
+    "{{status}}",
+    "{{source}}",
+    "{{priority}}",
+    "{{createdAt}}",
+    "{{parent}}",
+    "{{childTasks}}",
+    "{{description}}"
+  ].forEach((token) => {
+    const tag = document.createElement("span");
+    tag.className = "task-settings-template-tag";
+    tag.textContent = token;
+    variableRow.append(tag);
+  });
+
+  templateWrapper.append(templateTop, templateInput, variableRow);
 
   setting.addItem({
-    title: "任务模板",
-    description: "新建任务文档时使用。模板中的任务概要受控区与任务详情正文分区会由插件持续管理。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "task-tracker-setting__template-wrap";
-
-      const actionsRow = document.createElement("div");
-      actionsRow.className = "fn__flex task-tracker-setting__template-actions";
-
-      const resetButton = document.createElement("button");
-      resetButton.className = "b3-button b3-button--outline";
-      resetButton.textContent = "恢复默认模板";
-      resetButton.addEventListener("click", () => {
-        templateInput.value = DEFAULT_TASK_TEMPLATE;
-      });
-
-      actionsRow.append(resetButton);
-      wrapper.append(templateInput, templateManagedHint, actionsRow);
-      return wrapper;
-    }
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconFile",
+      title: "任务模板",
+      description: "新建任务文档时使用的模板，支持 Markdown 语法和变量占位符。",
+      actionElement: templateWrapper,
+      className: "task-settings-card--stacked"
+    })
   });
+
+  const helpButton = document.createElement("button");
+  helpButton.className = "b3-button b3-button--outline task-settings-btn task-settings-btn--outline";
+  helpButton.textContent = "打开使用帮助";
+  helpButton.addEventListener("click", () => showHelpDialog());
 
   setting.addItem({
-    title: "使用帮助",
-    description: "查看事项库设置、任务创建、任务控制面板、任务维护、模板占位符和版本规则。",
-    createActionElement: () => {
-      const button = document.createElement("button");
-      button.className = "b3-button b3-button--outline fn__size200";
-      button.textContent = "打开使用帮助";
-      button.addEventListener("click", () => showHelpDialog());
-      return button;
-    }
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconHelp",
+      title: "使用帮助",
+      description: "查看插件使用说明、常见问题和操作指南。",
+      actionElement: helpButton
+    })
   });
+
+  const pluginInfo = document.createElement("div");
+  pluginInfo.className = "task-settings-plugin-info";
+
+  const checkUpdate = document.createElement("button");
+  checkUpdate.className = "task-settings-link-btn";
+  checkUpdate.textContent = "检查更新";
+  checkUpdate.addEventListener("click", () => {
+    window.open("https://github.com/risoyo/siyuan-plugin-task-tracker/releases", "_blank", "noopener,noreferrer");
+  });
+
+  const versionValue = document.createElement("div");
+  versionValue.className = "task-settings-version";
+  versionValue.textContent = `v${version}`;
+  pluginInfo.append(checkUpdate, versionValue);
 
   setting.addItem({
-    title: "插件版本",
-    description: `当前版本：v${version}`,
-    createActionElement: () => {
-      const value = document.createElement("div");
-      value.className = "task-tracker-setting__version";
-      value.textContent = `v${version}`;
-      return value;
-    }
+    title: "",
+    description: "",
+    direction: "column",
+    actionElement: buildSettingsCard({
+      icon: "iconInfo",
+      title: "插件信息",
+      description: `当前版本：v${version}`,
+      actionElement: pluginInfo
+    })
   });
 
+  mountSettingDialogSkin();
   return setting;
+}
+
+function buildSettingsHeader(openHelp: () => void): HTMLElement {
+  const shell = document.createElement("div");
+  shell.className = "task-tracker-settings-shell";
+  shell.innerHTML = `
+    <div class="task-tracker-settings-shell__main">
+      <h1 class="task-tracker-settings-shell__title">任务追踪设置</h1>
+      <p class="task-tracker-settings-shell__subtitle">配置任务追踪插件的各项参数</p>
+    </div>
+    <div class="task-tracker-settings-shell__actions"></div>
+  `;
+
+  const actions = shell.querySelector<HTMLElement>(".task-tracker-settings-shell__actions");
+  if (!actions) {
+    return shell;
+  }
+
+  const helpButton = document.createElement("button");
+  helpButton.className = "task-settings-header-link";
+  helpButton.innerHTML = `<svg><use xlink:href="#iconHelp"></use></svg><span>使用帮助</span>`;
+  helpButton.addEventListener("click", () => openHelp());
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "task-settings-header-close";
+  closeButton.type = "button";
+  closeButton.setAttribute("aria-label", "关闭");
+  closeButton.textContent = "✕";
+  closeButton.addEventListener("click", () => {
+    const dialog = shell.closest(".b3-dialog");
+    const close = dialog?.querySelector<HTMLElement>(".b3-dialog__close, [data-type='close']");
+    close?.click();
+  });
+
+  actions.append(helpButton, closeButton);
+  return shell;
+}
+
+function buildSettingsCard(options: {
+  icon: string;
+  title: string;
+  description: string;
+  actionElement: HTMLElement;
+  className?: string;
+}): HTMLElement {
+  const card = document.createElement("section");
+  card.className = `task-settings-card ${options.className || ""}`.trim();
+  card.innerHTML = `
+    <div class="task-settings-card__meta">
+      <span class="task-settings-card__icon"><svg><use xlink:href="#${options.icon}"></use></svg></span>
+      <div class="task-settings-card__text">
+        <h3 class="task-settings-card__title"></h3>
+        <p class="task-settings-card__desc"></p>
+      </div>
+    </div>
+    <div class="task-settings-card__action"></div>
+  `;
+  const title = card.querySelector<HTMLElement>(".task-settings-card__title");
+  const desc = card.querySelector<HTMLElement>(".task-settings-card__desc");
+  const action = card.querySelector<HTMLElement>(".task-settings-card__action");
+  if (title) {
+    title.textContent = options.title;
+  }
+  if (desc) {
+    desc.textContent = options.description;
+  }
+  if (action) {
+    action.append(options.actionElement);
+  }
+  return card;
+}
+
+function buildMaintenanceAction(
+  tone: "warning" | "primary" | "success",
+  icon: string,
+  title: string,
+  desc: string,
+  onClick: () => void
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = `task-settings-maintenance-item task-settings-maintenance-item--${tone}`;
+  button.type = "button";
+  button.innerHTML = `
+    <span class="task-settings-maintenance-item__icon"><svg><use xlink:href="#${icon}"></use></svg></span>
+    <span class="task-settings-maintenance-item__body">
+      <span class="task-settings-maintenance-item__title"></span>
+      <span class="task-settings-maintenance-item__desc"></span>
+    </span>
+  `;
+  const titleEl = button.querySelector<HTMLElement>(".task-settings-maintenance-item__title");
+  const descEl = button.querySelector<HTMLElement>(".task-settings-maintenance-item__desc");
+  if (titleEl) {
+    titleEl.textContent = title;
+  }
+  if (descEl) {
+    descEl.textContent = desc;
+  }
+  button.addEventListener("click", () => onClick());
+  return button;
+}
+
+function mountSettingDialogSkin(): void {
+  const apply = () => {
+    const shell = document.querySelector<HTMLElement>(".task-tracker-settings-shell");
+    if (!shell) {
+      return false;
+    }
+    const dialog = shell.closest<HTMLElement>(".b3-dialog");
+    if (!dialog) {
+      return false;
+    }
+    dialog.classList.add("task-tracker-settings-dialog");
+    const actionBar = dialog.querySelector<HTMLElement>(".b3-dialog__action");
+    if (actionBar) {
+      const buttons = Array.from(actionBar.querySelectorAll<HTMLButtonElement>("button"));
+      for (const button of buttons) {
+        const text = (button.textContent || "").trim();
+        if (text === "确定" || text.toLowerCase() === "ok" || text === "保存") {
+          button.textContent = "保存设置";
+          button.classList.add("task-tracker-settings-dialog__confirm");
+        } else if (text === "取消") {
+          button.textContent = "取消";
+          button.classList.add("task-tracker-settings-dialog__cancel");
+        }
+      }
+    }
+    return true;
+  };
+
+  if (apply()) {
+    return;
+  }
+  for (let i = 1; i <= 12; i += 1) {
+    window.setTimeout(() => {
+      apply();
+    }, i * 80);
+  }
 }
 
 function validateTaskTemplate(template: string): string | undefined {

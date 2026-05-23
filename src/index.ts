@@ -193,6 +193,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private createSettingPanel(): Setting {
     return createTaskSettings(this.service, {
       setCurrentDocAsRoot: () => this.setCurrentDocAsRoot(),
+      openTaskRootDoc: () => this.openTaskRootDoc(),
       setRootDocId: (docId: string) => this.setRootDocId(docId),
       syncDeletedTasks: () => this.syncDeletedTasks(),
       rebuildTaskIndex: () => this.rebuildTaskIndex(),
@@ -305,6 +306,16 @@ export default class TaskTrackerPlugin extends Plugin {
       return;
     }
     await this.setRootDocId(docId);
+  }
+
+  private async openTaskRootDoc(): Promise<void> {
+    await this.ready;
+    const rootDocId = this.store.getSettings().taskRootDocId;
+    if (!rootDocId) {
+      showMessage("尚未设置事项库，请先绑定事项库文档", 4000, "info");
+      return;
+    }
+    this.openDocById(rootDocId);
   }
 
   private async setRootDocId(docId: string): Promise<void> {
@@ -442,7 +453,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private refreshViews(): void {
     this.taskDock?.render();
     for (const view of this.managerViews.values()) {
-      view.render();
+      view.render({ preserveScroll: true });
     }
   }
 

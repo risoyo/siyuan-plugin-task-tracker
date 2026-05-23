@@ -212,7 +212,7 @@ export class TaskManagerTab {
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
   private resizeCleanup?: () => void;
-  private pendingTableScrollRestore?: { bodyTop: number; bodyLeft: number; wrapTop: number; wrapLeft: number };
+  private pendingScrollRestore?: { bodyTop: number; bodyLeft: number; wrapTop: number; wrapLeft: number };
   private pendingTableFocusTaskId?: string;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
@@ -248,7 +248,7 @@ export class TaskManagerTab {
     const localPrefs = this.service.store.getLocalPreferences();
     this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, localPrefs.tableColumnWidths);
     this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, localPrefs.completedTableColumnWidths);
-    this.unsubscribe = this.service.onChange(() => this.render({ preserveTableScroll: this.view === "table" }));
+    this.unsubscribe = this.service.onChange(() => this.render({ preserveScroll: true }));
   }
 
   destroy(): void {
@@ -263,11 +263,11 @@ export class TaskManagerTab {
     this.container.removeEventListener("compositionend", this.compositionEndListener);
   }
 
-  render(options: { preserveTableScroll?: boolean } = {}): void {
-    if (options.preserveTableScroll && this.view === "table") {
-      this.captureTableScrollPosition();
+  render(options: { preserveScroll?: boolean } = {}): void {
+    if (options.preserveScroll) {
+      this.captureScrollPosition();
     } else {
-      this.pendingTableScrollRestore = undefined;
+      this.pendingScrollRestore = undefined;
     }
 
     const tasks = this.tasksForCurrentView();
@@ -280,17 +280,17 @@ export class TaskManagerTab {
 </div>`;
 
     this.bind();
-    this.restoreTableScrollPosition();
+    this.restoreScrollPosition();
   }
 
-  private captureTableScrollPosition(): void {
+  private captureScrollPosition(): void {
     const body = this.container.querySelector<HTMLElement>(".task-manager__body");
     const wrap = this.container.querySelector<HTMLElement>(".task-manager-table-wrap");
     if (!body && !wrap) {
-      this.pendingTableScrollRestore = undefined;
+      this.pendingScrollRestore = undefined;
       return;
     }
-    this.pendingTableScrollRestore = {
+    this.pendingScrollRestore = {
       bodyTop: body?.scrollTop || 0,
       bodyLeft: body?.scrollLeft || 0,
       wrapTop: wrap?.scrollTop || 0,
@@ -298,28 +298,26 @@ export class TaskManagerTab {
     };
   }
 
-  private restoreTableScrollPosition(): void {
-    if (this.view !== "table") {
-      this.pendingTableScrollRestore = undefined;
-      this.pendingTableFocusTaskId = undefined;
-      return;
-    }
+  private restoreScrollPosition(): void {
     const body = this.container.querySelector<HTMLElement>(".task-manager__body");
     const wrap = this.container.querySelector<HTMLElement>(".task-manager-table-wrap");
-    if (body && this.pendingTableScrollRestore) {
-      body.scrollTop = this.pendingTableScrollRestore.bodyTop;
-      body.scrollLeft = this.pendingTableScrollRestore.bodyLeft;
+    if (body && this.pendingScrollRestore) {
+      body.scrollTop = this.pendingScrollRestore.bodyTop;
+      body.scrollLeft = this.pendingScrollRestore.bodyLeft;
     }
-    if (wrap && this.pendingTableScrollRestore) {
-      wrap.scrollTop = this.pendingTableScrollRestore.wrapTop;
-      wrap.scrollLeft = this.pendingTableScrollRestore.wrapLeft;
+    if (wrap && this.pendingScrollRestore) {
+      wrap.scrollTop = this.pendingScrollRestore.wrapTop;
+      wrap.scrollLeft = this.pendingScrollRestore.wrapLeft;
     }
-    if (this.pendingTableFocusTaskId) {
+    if (this.view === "table" && this.pendingTableFocusTaskId) {
       const row = this.container.querySelector<HTMLElement>(`.task-manager-table__row[data-task-id="${this.pendingTableFocusTaskId}"]`);
       row?.scrollIntoView({ block: "nearest", inline: "nearest" });
       this.pendingTableFocusTaskId = undefined;
     }
-    this.pendingTableScrollRestore = undefined;
+    if (this.view !== "table") {
+      this.pendingTableFocusTaskId = undefined;
+    }
+    this.pendingScrollRestore = undefined;
   }
 
   private renderToolbar(tasks: TaskItem[]): string {
