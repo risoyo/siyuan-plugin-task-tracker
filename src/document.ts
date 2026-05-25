@@ -999,7 +999,14 @@ export class TaskService {
     const batchSize = 12;
     for (let start = 0; start < recoveredTasks.length; start += batchSize) {
       const batch = recoveredTasks.slice(start, start + batchSize);
-      await Promise.all(batch.map((task) => setTaskAttrs(task)));
+      const results = await Promise.allSettled(batch.map((task) => setTaskAttrs(task)));
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          return;
+        }
+        const task = batch[index];
+        console.warn("Task Tracker: failed to backfill recovered task attrs", task.title, task.docId, result.reason);
+      });
     }
   }
 
