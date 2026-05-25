@@ -34,7 +34,7 @@ Task Tracker turns SiYuan documents into trackable tasks. You choose one documen
 
 ## How It Works
 
-The plugin keeps a fast local index in `tasks.json` and stores settings in `settings.json`. Task metadata is also written to the task document's custom attributes, so the index can be rebuilt from the task library when needed.
+The plugin keeps a fast local index in `tasks.json` and stores settings in `settings.json`. Task metadata is also written to the task document's custom attributes, and the task library binding is mirrored to the root document's custom attributes. When you bind a library manually, that choice stays authoritative on the current client and the plugin rewrites the root marker to clear conflicts; other clients that were not manually pinned can still converge from the marker after sync.
 
 When a task is created, the plugin renders a task document from the configured template. The default template includes a quote block with source, parent, project, status, priority, description, created date, due date, planned date, and child task links. Keep that metadata block or another block containing `来源：` if you want task field changes in the panel to keep syncing back into the document body.
 

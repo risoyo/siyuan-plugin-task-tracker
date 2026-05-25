@@ -29,6 +29,7 @@ import { TaskStore } from "./taskStore";
 import {
   ACTIVE_TASK_STATUSES,
   DEFAULT_TASK_TEMPLATE,
+  ROOT_ATTRS,
   REPORT_ATTRS,
   SOURCE_TASK_IDS_ATTR,
   TASK_ATTRS,
@@ -58,34 +59,50 @@ export class TaskService {
   }
 
   async setRootFromDoc(docId: string): Promise<TaskSettings> {
-    const block = await getBlockById(docId);
-    if (!block || !block.box || !block.path) {
+    const settings = await buildTaskRootSettings(docId);
+    if (!settings) {
       throw new Error("无法读取当前文档信息");
     }
-    const hpath = await getHPathById(docId).catch(() => block.content || docId);
-    const settings: TaskSettings = {
-      taskRootDocId: docId,
-      taskRootNotebookId: block.box,
-      taskRootPath: block.path,
-      taskRootHPath: normalizeHPath(hpath || block.content || docId),
-      taskRootTitle: hpath || block.content || docId
-    };
-    await this.store.setSettings(settings);
+    const previousRootDocId = this.store.getSettings().taskRootDocId;
+    await this.store.setSettings({
+      ...settings,
+      taskRootSource: "manual"
+    });
+    await syncTaskRootMarker(docId, {
+      additionalStaleDocIds: previousRootDocId ? [previousRootDocId] : [],
+      forceWrite: true
+    });
+    console.info("Task Tracker: set task root manually", {
+      docId,
+      previousRootDocId
+    });
     this.emit();
-    return settings;
+    return {
+      ...settings,
+      taskRootSource: "manual"
+    };
   }
 
   async createTask(input: TaskCreateInput): Promise<TaskItem> {
+    await this.reconcileTaskRootSettings();
     const settings = this.store.getSettings();
     if (!settings.taskRootDocId || !settings.taskRootNotebookId) {
       throw new Error("请先将一个文档设为事项库");
     }
 
     const parent = input.parentId ? this.store.get(input.parentId) : undefined;
+    const parentCreatePath = await resolveParentCreatePath(settings, parent);
+    console.info("Task Tracker: creating task with root", {
+      rootDocId: settings.taskRootDocId,
+      rootNotebookId: settings.taskRootNotebookId,
+      rootPath: settings.taskRootPath,
+      rootHPath: settings.taskRootHPath,
+      rootSource: settings.taskRootSource,
+      parentCreatePath
+    });
     const docId = newSiyuanId();
     const title = input.title.trim();
     const notebookId = parent?.notebookId || settings.taskRootNotebookId;
-    const parentHPath = await resolveParentHPath(settings, parent);
     const now = nowIso();
     const createdAt = input.createdAt || now;
     const draftTask: TaskItem = {
@@ -112,7 +129,7 @@ export class TaskService {
 
     const created = await createTaskDocWithTitle(
       notebookId,
-      parentHPath,
+      parentCreatePath,
       taskDocumentTitle(draftTask),
       renderTaskMarkdown(draftTask, parent, [], settings, input.detail)
     );
@@ -307,6 +324,7 @@ export class TaskService {
     await this.waitForStartupSync({
       maxWaitMs: this.store.getSettings().startupSyncGraceMs ?? 12000
     });
+    await this.reconcileTaskRootSettings();
 
     let removed = 0;
     const indexedTasks = this.store.all();
@@ -551,6 +569,39 @@ export class TaskService {
   private emit(): void {
     for (const listener of this.listeners) {
       listener();
+    }
+  }
+
+  private async reconcileTaskRootSettings(): Promise<void> {
+    const currentSettings = this.store.getSettings();
+    const resolution = await resolveTaskRootSettings(currentSettings, this.store.all());
+    if (!resolution?.docId) {
+      return;
+    }
+
+    const nextSettings = await buildTaskRootSettings(resolution.docId);
+    if (!nextSettings) {
+      return;
+    }
+
+    const changed = !sameTaskRootSettings(currentSettings, nextSettings);
+    if (changed) {
+      await this.store.setSettings({
+        ...nextSettings,
+        taskRootSource: "auto"
+      });
+      console.info("Task Tracker: reconciled task root", {
+        from: currentSettings.taskRootDocId,
+        to: nextSettings.taskRootDocId
+      });
+      this.emit();
+    }
+
+    if (resolution.needsMarkerSync) {
+      await syncTaskRootMarker(resolution.docId, {
+        additionalStaleDocIds: resolution.markerDocIds,
+        forceWrite: true
+      });
     }
   }
 }
@@ -862,6 +913,253 @@ function mergeRecoveredTasks(currentTasks: TaskItem[], recoveredTasks: TaskItem[
   return merged.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
 }
 
+async function buildTaskRootSettings(docId: string): Promise<TaskSettings | undefined> {
+  const block = await getBlockById(docId).catch(() => undefined);
+  if (!block || !block.box || !block.path) {
+    return undefined;
+  }
+  const hpath = await getHPathById(docId).catch(() => block.content || docId);
+  return {
+    taskRootDocId: docId,
+    taskRootNotebookId: block.box,
+    taskRootPath: block.path,
+    taskRootHPath: normalizeHPath(hpath || block.content || docId),
+    taskRootTitle: hpath || block.content || docId
+  };
+}
+
+interface TaskRootMarkerRef {
+  docId: string;
+  updatedAt?: string;
+}
+
+interface TaskRootScanResult {
+  markers: TaskRootMarkerRef[];
+  rootTaskCounts: Map<string, number>;
+}
+
+async function resolveTaskRootSettings(settings: TaskSettings, indexedTasks: TaskItem[] = []): Promise<{
+  docId: string;
+  markerDocIds: string[];
+  needsMarkerSync: boolean;
+} | undefined> {
+  const indexedRootCounts = countTaskRootCandidatesFromTasks(indexedTasks);
+  const primaryScan = await scanTaskRootCandidates(settings.taskRootNotebookId);
+  const scan = shouldExpandTaskRootScan(primaryScan, settings.taskRootNotebookId)
+    ? await scanTaskRootCandidates()
+    : primaryScan;
+  const currentRootDocId = settings.taskRootDocId;
+  if (settings.taskRootSource === "manual") {
+    if (currentRootDocId && await buildTaskRootSettings(currentRootDocId)) {
+      return {
+        docId: currentRootDocId,
+        markerDocIds: scan.markers
+          .map((marker) => marker.docId)
+          .filter((docId) => docId !== currentRootDocId),
+        needsMarkerSync: scan.markers.length !== 1 || scan.markers[0]?.docId !== currentRootDocId
+      };
+    }
+  }
+  const chosenDocId = pickTaskRootDocId({
+    markers: scan.markers,
+    rootTaskCounts: mergeTaskRootCounts(indexedRootCounts, scan.rootTaskCounts)
+  }, currentRootDocId);
+
+  if (!chosenDocId) {
+    if (!currentRootDocId || !await buildTaskRootSettings(currentRootDocId)) {
+      return undefined;
+    }
+    return {
+      docId: currentRootDocId,
+      markerDocIds: scan.markers.map((marker) => marker.docId),
+      needsMarkerSync: scan.markers.length === 0
+    };
+  }
+
+  return {
+    docId: chosenDocId,
+    markerDocIds: scan.markers.map((marker) => marker.docId),
+    needsMarkerSync: scan.markers.length !== 1 || scan.markers[0]?.docId !== chosenDocId
+  };
+}
+
+function shouldExpandTaskRootScan(scan: TaskRootScanResult, notebookId?: string): boolean {
+  return Boolean(notebookId && scan.markers.length === 0 && scan.rootTaskCounts.size === 0);
+}
+
+async function scanTaskRootCandidates(notebookId?: string): Promise<TaskRootScanResult> {
+  const docs = await listDocumentRows(notebookId);
+  const markers: TaskRootMarkerRef[] = [];
+  const taskDocs: BlockRow[] = [];
+  const taskDocIds = new Set<string>();
+  const batchSize = 24;
+
+  for (let start = 0; start < docs.length; start += batchSize) {
+    const batch = docs.slice(start, start + batchSize);
+    const batchAttrs = await Promise.all(batch.map(async (doc) => ({
+      doc,
+      attrs: await getBlockAttrs(doc.id).catch(() => ({}))
+    })));
+
+    for (const { doc, attrs } of batchAttrs) {
+      if (attrs[ROOT_ATTRS.active] === "1") {
+        markers.push({
+          docId: doc.id,
+          updatedAt: attrs[ROOT_ATTRS.updatedAt] || undefined
+        });
+      }
+
+      if (!attrs[TASK_ATTRS.id]?.trim() || attrs[REPORT_ATTRS.kind] === WEEKLY_REPORT_KIND) {
+        continue;
+      }
+      taskDocs.push(doc);
+      taskDocIds.add(doc.id);
+    }
+  }
+
+  const rootTaskCounts = new Map<string, number>();
+  for (const doc of taskDocs) {
+    const rootDocId = inferTaskRootDocIdFromPath(doc.path, taskDocIds);
+    if (!rootDocId) {
+      continue;
+    }
+    rootTaskCounts.set(rootDocId, (rootTaskCounts.get(rootDocId) || 0) + 1);
+  }
+
+  return { markers, rootTaskCounts };
+}
+
+function pickTaskRootDocId(scan: TaskRootScanResult, currentRootDocId?: string): string | undefined {
+  if (scan.markers.length) {
+    return [...scan.markers]
+      .sort((left, right) => compareTaskRootMarkers(left, right, currentRootDocId))[0]?.docId;
+  }
+
+  let bestDocId = currentRootDocId;
+  let bestCount = currentRootDocId ? (scan.rootTaskCounts.get(currentRootDocId) || 0) : -1;
+  for (const [docId, count] of scan.rootTaskCounts) {
+    if (count > bestCount) {
+      bestDocId = docId;
+      bestCount = count;
+      continue;
+    }
+    if (count === bestCount && docId === currentRootDocId) {
+      bestDocId = docId;
+    }
+  }
+  return bestCount > 0 ? bestDocId : currentRootDocId;
+}
+
+function compareTaskRootMarkers(
+  left: TaskRootMarkerRef,
+  right: TaskRootMarkerRef,
+  currentRootDocId?: string
+): number {
+  const timeDiff = markerTimeValue(right.updatedAt) - markerTimeValue(left.updatedAt);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+  if (right.docId === currentRootDocId && left.docId !== currentRootDocId) {
+    return 1;
+  }
+  if (left.docId === currentRootDocId && right.docId !== currentRootDocId) {
+    return -1;
+  }
+  return 0;
+}
+
+function markerTimeValue(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+async function listDocumentRows(notebookId?: string): Promise<BlockRow[]> {
+  const notebookFilter = notebookId ? ` and box = '${sqlText(notebookId)}'` : "";
+  return sql<BlockRow>(`select id, box, path, updated from blocks
+where type = 'd'${notebookFilter}
+order by path asc`);
+}
+
+function countTaskRootCandidatesFromTasks(tasks: TaskItem[]): Map<string, number> {
+  const taskDocIds = new Set(tasks.map((task) => task.docId).filter(Boolean));
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    const rootDocId = inferTaskRootDocIdFromPath(task.path, taskDocIds);
+    if (!rootDocId) {
+      continue;
+    }
+    counts.set(rootDocId, (counts.get(rootDocId) || 0) + 1);
+  }
+  return counts;
+}
+
+function mergeTaskRootCounts(...maps: Array<Map<string, number>>): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const map of maps) {
+    for (const [docId, count] of map) {
+      merged.set(docId, (merged.get(docId) || 0) + count);
+    }
+  }
+  return merged;
+}
+
+function inferTaskRootDocIdFromPath(path: string | undefined, taskDocIds: Set<string>): string | undefined {
+  const segments = splitDocPathSegments(path);
+  if (segments.length < 2 || taskDocIds.size === 0) {
+    return undefined;
+  }
+
+  const firstTaskIndex = segments.findIndex((segment) => taskDocIds.has(segment));
+  if (firstTaskIndex <= 0) {
+    return undefined;
+  }
+  return segments[firstTaskIndex - 1];
+}
+
+function splitDocPathSegments(path?: string): string[] {
+  return (path || "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => segment.replace(/\.sy$/i, "").trim())
+    .filter(Boolean);
+}
+
+function sameTaskRootSettings(left: TaskSettings, right: TaskSettings): boolean {
+  return left.taskRootDocId === right.taskRootDocId
+    && left.taskRootNotebookId === right.taskRootNotebookId
+    && left.taskRootPath === right.taskRootPath
+    && left.taskRootHPath === right.taskRootHPath
+    && left.taskRootTitle === right.taskRootTitle;
+}
+
+async function syncTaskRootMarker(
+  docId: string,
+  options: {
+    additionalStaleDocIds?: string[];
+    forceWrite?: boolean;
+  } = {}
+): Promise<void> {
+  const staleDocIds = new Set((options.additionalStaleDocIds || []).filter(Boolean));
+  staleDocIds.delete(docId);
+
+  if (options.forceWrite || staleDocIds.size > 0) {
+    await setBlockAttrs(docId, {
+      [ROOT_ATTRS.active]: "1",
+      [ROOT_ATTRS.updatedAt]: nowIso()
+    });
+  }
+
+  for (const staleDocId of staleDocIds) {
+    await setBlockAttrs(staleDocId, {
+      [ROOT_ATTRS.active]: "",
+      [ROOT_ATTRS.updatedAt]: ""
+    }).catch(() => undefined);
+  }
+}
+
 async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
   if (parent?.docId) {
     const parentHPath = await getHPathById(parent.docId).catch(() => "");
@@ -881,22 +1179,76 @@ async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Pr
   return normalizeHPath(settings.taskRootHPath || settings.taskRootTitle || stripDocSuffix(settings.taskRootPath || "/"));
 }
 
+async function resolveParentCreatePath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
+  if (parent?.path) {
+    return stripDocSuffix(parent.path);
+  }
+
+  if (parent?.docId) {
+    const parentPath = await getTaskPath(parent.docId).catch(() => undefined);
+    if (parentPath) {
+      return stripDocSuffix(parentPath);
+    }
+  }
+
+  if (settings.taskRootPath) {
+    return stripDocSuffix(settings.taskRootPath);
+  }
+
+  if (settings.taskRootDocId) {
+    const rootPath = await getTaskPath(settings.taskRootDocId).catch(() => undefined);
+    if (rootPath) {
+      return stripDocSuffix(rootPath);
+    }
+  }
+
+  return await resolveParentHPath(settings, parent);
+}
+
 async function createTaskDocWithTitle(
   notebookId: string,
-  parentHPath: string,
+  parentPath: string,
   title: string,
   markdown: string
 ): Promise<{ docId: string; path?: string }> {
+  const finalParentPath = normalizeCreatePath(parentPath);
+  const tempName = `__task-tracker-tmp-${newSiyuanId()}`;
+  const tempHPath = `/${tempName}.sy`;
+  const docId = await createDocWithMd(notebookId, tempHPath, markdown);
+  const createdPath = await getTaskPath(docId) || tempHPath;
+
+  if (finalParentPath !== "/") {
+    await moveDocs([createdPath], notebookId, finalParentPath);
+  }
+
+  await renameDocWithUniqueTitle(docId, title);
+  const finalPath = await getTaskPath(docId);
+  return { docId, path: finalPath || createdPath };
+}
+
+function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string {
+  const dateKey = toDateKey(task.createdAt) || toDateKey(nowIso());
+  const prefix = dateKey.slice(5).replace("-", "");
+  return `${prefix}-${task.title}`;
+}
+
+function normalizeCreatePath(path: string): string {
+  const normalized = (path || "").replace(/\\/g, "/").trim();
+  if (!normalized || normalized === "/") {
+    return "/";
+  }
+  return `/${normalized.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+async function renameDocWithUniqueTitle(docId: string, title: string): Promise<void> {
   const baseName = sanitizeDocName(title);
-  const parent = normalizeHPath(parentHPath);
   let lastError: unknown;
 
   for (let index = 0; index < 50; index += 1) {
     const name = index === 0 ? baseName : `${baseName} (${index + 1})`;
-    const path = `${parent === "/" ? "" : parent}/${name}.sy`;
     try {
-      const docId = await createDocWithMd(notebookId, path, markdown);
-      return { docId, path };
+      await renameDocById(docId, name);
+      return;
     } catch (error) {
       lastError = error;
       const message = String(error instanceof Error ? error.message : error).toLowerCase();
@@ -907,13 +1259,7 @@ async function createTaskDocWithTitle(
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("创建任务文档失败");
-}
-
-function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string {
-  const dateKey = toDateKey(task.createdAt) || toDateKey(nowIso());
-  const prefix = dateKey.slice(5).replace("-", "");
-  return `${prefix}-${task.title}`;
+  throw lastError instanceof Error ? lastError : new Error("重命名任务文档失败");
 }
 
 async function getTaskPath(docId: string): Promise<string | undefined> {

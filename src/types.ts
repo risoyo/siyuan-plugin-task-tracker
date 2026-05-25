@@ -127,6 +127,7 @@ export interface TaskSettings {
   taskRootPath?: string;
   taskRootHPath?: string;
   taskRootTitle?: string;
+  taskRootSource?: "manual" | "auto";
   defaultProject?: string;
   taskTemplate?: string;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
@@ -242,6 +243,11 @@ export const TASK_ATTRS = {
   sourceDocId: "custom-task-tracker-source-doc",
   sourceText: "custom-task-tracker-source-text",
   description: "custom-task-tracker-description"
+} as const;
+
+export const ROOT_ATTRS = {
+  active: "custom-task-tracker-root",
+  updatedAt: "custom-task-tracker-root-updated-at"
 } as const;
 
 export const REPORT_ATTRS = {

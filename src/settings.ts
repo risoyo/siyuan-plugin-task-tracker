@@ -186,7 +186,7 @@ function showHelpDialog(): void {
     content: `<div class="b3-dialog__content task-tracker-help">
   <h2>一、核心概念</h2>
   <p><strong>事项库</strong>是你指定的思源文档，用作任务文档的根目录。每个任务都是一个真实的思源子文档，子任务会成为父任务文档的子文档。</p>
-  <p>插件会把快速索引保存在 <code>tasks.json</code>，设置保存在 <code>settings.json</code>，同时把任务元数据写入任务文档自定义属性，便于换设备或同步异常后重建索引。</p>
+  <p>插件会把快速索引保存在 <code>tasks.json</code>，设置保存在 <code>settings.json</code>；同时把任务元数据写入任务文档自定义属性，并把事项库绑定镜像到事项库根文档属性。手动在设置里切换事项库后，本端会持续以这次手动绑定为准，并主动回写事项库根文档标记、清理冲突标记；未手动绑定的其他端仍可根据 marker 自动收敛到同一个事项库并重建索引。</p>
 
   <h2>二、首次配置事项库</h2>
   <ol>
