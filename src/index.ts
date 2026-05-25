@@ -377,7 +377,6 @@ export default class TaskTrackerPlugin extends Plugin {
     await this.ready;
     const count = await this.service.rebuildTaskIndex();
     showMessage(count > 0 ? `已重建 ${count} 个任务索引` : "事项库中没有可重建的任务文档");
-    this.refreshViews();
   }
 
   private refreshViews(): void {
@@ -397,7 +396,6 @@ export default class TaskTrackerPlugin extends Plugin {
       const timer = window.setTimeout(() => {
         this.startupRetryTimers.delete(timer);
         void this.service.startupSync({ skipDeletedCleanup: true })
-          .then(() => this.refreshViews())
           .catch((error) => console.warn("Task Tracker: deferred startup recovery failed", error));
       }, delayMs);
       this.startupRetryTimers.add(timer);

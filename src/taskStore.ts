@@ -78,14 +78,22 @@ export class TaskStore {
   }
 
   async setSettings(settings: TaskSettings): Promise<void> {
-    this.settings = normalizeSettings({ ...this.settings, ...settings });
-    await this.plugin.saveData(SETTINGS_DATA_FILE, this.settings);
+    const nextSettings = normalizeSettings({ ...this.settings, ...settings });
+    const changed = JSON.stringify(this.settings) !== JSON.stringify(nextSettings);
+    this.settings = nextSettings;
+    if (changed) {
+      await this.plugin.saveData(SETTINGS_DATA_FILE, this.settings);
+    }
   }
 
   async upsert(task: TaskItem): Promise<void> {
     const normalizedTask = normalizeStoredTask(task);
     const index = this.tasks.findIndex((item) => item.id === normalizedTask.id);
     if (index >= 0) {
+      if (JSON.stringify(this.tasks[index]) === JSON.stringify(normalizedTask)) {
+        this.tasks[index] = normalizedTask;
+        return;
+      }
       this.tasks[index] = normalizedTask;
     } else {
       this.tasks.push(normalizedTask);
@@ -94,8 +102,12 @@ export class TaskStore {
   }
 
   async replaceAll(tasks: TaskItem[]): Promise<void> {
-    this.tasks = tasks.map((task) => normalizeStoredTask(task));
-    await this.saveTasks();
+    const nextTasks = tasks.map((task) => normalizeStoredTask(task));
+    const changed = JSON.stringify(this.tasks) !== JSON.stringify(nextTasks);
+    this.tasks = nextTasks;
+    if (changed) {
+      await this.saveTasks();
+    }
   }
 
   async update(id: string, patch: Partial<TaskItem>): Promise<TaskItem> {
