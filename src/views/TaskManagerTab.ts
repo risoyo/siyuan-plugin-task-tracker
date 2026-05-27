@@ -197,6 +197,7 @@ export class TaskManagerTab {
   private search = "";
   private viewFilters = new Map<TaskManagerView, "all" | TaskStatus>();
   private statusDropdownOpen = false;
+  private bulkParentMenuOpen = false;
   private activePopover: { taskId: string; field: "status" | "priority" } | null = null;
   private activePopoverCleanup?: () => void;
   private month = monthStart(new Date());
@@ -333,7 +334,7 @@ export class TaskManagerTab {
       <button class="task-manager-btn-primary" data-action="new-task"><svg><use xlink:href="#iconAdd"></use></svg><span>新建任务</span></button>
     </div>
   </div>
-  ${this.renderViewSwitch()}
+  ${this.renderViewSwitch(tasks)}
 </div>`;
   }
 
@@ -341,13 +342,14 @@ export class TaskManagerTab {
     return this.viewFilters.get(this.view) || "all";
   }
 
-  private renderViewSwitch(): string {
+  private renderViewSwitch(tasks: TaskItem[]): string {
     const supportsPageSettings = this.view === "table" || this.view === "completed";
     const isCompletedView = this.view === "completed";
     const filter = this.currentFilter;
     const filterActive = filter !== "all";
     const filterLabel = filterActive ? TASK_STATUS_LABELS[filter] : "全部任务";
     const filterBtnClass = filterActive ? "task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "task-manager-filter-btn task-manager-filter-all-btn";
+    const tableParentTaskIds = this.view === "table" ? this.parentTaskIdsForTasks(tasks) : [];
 
     const dropdownHtml = isCompletedView ? "" : `
     <div class="task-manager-filter-dropdown">
@@ -364,7 +366,7 @@ export class TaskManagerTab {
           </button>`;
         }).join("")}
       </div>` : ""}
-    </div>`;
+  </div>`;
 
     return `<div class="task-manager-view-switch" role="tablist" aria-label="任务视图">
   <div class="task-manager-view-switch__left">
@@ -379,9 +381,36 @@ export class TaskManagerTab {
   </div>
   <div class="task-manager-view-switch__right">
     ${supportsPageSettings ? `<button class="task-manager-settings-btn" data-action="open-page-config"><span>页面设置</span><svg class="task-manager-settings-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.8 1.5h2.4l.35 1.55c.42.14.82.31 1.18.53l1.34-.85 1.7 1.7-.85 1.34c.22.36.39.76.53 1.18L15 7.3v2.4l-1.55.35c-.14.42-.31.82-.53 1.18l.85 1.34-1.7 1.7-1.34-.85c-.36.22-.76.39-1.18.53L9.2 15H6.8l-.35-1.55a5.6 5.6 0 0 1-1.18-.53l-1.34.85-1.7-1.7.85-1.34a5.6 5.6 0 0 1-.53-1.18L1 9.7V7.3l1.55-.35c.14-.42.31-.82.53-1.18l-.85-1.34 1.7-1.7 1.34.85c.36-.22.76-.39 1.18-.53L6.8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>` : ""}
+    ${this.view === "table" ? this.renderBulkParentMenu(tableParentTaskIds.length === 0) : ""}
     ${dropdownHtml}
   </div>
 </div>`;
+  }
+
+  private renderBulkParentMenu(disabled: boolean): string {
+    return `<div class="task-manager-bulk-parent-dropdown">
+      <button
+        class="task-manager-bulk-parent-btn"
+        data-action="toggle-parent-bulk-menu"
+        type="button"
+        aria-label="一键展开/收缩所有父任务"
+        title="一键展开/收缩所有父任务"
+        data-position="south"
+        ${disabled ? "disabled" : ""}
+      >
+        ${renderBulkParentIcon("entry")}
+      </button>
+      ${this.bulkParentMenuOpen && !disabled ? `<div class="task-manager-bulk-parent-dropdown__menu" role="menu">
+        <button class="task-manager-bulk-parent-dropdown__item" data-action="expand-all-parents" role="menuitem" type="button">
+          <span class="task-manager-bulk-parent-dropdown__item-icon">${renderBulkParentIcon("expand")}</span>
+          <span>展开所有父任务</span>
+        </button>
+        <button class="task-manager-bulk-parent-dropdown__item" data-action="collapse-all-parents" role="menuitem" type="button">
+          <span class="task-manager-bulk-parent-dropdown__item-icon">${renderBulkParentIcon("collapse")}</span>
+          <span>收缩所有父任务</span>
+        </button>
+      </div>` : ""}
+    </div>`;
   }
 
   private renderCurrentView(tasks: TaskItem[]): string {
@@ -1566,6 +1595,7 @@ export class TaskManagerTab {
       if (nextView !== this.view) {
         this.view = nextView;
         this.statusDropdownOpen = false;
+        this.bulkParentMenuOpen = false;
       }
       this.render();
       return;
@@ -1595,7 +1625,30 @@ export class TaskManagerTab {
         event.preventDefault();
         event.stopPropagation();
         this.statusDropdownOpen = !this.statusDropdownOpen;
+        this.bulkParentMenuOpen = false;
         this.render();
+        return;
+      }
+      if (action === "toggle-parent-bulk-menu") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkParentMenuOpen = !this.bulkParentMenuOpen;
+        this.statusDropdownOpen = false;
+        this.render({ preserveTableScroll: this.view === "table" });
+        return;
+      }
+      if (action === "expand-all-parents") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkParentMenuOpen = false;
+        this.expandAllParentTasks();
+        return;
+      }
+      if (action === "collapse-all-parents") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkParentMenuOpen = false;
+        this.collapseAllParentTasks();
         return;
       }
       if (action === "select-status-filter") {
@@ -1604,6 +1657,7 @@ export class TaskManagerTab {
         if (statusKey === "all" || statusKey === "todo" || statusKey === "doing" || statusKey === "waiting" || statusKey === "cancelled") {
           this.viewFilters.set(this.view, statusKey as "all" | TaskStatus);
           this.statusDropdownOpen = false;
+          this.bulkParentMenuOpen = false;
           this.render();
         }
         return;
@@ -1755,6 +1809,12 @@ export class TaskManagerTab {
     // Close inline popover when clicking outside
     if (this.activePopover && !target.closest("[data-popover]")) {
       this.closePopover();
+      return;
+    }
+
+    if (this.bulkParentMenuOpen && !target.closest(".task-manager-bulk-parent-dropdown")) {
+      this.bulkParentMenuOpen = false;
+      this.render({ preserveTableScroll: this.view === "table" });
       return;
     }
 
@@ -2037,7 +2097,7 @@ export class TaskManagerTab {
       } else {
         this.collapsedTaskIds.add(task.id);
       }
-      this.render();
+      this.render({ preserveTableScroll: this.view === "table" });
     }
   }
 
@@ -2149,6 +2209,32 @@ export class TaskManagerTab {
     const owner = element.closest<HTMLElement>("[data-task-id]");
     const taskId = owner?.dataset.taskId;
     return taskId ? this.service.store.get(taskId) : undefined;
+  }
+
+  private parentTaskIdsForTasks(tasks: TaskItem[]): string[] {
+    return Array.from(countChildren(tasks).keys());
+  }
+
+  private expandAllParentTasks(): void {
+    const parentTaskIds = this.parentTaskIdsForTasks(this.tasksForCurrentView());
+    if (!parentTaskIds.length) {
+      return;
+    }
+    for (const taskId of parentTaskIds) {
+      this.collapsedTaskIds.delete(taskId);
+    }
+    this.render({ preserveTableScroll: true });
+  }
+
+  private collapseAllParentTasks(): void {
+    const parentTaskIds = this.parentTaskIdsForTasks(this.tasksForCurrentView());
+    if (!parentTaskIds.length) {
+      return;
+    }
+    for (const taskId of parentTaskIds) {
+      this.collapsedTaskIds.add(taskId);
+    }
+    this.render({ preserveTableScroll: true });
   }
 }
 
@@ -2462,4 +2548,14 @@ function escapeAttr(value: string): string {
 
 function renderChevron(expanded: boolean): string {
   return `<span class="task-tree-chevron${expanded ? " is-expanded" : ""}" aria-hidden="true"></span>`;
+}
+
+function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
+  if (type === "expand") {
+    return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M5.5 7.5 8 10l2.5-2.5M8 2.5v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  if (type === "collapse") {
+    return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11.5h10M5.5 8.5 8 6l2.5 2.5M8 13.5v-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h5M3 8h10M3 12.5h5M11 2.5v3M9.5 4l1.5 1.5L12.5 4M11 13.5v-3M9.5 12l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }

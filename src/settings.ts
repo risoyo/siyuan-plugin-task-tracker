@@ -5,6 +5,16 @@ import { DEFAULT_TASK_TEMPLATE } from "./types";
 const MANAGED_DETAIL_SECTION_TITLE = "## 任务详情";
 const REQUIRED_TEMPLATE_PLACEHOLDERS = ["{{source}}", "{{status}}", "{{priority}}", "{{description}}"];
 const MANAGED_SUMMARY_HINT = "任务概要受控区正式支持 Markdown 表格，以及紧随表格后的父任务 / 子任务 / 任务描述标签行；插件会持续同步表格和这些标签行。";
+const TEMPLATE_PLACEHOLDER_CHIPS = [
+  "{{project}}",
+  "{{status}}",
+  "{{source}}",
+  "{{priority}}",
+  "{{createdAt}}",
+  "{{parent}}",
+  "{{childTasks}}",
+  "{{description}}"
+];
 
 export function createTaskSettings(
   service: TaskService,
@@ -17,32 +27,33 @@ export function createTaskSettings(
   },
   version: string
 ): Setting {
+  const settings = service.store.getSettings();
   const defaultProjectInput = document.createElement("input");
-  defaultProjectInput.className = "b3-text-field fn__block";
+  defaultProjectInput.className = "b3-text-field fn__block task-tracker-settings__input";
   defaultProjectInput.placeholder = "例如：工作 / 产品 / 客户A";
-  defaultProjectInput.value = service.store.getSettings().defaultProject || "";
+  defaultProjectInput.value = settings.defaultProject || "";
 
   const rootDocIdInput = document.createElement("input");
-  rootDocIdInput.className = "b3-text-field fn__block task-tracker-setting__doc-id";
+  rootDocIdInput.className = "b3-text-field fn__block task-tracker-settings__input task-tracker-settings__input--doc-id";
   rootDocIdInput.placeholder = "粘贴文档 ID，例如：20260506092200-qynf33g";
-  rootDocIdInput.value = service.store.getSettings().taskRootDocId || "";
+  rootDocIdInput.value = settings.taskRootDocId || "";
 
   const templateInput = document.createElement("textarea");
-  templateInput.className = "b3-text-field fn__block task-tracker-setting__template";
+  templateInput.className = "b3-text-field fn__block task-tracker-settings__template";
   templateInput.spellcheck = false;
-  templateInput.value = service.store.getSettings().taskTemplate || DEFAULT_TASK_TEMPLATE;
+  templateInput.value = settings.taskTemplate || DEFAULT_TASK_TEMPLATE;
 
-  const templateManagedHint = document.createElement("div");
-  templateManagedHint.className = "task-tracker-setting__template-managed";
-  templateManagedHint.innerHTML = `
-    <div><strong>插件管理的正文交互字段</strong></div>
-    <ul>
-      <li>${MANAGED_SUMMARY_HINT}</li>
-      <li><code>{{description}}</code>：对应任务描述，属于任务元信息字段。</li>
-      <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
-    </ul>
-    <div>保存模板时会校验是否仍保留插件管理所需字段；如果缺少必要字段，将拒绝保存并提示补回。</div>
-  `;
+  const templateLineNumbers = document.createElement("div");
+  templateLineNumbers.className = "task-tracker-settings__template-lines";
+  const syncTemplateLineNumbers = (): void => {
+    const lineCount = Math.max(templateInput.value.split(/\r?\n/u).length, 1);
+    templateLineNumbers.innerHTML = Array.from({ length: lineCount }, (_, index) => `<div>${index + 1}</div>`).join("");
+  };
+  templateInput.addEventListener("input", syncTemplateLineNumbers);
+  templateInput.addEventListener("scroll", () => {
+    templateLineNumbers.scrollTop = templateInput.scrollTop;
+  });
+  syncTemplateLineNumbers();
 
   const setting = new Setting({
     confirmCallback: async () => {
@@ -61,115 +72,247 @@ export function createTaskSettings(
     }
   });
 
-  setting.addItem({
-    title: "默认项目",
-    description: "新建任务时自动填入，可在创建时修改。",
-    createActionElement: () => defaultProjectInput
-  });
+  const defaultProjectCard = createSettingsCard("project", "默认项目", "新建任务时自动填入，可在创建时修改。");
+  defaultProjectCard.controlsBody.append(defaultProjectInput);
+  addSettingsCard(setting, defaultProjectCard.card);
 
-  setting.addItem({
-    title: "事项库",
-    description: service.store.getSettings().taskRootTitle
-      ? `当前：${service.store.getSettings().taskRootTitle}`
-      : "尚未设置。请在文档菜单中复制 ID，粘贴到右侧后绑定。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "fn__flex task-tracker-setting__root";
-
-      const bindButton = document.createElement("button");
-      bindButton.className = "b3-button b3-button--outline fn__size160";
-      bindButton.textContent = "绑定 ID";
-      bindButton.addEventListener("click", () => {
-        void actions.setRootDocId(rootDocIdInput.value);
-      });
-
-      const currentButton = document.createElement("button");
-      currentButton.className = "b3-button b3-button--outline fn__size160";
-      currentButton.textContent = "当前文档";
-      currentButton.title = "快捷设置，若识别失败请使用文档 ID";
-      currentButton.addEventListener("click", () => {
-        void actions.setCurrentDocAsRoot();
-      });
-
-      wrapper.append(rootDocIdInput, bindButton, currentButton);
-      return wrapper;
+  const rootCard = createSettingsCard("library", "事项库", "尚未设置。请在文档菜单中复制 ID，粘贴到右侧后绑定。");
+  const refreshRootSummary = (): void => {
+    const currentSettings = service.store.getSettings();
+    rootCard.description.textContent = currentSettings.taskRootTitle
+      ? `当前：${currentSettings.taskRootTitle}`
+      : "尚未设置。请在文档菜单中复制 ID，粘贴到右侧后绑定。";
+    if (currentSettings.taskRootDocId) {
+      rootDocIdInput.value = currentSettings.taskRootDocId;
     }
+  };
+  refreshRootSummary();
+
+  const rootAside = document.createElement("div");
+  rootAside.className = "task-tracker-settings__inline-group";
+  const rootButtonRow = document.createElement("div");
+  rootButtonRow.className = "task-tracker-settings__button-row task-tracker-settings__button-row--compact";
+
+  const bindButton = createSettingsButton("绑定 ID");
+  bindButton.addEventListener("click", async () => {
+    await actions.setRootDocId(rootDocIdInput.value);
+    refreshRootSummary();
   });
 
-  setting.addItem({
-    title: "任务维护",
-    description: "清理失效索引，或在换设备/同步异常后从事项库文档重建任务索引。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "fn__flex task-tracker-setting__root";
-
-      const cleanupButton = document.createElement("button");
-      cleanupButton.className = "b3-button b3-button--outline fn__size200";
-      cleanupButton.textContent = "清理已删除任务记录";
-      cleanupButton.addEventListener("click", () => {
-        void actions.syncDeletedTasks();
-      });
-
-      const rebuildButton = document.createElement("button");
-      rebuildButton.className = "b3-button b3-button--outline fn__size200";
-      rebuildButton.textContent = "从事项库重建任务索引";
-      rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
-      rebuildButton.addEventListener("click", () => {
-        void actions.rebuildTaskIndex();
-      });
-
-      wrapper.append(cleanupButton, rebuildButton);
-      return wrapper;
-    }
+  const currentButton = createSettingsButton("当前文档");
+  currentButton.title = "快捷设置，若识别失败请使用文档 ID";
+  currentButton.addEventListener("click", async () => {
+    await actions.setCurrentDocAsRoot();
+    refreshRootSummary();
   });
 
-  setting.addItem({
-    title: "任务模板",
-    description: "新建任务文档时使用。模板中的任务概要受控区与任务详情正文分区会由插件持续管理。",
-    createActionElement: () => {
-      const wrapper = document.createElement("div");
-      wrapper.className = "task-tracker-setting__template-wrap";
+  rootButtonRow.append(bindButton, currentButton);
+  rootAside.append(rootDocIdInput, rootButtonRow);
+  rootCard.controlsBody.append(rootAside);
+  addSettingsCard(setting, rootCard.card);
 
-      const actionsRow = document.createElement("div");
-      actionsRow.className = "fn__flex task-tracker-setting__template-actions";
+  const maintenanceCard = createSettingsCard("shield", "任务维护", "清理失效索引，或在换设备/同步异常后从事项库文档重建任务索引。");
+  const maintenanceButtons = document.createElement("div");
+  maintenanceButtons.className = "task-tracker-settings__button-row";
 
-      const resetButton = document.createElement("button");
-      resetButton.className = "b3-button b3-button--outline";
-      resetButton.textContent = "恢复默认模板";
-      resetButton.addEventListener("click", () => {
-        templateInput.value = DEFAULT_TASK_TEMPLATE;
-      });
-
-      actionsRow.append(resetButton);
-      wrapper.append(templateInput, templateManagedHint, actionsRow);
-      return wrapper;
-    }
+  const cleanupButton = createSettingsButton("清理已删除任务记录");
+  cleanupButton.addEventListener("click", () => {
+    void actions.syncDeletedTasks();
   });
 
-  setting.addItem({
-    title: "使用帮助",
-    description: "查看事项库设置、任务创建、任务控制面板、任务维护、模板占位符和版本规则。",
-    createActionElement: () => {
-      const button = document.createElement("button");
-      button.className = "b3-button b3-button--outline fn__size200";
-      button.textContent = "打开使用帮助";
-      button.addEventListener("click", () => showHelpDialog());
-      return button;
-    }
+  const rebuildButton = createSettingsButton("从事项库重建任务索引");
+  rebuildButton.title = "扫描事项库下的任务文档并重建 tasks.json";
+  rebuildButton.addEventListener("click", () => {
+    void actions.rebuildTaskIndex();
   });
 
-  setting.addItem({
-    title: "插件版本",
-    description: `当前版本：v${version}`,
-    createActionElement: () => {
-      const value = document.createElement("div");
-      value.className = "task-tracker-setting__version";
-      value.textContent = `v${version}`;
-      return value;
-    }
+  maintenanceButtons.append(cleanupButton, rebuildButton);
+  maintenanceCard.controlsBody.append(maintenanceButtons);
+  addSettingsCard(setting, maintenanceCard.card);
+
+  const templateCard = createSettingsCard("template", "任务模板", "新建任务文档时使用。模板中的任务概要受控区与任务详情正文分区会由插件持续管理。");
+  const resetButton = createSettingsButton("恢复默认模板", "ghost");
+  resetButton.addEventListener("click", () => {
+    templateInput.value = DEFAULT_TASK_TEMPLATE;
+    syncTemplateLineNumbers();
   });
+  templateCard.controlsHeader.append(resetButton);
+
+  const templateEditorPanel = document.createElement("div");
+  templateEditorPanel.className = "task-tracker-settings__template-panel";
+
+  const templateEditor = document.createElement("div");
+  templateEditor.className = "task-tracker-settings__template-editor";
+  templateEditor.append(templateLineNumbers, templateInput);
+
+  const templateChips = document.createElement("div");
+  templateChips.className = "task-tracker-settings__placeholder-list";
+  TEMPLATE_PLACEHOLDER_CHIPS.forEach((placeholder) => {
+    const chip = document.createElement("span");
+    chip.className = "task-tracker-settings__placeholder-chip";
+    chip.textContent = placeholder;
+    templateChips.append(chip);
+  });
+
+  const placeholderLabel = document.createElement("div");
+  placeholderLabel.className = "task-tracker-settings__placeholder-label";
+  placeholderLabel.textContent = "可用变量：";
+
+  const placeholderRow = document.createElement("div");
+  placeholderRow.className = "task-tracker-settings__placeholder-row";
+  placeholderRow.append(placeholderLabel, templateChips);
+
+  templateEditorPanel.append(templateEditor, placeholderRow);
+
+  const templateManagedHint = document.createElement("div");
+  templateManagedHint.className = "task-tracker-settings__callout";
+  templateManagedHint.innerHTML = `
+    <div class="task-tracker-settings__callout-icon">${renderInlineIcon("info")}</div>
+    <div class="task-tracker-settings__callout-content">
+      <div class="task-tracker-settings__callout-title">插件管理的正文交互字段</div>
+      <ul>
+        <li>${MANAGED_SUMMARY_HINT}</li>
+        <li><code>{{description}}</code>：对应任务描述，属于任务元信息字段。</li>
+        <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
+      </ul>
+      <div>保存模板时会校验是否仍保留插件管理所需字段；如果缺少必要字段，将拒绝保存并提示补回。</div>
+    </div>
+  `;
+
+  templateCard.controlsBody.append(templateEditorPanel);
+  templateCard.body.append(templateManagedHint);
+  addSettingsCard(setting, templateCard.card);
+
+  const helpCard = createSettingsCard("help", "使用帮助", "查看事项库设置、任务创建、任务控制面板、任务维护、模板占位符和版本规则。");
+  const helpButton = createSettingsButton("打开使用帮助", "outline", true);
+  helpButton.addEventListener("click", () => showHelpDialog());
+  helpCard.controlsBody.append(helpButton);
+  addSettingsCard(setting, helpCard.card);
+
+  const versionCard = createSettingsCard("version", "插件版本", `当前版本：v${version}`);
+  const value = document.createElement("div");
+  value.className = "task-tracker-settings__version";
+  value.textContent = `v${version}`;
+  versionCard.controlsBody.append(value);
+  addSettingsCard(setting, versionCard.card);
 
   return setting;
+}
+
+function addSettingsCard(setting: Setting, card: HTMLElement): void {
+  const wrapper = document.createElement("div");
+  wrapper.className = "task-tracker-settings-item";
+  wrapper.append(card);
+  decorateSettingsRow(wrapper);
+  setting.addItem({
+    title: "",
+    description: "",
+    direction: "row",
+    actionElement: wrapper
+  });
+}
+
+function createSettingsButton(label: string, variant: "outline" | "ghost" = "outline", external = false): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = `b3-button ${variant === "ghost" ? "b3-button--cancel" : "b3-button--outline"} task-tracker-settings__button`;
+  button.innerHTML = external
+    ? `<span>${label}</span><span class="task-tracker-settings__button-icon">${renderInlineIcon("external")}</span>`
+    : `<span>${label}</span>`;
+  return button;
+}
+
+function createSettingsCard(
+  icon: SettingsIconName,
+  title: string,
+  description: string
+): {
+  card: HTMLDivElement;
+  description: HTMLDivElement;
+  body: HTMLDivElement;
+  controlsHeader: HTMLDivElement;
+  controlsBody: HTMLDivElement;
+} {
+  const card = document.createElement("div");
+  card.className = "task-tracker-settings-card";
+
+  const main = document.createElement("div");
+  main.className = "task-tracker-settings-card__main";
+
+  const meta = document.createElement("div");
+  meta.className = "task-tracker-settings-card__meta";
+
+  const iconWrap = document.createElement("div");
+  iconWrap.className = "task-tracker-settings-card__icon";
+  iconWrap.innerHTML = renderInlineIcon(icon);
+
+  const copy = document.createElement("div");
+  copy.className = "task-tracker-settings-card__copy";
+
+  const titleEl = document.createElement("div");
+  titleEl.className = "task-tracker-settings-card__title";
+  titleEl.textContent = title;
+
+  const descriptionEl = document.createElement("div");
+  descriptionEl.className = "task-tracker-settings-card__description";
+  descriptionEl.textContent = description;
+
+  copy.append(titleEl, descriptionEl);
+  meta.append(iconWrap, copy);
+
+  const controls = document.createElement("div");
+  controls.className = "task-tracker-settings-card__controls";
+
+  const controlsHeader = document.createElement("div");
+  controlsHeader.className = "task-tracker-settings-card__controls-header";
+
+  const controlsBody = document.createElement("div");
+  controlsBody.className = "task-tracker-settings-card__controls-body";
+
+  controls.append(controlsHeader, controlsBody);
+
+  const body = document.createElement("div");
+  body.className = "task-tracker-settings-card__body";
+
+  main.append(meta, controls);
+  card.append(main, body);
+
+  return { card, description: descriptionEl, body, controlsHeader, controlsBody };
+}
+
+function decorateSettingsRow(wrapper: HTMLElement): void {
+  queueMicrotask(() => {
+    const row = wrapper.closest(".b3-label");
+    row?.classList.add("task-tracker-settings-row");
+    const content = wrapper.parentElement;
+    content?.classList.add("task-tracker-settings-row__content");
+    const divider = content?.querySelector<HTMLElement>(".fn__hr");
+    if (divider) {
+      divider.style.display = "none";
+    }
+  });
+}
+
+type SettingsIconName = "project" | "library" | "shield" | "template" | "help" | "version" | "info" | "external";
+
+function renderInlineIcon(name: SettingsIconName): string {
+  switch (name) {
+    case "project":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5V20h1.5L17 8.5 15.5 7 4 18.5Zm14.7-11.8a1 1 0 0 0 0-1.4l-1-1a1 1 0 0 0-1.4 0l-.9.9 2.4 2.4.9-.9ZM7 5h4M7 9H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    case "library":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="6.5" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 6v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8V6M5.5 10v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8v-4M5.5 14v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+    case "shield":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 5.5 6v5.3c0 4.2 2.7 7.9 6.5 9.2 3.8-1.3 6.5-5 6.5-9.2V6L12 3.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9.3 12.2 1.8 1.8 3.7-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    case "template":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.8h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.8a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3.8V8h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+    case "help":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h11a1.5 1.5 0 0 1 1.5 1.5v12A2.5 2.5 0 0 0 17 15H7a2.5 2.5 0 0 0-2.5 2.5v-11Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 4v13.5M9.5 8H16M9.5 11.5H16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+    case "version":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.2v5.3M12 7.8h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+    case "info":
+      return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5M12 8h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+    case "external":
+      return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5H13.5V6.5M13 3 8.5 7.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 3.5H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
 }
 
 function validateTaskTemplate(template: string): string | undefined {
