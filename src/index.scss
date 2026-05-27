@@ -757,13 +757,59 @@
   color: var(--manager-muted);
 }
 
+.task-manager-table__source-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.task-manager-table__source-cell .task-manager-table__text--source {
+  min-width: 0;
+}
+
 .task-manager-table__text--source.is-interactive {
+  appearance: none;
+  background: transparent;
+  border: 0;
   color: var(--manager-accent);
   cursor: pointer;
+  margin: 0;
+  padding: 0;
+  text-align: left;
 }
 
 .task-manager-table__text--source.is-interactive:hover {
   text-decoration: underline;
+}
+
+.task-source-folder-btn {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--manager-muted);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 120ms ease, color 120ms ease;
+  width: 28px;
+}
+
+.task-source-folder-btn:hover {
+  background: #EFF6FF;
+  color: var(--manager-accent);
+}
+
+.task-source-folder-btn svg {
+  height: 15px;
+  width: 15px;
 }
 
 .task-manager-table__text--plain {

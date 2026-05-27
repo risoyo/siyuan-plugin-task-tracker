@@ -19,6 +19,7 @@ import {
 } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
+import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import {
   PRIORITY_BADGE_CONFIG,
   STATUS_BADGE_CONFIG,
@@ -546,12 +547,7 @@ export class TaskManagerTab {
   }
 
   private renderCompletedSourceText(task: TaskItem): string {
-    if (!task.sourceDocId) {
-      return `<span class="task-manager-table__text task-manager-table__text--source is-empty" title="手动创建">手动创建</span>`;
-    }
-
-    const label = task.sourceText?.trim() || "来源笔记";
-    return `<span class="task-manager-table__text task-manager-table__text--source is-interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+    return this.renderTableSourceText(task);
   }
 
   private renderTableLikeView(tasks: TaskItem[], columns: TableColumnDef[]): string {
@@ -1186,12 +1182,22 @@ export class TaskManagerTab {
   }
 
   private renderTableSourceText(task: TaskItem): string {
-    if (!task.sourceDocId) {
-      return `<span class="task-manager-table__text task-manager-table__text--source is-empty" title="手动创建">手动创建</span>`;
-    }
+    const label = task.sourceDocId
+      ? (task.sourceText?.trim() || "来源笔记")
+      : "手动创建";
+    const text = task.sourceDocId
+      ? `<button type="button" class="task-manager-table__text task-manager-table__text--source is-interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</button>`
+      : `<span class="task-manager-table__text task-manager-table__text--source is-empty" title="手动创建">${escapeHtml(label)}</span>`;
+    const folderButton = this.renderSourceFolderButton(task);
+    return `<span class="task-manager-table__source-cell">${text}${folderButton}</span>`;
+  }
 
-    const label = task.sourceText?.trim() || "来源笔记";
-    return `<span class="task-manager-table__text task-manager-table__text--source is-interactive" data-task-action="open-source" data-source-doc-id="${escapeAttr(task.sourceDocId)}" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+  private renderSourceFolderButton(task: TaskItem): string {
+    const noteFolderPath = task.noteFolderPath?.trim();
+    if (!noteFolderPath) {
+      return "";
+    }
+    return `<button type="button" class="task-source-folder-btn" data-task-action="open-note-folder" title="打开本地路径" aria-label="打开本地路径">${renderSourceFolderIcon()}</button>`;
   }
 
   private renderTimelineView(tasks: TaskItem[]): string {
@@ -2078,6 +2084,8 @@ export class TaskManagerTab {
       if (docId) {
         this.actions.openSourceDoc?.(docId);
       }
+    } else if (action === "open-note-folder") {
+      void this.openTaskNoteFolder(task);
     } else if (action === "edit") {
       if (this.view === "table") {
         this.pendingTableFocusTaskId = task.id;
@@ -2113,6 +2121,22 @@ export class TaskManagerTab {
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "删除任务失败", 5000, "error");
       this.render();
+    }
+  }
+
+  private async openTaskNoteFolder(task: TaskItem): Promise<void> {
+    const noteFolderPath = task.noteFolderPath?.trim();
+    if (!noteFolderPath) {
+      return;
+    }
+    if (!supportsLocalFolderOpen()) {
+      showMessage("当前环境不支持打开本地文件夹。", 5000, "error");
+      return;
+    }
+    try {
+      await openLocalFolderPath(noteFolderPath);
+    } catch {
+      showMessage("无法打开该文件夹，请检查路径是否存在。", 5000, "error");
     }
   }
 
@@ -2558,4 +2582,8 @@ function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
     return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11.5h10M5.5 8.5 8 6l2.5 2.5M8 13.5v-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
   return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h5M3 8h10M3 12.5h5M11 2.5v3M9.5 4l1.5 1.5L12.5 4M11 13.5v-3M9.5 12l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderSourceFolderIcon(): string {
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1H7.5L6.5 2.5H3a1 1 0 0 0-1 1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 }
