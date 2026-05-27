@@ -16,11 +16,11 @@ import {
   type TaskSettings
 } from "./types";
 
-const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "createdAt", "status", "priority", "plan", "due"];
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "createdAt", "plan", "due", "source"];
 const DEFAULT_TABLE_PAGE_COLUMNS: TablePageColumnKey[] = [...TABLE_PAGE_COLUMNS];
 const DEFAULT_TABLE_SORT: TableSortSpec = { column: "default" };
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "planStart", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "source", "createdAt", "planStart", "completedAt"];
 const DEFAULT_COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = [...COMPLETED_PAGE_COLUMNS];
 const DEFAULT_COMPLETED_SORT: CompletedSortSpec = { column: "default" };
 
@@ -183,7 +183,7 @@ function normalizeVisibleColumns(columns?: TablePageColumnKey[]): TablePageColum
   const configured = Array.isArray(columns)
     ? columns.filter((column): column is TablePageColumnKey => TABLE_PAGE_COLUMNS.includes(column))
     : [];
-  const unique = Array.from(new Set(configured));
+  const unique = migrateTableConfig(Array.from(new Set(configured)));
   return unique.length ? unique : [...DEFAULT_TABLE_PAGE_COLUMNS];
 }
 
@@ -191,13 +191,26 @@ function normalizeColumnOrder(columns?: TablePageColumnKey[]): TablePageColumnKe
   const configured = Array.isArray(columns)
     ? columns.filter((column): column is TablePageColumnKey => TABLE_PAGE_COLUMNS.includes(column))
     : [];
-  const unique = Array.from(new Set(configured));
+  const unique = migrateTableConfig(Array.from(new Set(configured)));
   for (const column of DEFAULT_TABLE_PAGE_COLUMNS) {
     if (!unique.includes(column)) {
       unique.push(column);
     }
   }
   return unique;
+}
+
+function migrateTableConfig(columns: TablePageColumnKey[]): TablePageColumnKey[] {
+  if (columns.includes("latest")) {
+    return columns;
+  }
+  const priorityIndex = columns.indexOf("priority");
+  if (priorityIndex >= 0) {
+    const result = [...columns];
+    result.splice(priorityIndex + 1, 0, "latest");
+    return result;
+  }
+  return [...columns, "latest"];
 }
 
 function normalizeSortSpec(raw?: TableSortSpec): TableSortSpec | undefined {
@@ -271,17 +284,25 @@ function normalizeCompletedColumnOrder(columns?: CompletedPageColumnKey[]): Comp
 }
 
 function migrateCompletedConfig(columns: CompletedPageColumnKey[]): CompletedPageColumnKey[] {
-  if (columns.includes("planStart")) {
-    return columns;
+  let result = [...columns];
+  if (!result.includes("latest")) {
+    const sourceIndex = result.indexOf("source");
+    if (sourceIndex >= 0) {
+      result.splice(sourceIndex, 0, "latest");
+    } else {
+      result.push("latest");
+    }
   }
-  const createdAtIndex = columns.indexOf("createdAt");
-  const completedAtIndex = columns.indexOf("completedAt");
+  if (result.includes("planStart")) {
+    return result;
+  }
+  const createdAtIndex = result.indexOf("createdAt");
+  const completedAtIndex = result.indexOf("completedAt");
   if (createdAtIndex >= 0 && completedAtIndex > createdAtIndex) {
-    const result = [...columns];
     result.splice(createdAtIndex + 1, 0, "planStart");
     return result;
   }
-  return [...columns, "planStart"];
+  return [...result, "planStart"];
 }
 
 function normalizeCompletedSortSpec(raw?: CompletedSortSpec): CompletedSortSpec | undefined {

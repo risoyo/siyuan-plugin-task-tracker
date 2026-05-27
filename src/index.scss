@@ -476,6 +476,10 @@
   overflow: hidden;
 }
 
+.task-manager-table-card.is-freeze-first-column {
+  overflow: visible;
+}
+
 /* ── Table ─────────────────────────────────────────────────────── */
 .task-manager-table-wrap {
   overflow: auto;
@@ -568,6 +572,35 @@
 
 .task-manager-table__head-content > span {
   min-width: 0;
+}
+
+.task-manager-freeze-btn {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--manager-muted);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 24px;
+  justify-content: center;
+  margin-left: 2px;
+  padding: 0;
+  transition: background-color 120ms ease, color 120ms ease;
+  width: 24px;
+}
+
+.task-manager-freeze-btn:hover,
+.task-manager-freeze-btn.is-active {
+  background: #EFF6FF;
+  color: var(--manager-accent);
+}
+
+.task-manager-freeze-btn svg {
+  height: 15px;
+  width: 15px;
 }
 
 .task-manager-table__resize-handle {
@@ -814,6 +847,63 @@
 
 .task-manager-table__text--plain {
   color: var(--manager-text-secondary);
+}
+
+.task-manager-table__text--latest {
+  color: #475569;
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.task-manager-table__text--latest.is-empty {
+  color: #94A3B8;
+}
+
+.task-manager-table__cell.is-latest,
+.task-manager-table__head.is-latest {
+  min-width: 140px;
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__head.is-task,
+.task-manager-table-card.is-freeze-first-column .task-manager-table__cell.is-task {
+  left: 0;
+  position: sticky;
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__head.is-task {
+  background: var(--manager-header-bg);
+  z-index: 4;
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__cell.is-task {
+  background: var(--manager-surface);
+  z-index: 2;
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__head.is-task::after,
+.task-manager-table-card.is-freeze-first-column .task-manager-table__cell.is-task::after {
+  box-shadow: 6px 0 10px rgba(15, 23, 42, 0.06);
+  content: "";
+  height: 100%;
+  pointer-events: none;
+  position: absolute;
+  right: -1px;
+  top: 0;
+  width: 8px;
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__row:hover .task-manager-table__cell.is-task {
+  background: color-mix(in srgb, var(--manager-accent) 8%, var(--manager-surface) 92%);
+}
+
+.task-manager-table-card.is-freeze-first-column .task-manager-table__row:hover .task-manager-table__cell.is-task .task-manager-table__task-cell {
+  background: inherit;
 }
 
 /* ── Time Cells ────────────────────────────────────────────────── */

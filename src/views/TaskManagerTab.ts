@@ -142,30 +142,33 @@ const VIEW_FILTER_OPTIONS: Array<{ key: "all" | TaskStatus; label: string }> = [
 
 const STATUSES = Object.keys(TASK_STATUS_LABELS) as TaskStatus[];
 const KANBAN_STATUSES = STATUSES.filter((status) => status !== "completed");
+const FREEZE_FIRST_COLUMN_STORAGE_KEY = "task-tracker-table-freeze-first-column";
 
 const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 320, minWidth: 220, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 140, minWidth: 110 },
-  { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
-  { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 112 },
   { key: "status", label: "状态", defaultWidth: 120, minWidth: 96 },
   { key: "priority", label: "优先级", defaultWidth: 120, minWidth: 96 },
+  { key: "latest", label: "任务近况", defaultWidth: 320, minWidth: 140, className: "is-latest" },
+  { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 112 },
   { key: "plan", label: "计划时间", defaultWidth: 144, minWidth: 124 },
   { key: "due", label: "截止", defaultWidth: 144, minWidth: 124 },
+  { key: "source", label: "来源", defaultWidth: 170, minWidth: 130 },
   { key: "actions", label: "操作", defaultWidth: 96, minWidth: 84, className: "is-actions" }
 ];
 
-const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "source", "createdAt", "status", "priority", "plan", "due"];
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "createdAt", "plan", "due", "source"];
 const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default"; label: string }> = [
   { value: "default", label: "默认" },
   { value: "task", label: "任务" },
   { value: "project", label: "项目" },
-  { value: "source", label: "来源" },
-  { value: "createdAt", label: "创建时间" },
   { value: "status", label: "状态" },
   { value: "priority", label: "优先级" },
+  { value: "latest", label: "任务近况" },
+  { value: "createdAt", label: "创建时间" },
   { value: "plan", label: "计划时间" },
-  { value: "due", label: "截止" }
+  { value: "due", label: "截止" },
+  { value: "source", label: "来源" }
 ];
 const SORT_DIRECTIONS: Array<{ value: SortDirection; label: string }> = [
   { value: "asc", label: "正序" },
@@ -175,6 +178,7 @@ const SORT_DIRECTIONS: Array<{ value: SortDirection; label: string }> = [
 const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 280, minWidth: 140, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 130, minWidth: 80 },
+  { key: "latest", label: "任务近况", defaultWidth: 300, minWidth: 130, className: "is-latest" },
   { key: "source", label: "来源", defaultWidth: 150, minWidth: 80 },
   { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 100 },
   { key: "planStart", label: "计划开始", defaultWidth: 132, minWidth: 100 },
@@ -182,11 +186,12 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "actions", label: "操作", defaultWidth: 84, minWidth: 72, className: "is-actions" }
 ];
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "source", "createdAt", "planStart", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "source", "createdAt", "planStart", "completedAt"];
 const COMPLETED_SORT_OPTIONS: Array<{ value: CompletedSortColumn | "default"; label: string }> = [
   { value: "default", label: "默认" },
   { value: "task", label: "任务" },
   { value: "project", label: "项目" },
+  { value: "latest", label: "任务近况" },
   { value: "source", label: "来源" },
   { value: "createdAt", label: "创建时间" },
   { value: "planStart", label: "计划开始" },
@@ -210,6 +215,7 @@ export class TaskManagerTab {
   private calendarUnplannedVisible = false;
   private expandedCalendarDateKeys = new Set<string>();
   private isComposingSearch = false;
+  private freezeFirstColumn = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
   private resizeCleanup?: () => void;
@@ -237,6 +243,7 @@ export class TaskManagerTab {
         this.month = monthStart(date);
       }
     }
+    this.freezeFirstColumn = readFreezeFirstColumnState();
     const settings = this.service.store.getSettings();
     this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
     this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
@@ -521,6 +528,9 @@ export class TaskManagerTab {
     if (key === "project") {
       return `<td class="task-manager-table__cell is-project">${this.renderCompletedProjectText(task)}</td>`;
     }
+    if (key === "latest") {
+      return `<td class="task-manager-table__cell is-latest">${this.renderLatestText(task)}</td>`;
+    }
     if (key === "source") {
       return `<td class="task-manager-table__cell is-source">${this.renderCompletedSourceText(task)}</td>`;
     }
@@ -556,7 +566,7 @@ export class TaskManagerTab {
     const visible = includeAncestors(tasks, matched);
     const tree = sortTaskTree(buildTaskTree(tasks, visible, matched), this.tableComparator());
 
-    return `<div class="task-manager-table-card">
+    return `<div class="task-manager-table-card ${this.freezeFirstColumn ? "is-freeze-first-column" : ""}">
   <div class="task-manager-table-wrap">
     <table class="task-manager-table">
       <colgroup>
@@ -577,9 +587,13 @@ export class TaskManagerTab {
 
   private renderTableHeaderCell(column: TableColumnDef): string {
     const resizable = column.key !== "actions";
+    const freezeButton = column.key === "task" && this.view === "table"
+      ? `<button class="task-manager-freeze-btn ${this.freezeFirstColumn ? "is-active" : ""}" data-action="toggle-freeze-first-column" type="button" aria-label="${this.freezeFirstColumn ? "取消冻结任务列" : "冻结任务列"}" title="${this.freezeFirstColumn ? "取消冻结任务列" : "冻结任务列"}">${renderFreezeColumnIcon(this.freezeFirstColumn)}</button>`
+      : "";
     return `<th class="task-manager-table__head ${column.className || ""}" data-column-key="${column.key}">
   <div class="task-manager-table__head-content">
     <span>${column.label}</span>
+    ${freezeButton}
     ${resizable ? `<button class="task-manager-table__resize-handle" data-column-resize="${column.key}" aria-label="调整${column.label || "操作"}列宽" title="拖动调整列宽"></button>` : ""}
   </div>
 </th>`;
@@ -622,6 +636,9 @@ export class TaskManagerTab {
     }
     if (key === "project") {
       return `<td class="task-manager-table__cell is-project">${this.renderTableProjectText(task)}</td>`;
+    }
+    if (key === "latest") {
+      return `<td class="task-manager-table__cell is-latest">${this.renderLatestText(task)}</td>`;
     }
     if (key === "source") {
       return `<td class="task-manager-table__cell is-source">${this.renderTableSourceText(task)}</td>`;
@@ -1172,6 +1189,14 @@ export class TaskManagerTab {
     return `<span class="task-manager-table__text task-manager-table__text--project ${isEmpty ? "is-empty" : ""}" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
   }
 
+  private renderLatestText(task: TaskItem): string {
+    const latest = task.description?.trim();
+    if (!latest) {
+      return `<span class="task-manager-table__text task-manager-table__text--latest is-empty" title="—">—</span>`;
+    }
+    return `<span class="task-manager-table__text task-manager-table__text--latest" title="${escapeAttr(latest)}">${escapeHtml(latest)}</span>`;
+  }
+
   private renderSourcePill(task: TaskItem): string {
     if (!task.sourceDocId) {
       return `<span class="task-manager-task__pill task-manager-task__pill--source is-manual" title="手动创建">手动创建</span>`;
@@ -1641,6 +1666,12 @@ export class TaskManagerTab {
         this.bulkParentMenuOpen = !this.bulkParentMenuOpen;
         this.statusDropdownOpen = false;
         this.render({ preserveTableScroll: this.view === "table" });
+        return;
+      }
+      if (action === "toggle-freeze-first-column") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.toggleFreezeFirstColumn();
         return;
       }
       if (action === "expand-all-parents") {
@@ -2140,6 +2171,12 @@ export class TaskManagerTab {
     }
   }
 
+  private toggleFreezeFirstColumn(): void {
+    this.freezeFirstColumn = !this.freezeFirstColumn;
+    writeFreezeFirstColumnState(this.freezeFirstColumn);
+    this.render({ preserveTableScroll: true });
+  }
+
   private async runSync(): Promise<void> {
     try {
       if (this.actions.sync) {
@@ -2465,6 +2502,10 @@ function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSortColumn)
     return compareBusinessOrder(a.priority, b.priority, ["none", "low", "medium", "high"])
       || a.title.localeCompare(b.title, "zh-Hans-CN");
   }
+  if (column === "latest") {
+    return (a.description || "").localeCompare(b.description || "", "zh-Hans-CN")
+      || a.title.localeCompare(b.title, "zh-Hans-CN");
+  }
   if (column === "plan") {
     return compareOptionalDates(a.planStart, b.planStart, "asc")
       || a.title.localeCompare(b.title, "zh-Hans-CN");
@@ -2499,6 +2540,7 @@ function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumn
     createdAt: 0,
     status: 0,
     priority: 0,
+    latest: 0,
     plan: 0,
     due: 0,
     actions: 0,
@@ -2509,6 +2551,22 @@ function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumn
     widths[column.key] = column.defaultWidth;
   }
   return widths;
+}
+
+function readFreezeFirstColumnState(): boolean {
+  try {
+    return window.localStorage.getItem(FREEZE_FIRST_COLUMN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeFreezeFirstColumnState(value: boolean): void {
+  try {
+    window.localStorage.setItem(FREEZE_FIRST_COLUMN_STORAGE_KEY, value ? "true" : "false");
+  } catch {
+    // ignore storage failures
+  }
 }
 
 function normalizeTableColumnWidths(columns: TableColumnDef[], raw?: Partial<Record<TableColumnKey, number>>): Record<TableColumnKey, number> {
@@ -2586,4 +2644,11 @@ function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
 
 function renderSourceFolderIcon(): string {
   return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1H7.5L6.5 2.5H3a1 1 0 0 0-1 1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+function renderFreezeColumnIcon(active: boolean): string {
+  if (active) {
+    return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5 13 6l-2 1.2-.7 3.8-1.8-1.8-2.9 2.9-.9-.9 2.9-2.9L5.8 6.5l3.7-.8 1.3-1.9Z" fill="currentColor"/></svg>`;
+  }
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5 13 6l-2 1.2-.7 3.8-1.8-1.8-2.9 2.9-.9-.9 2.9-2.9L5.8 6.5l3.7-.8 1.3-1.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
 }

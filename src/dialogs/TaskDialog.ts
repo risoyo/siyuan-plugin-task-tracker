@@ -403,10 +403,10 @@ export class TaskDialog {
         </div>
       </div>
       <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
-        ${sectionTitle("任务描述")}
+        ${sectionTitle("任务近况")}
         <div class="task-tracker-dialog-v3__source-right">
           <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--description">
-            <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--description" name="description" rows="4" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
+            <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--description" name="description" rows="4" placeholder="描述任务的最新进展、当前状态、已完成/待办事项等">${escapeHtml(defaultDescription)}</textarea>
           </label>
         </div>
       </div>
