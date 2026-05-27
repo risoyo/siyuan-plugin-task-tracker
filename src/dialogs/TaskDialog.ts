@@ -33,6 +33,7 @@ const ICONS = {
   close: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>`,
   taskGrid: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
   folder: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5v7a1 1 0 001 1h10a1 1 0 001-1v-7a1 1 0 00-1-1H7.5L6.5 2.5H3a1 1 0 00-1 1z"/></svg>`,
+  folderOpen: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5v5.5a1 1 0 001 1h8.5a1 1 0 001-.78l1-4A1 1 0 0012.53 6H7.5L6.5 4.5H3a1 1 0 00-1 1z"/><path d="M10.5 2.5h3v3"/><path d="M13.5 2.5L9.75 6.25"/></svg>`,
   hierarchy: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M8 4.5v4M5.2 10L4 11.5M10.8 10l1.2 1.5"/></svg>`,
   calendar: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>`,
   clock: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l2 1.5"/></svg>`,
@@ -40,8 +41,10 @@ const ICONS = {
   check: `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   edit: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg>`,
   doc: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4"/></svg>`,
+  info: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.3"/><path d="M8 4.8h.01"/></svg>`,
   search: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>`,
-  save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`
+  save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`,
+  trash: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4.5h11"/><path d="M6 2.5h4"/><path d="M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/><path d="M6.5 6.5v4.5M9.5 6.5v4.5"/></svg>`
 };
 
 type ComboboxMode = "select-only" | "editable";
@@ -141,10 +144,6 @@ function buildSegmentedControl(name: string, options: Array<{ value: string; lab
   </div>`;
 }
 
-function sectionDivider(): string {
-  return `<div class="task-tracker-dialog-v3__divider"></div>`;
-}
-
 function sectionTitle(title: string): string {
   return `<div class="task-tracker-dialog-v3__section-title">${escapeHtml(title)}</div>`;
 }
@@ -221,12 +220,14 @@ export class TaskDialog {
     const defaultDueDate = editingTask?.dueDate?.slice(0, 10) || "";
     const defaultCompletedAt = editingTask?.completedAt ? toDatetimeLocal(editingTask.completedAt) : "";
     const defaultDescription = editingTask?.description || "";
+    const defaultNoteFolderPath = editingTask?.noteFolderPath?.trim() || "";
     const defaultSourceDocId = effectiveSource?.docId || "";
     const isSubtasks = Boolean(!editMode && this.options.parentId);
     const dialogTitle = editMode ? "编辑任务" : (this.options.parentId ? "创建子任务" : "新建任务");
     const headerTaskTitle = editingTask?.title || defaultTitle || dialogTitle;
     const submitLabel = editMode ? "保存修改" : (this.options.parentId ? "创建子任务" : "创建任务");
     const submittingLabel = editMode ? "保存中..." : "创建中...";
+    const canOpenLocalFolder = supportsLocalFolderOpen();
 
     const projectOptionsHtml = [
       buildComboboxOption("", "无项目", !defaultProject),
@@ -283,7 +284,7 @@ export class TaskDialog {
 
   <form class="task-tracker-dialog-v3__body">
     <div class="task-tracker-dialog-v3__body-scroll">
-    <div class="task-tracker-dialog-v3__section">
+    <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
       ${sectionTitle("任务信息")}
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--title">
         <span class="task-tracker-dialog-v3__label">任务标题 <span class="task-tracker-dialog-v3__required">*</span></span>
@@ -309,36 +310,32 @@ export class TaskDialog {
         </label>
       </div>
 
-      <div class="task-tracker-dialog-v3__row">
-        <div class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
-          <div class="task-tracker-dialog-v3__status-priority-row">
-            <div class="task-tracker-dialog-v3__sp-item">
-              <span class="task-tracker-dialog-v3__label">状态</span>
-              <div class="task-tracker-dialog-v3__dropdown" data-dropdown="status">
-                <input type="hidden" name="status" value="${defaultStatus}" />
-                <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="status">
-                  ${statusBadgeHtml}
-                </button>
-                <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="status" style="display:none;">
-                  ${statusDropdownHtml}
-                </div>
-              </div>
-            </div>
-            <div class="task-tracker-dialog-v3__sp-item">
-              <span class="task-tracker-dialog-v3__label">优先级</span>
-              <div class="task-tracker-dialog-v3__dropdown" data-dropdown="priority">
-                <input type="hidden" name="priority" value="${defaultPriority}" />
-                <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="priority">
-                  ${priorityBadgeHtml}
-                </button>
-                <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="priority" style="display:none;">
-                  ${priorityDropdownHtml}
-                </div>
-              </div>
+      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--triple">
+        <div class="task-tracker-dialog-v3__field">
+          <span class="task-tracker-dialog-v3__label">状态</span>
+          <div class="task-tracker-dialog-v3__dropdown" data-dropdown="status">
+            <input type="hidden" name="status" value="${defaultStatus}" />
+            <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="status">
+              ${statusBadgeHtml}
+            </button>
+            <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="status" style="display:none;">
+              ${statusDropdownHtml}
             </div>
           </div>
         </div>
-        <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--half">
+        <div class="task-tracker-dialog-v3__field">
+          <span class="task-tracker-dialog-v3__label">优先级</span>
+          <div class="task-tracker-dialog-v3__dropdown" data-dropdown="priority">
+            <input type="hidden" name="priority" value="${defaultPriority}" />
+            <button type="button" class="task-tracker-dialog-v3__badge" data-dropdown-toggle data-dropdown="priority">
+              ${priorityBadgeHtml}
+            </button>
+            <div class="task-tracker-dialog-v3__menu" data-dropdown-menu="priority" style="display:none;">
+              ${priorityDropdownHtml}
+            </div>
+          </div>
+        </div>
+        <label class="task-tracker-dialog-v3__field">
           <span class="task-tracker-dialog-v3__label">创建时间</span>
           <div class="task-tracker-dialog-v3__readonly-field">
             <span class="task-tracker-dialog-v3__readonly-icon">${ICONS.calendar}</span>
@@ -349,35 +346,33 @@ export class TaskDialog {
       </div>
     </div>
 
-    ${sectionDivider()}
-
-    <div class="task-tracker-dialog-v3__section">
+    <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
       ${sectionTitle("时间信息")}
-      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--quad">
-        <label class="task-tracker-dialog-v3__field">
+      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--quad task-time-grid">
+        <label class="task-tracker-dialog-v3__field task-time-field">
           <span class="task-tracker-dialog-v3__label">计划开始</span>
-          <div class="task-tracker-dialog-v3__date-wrap">
+          <div class="task-tracker-dialog-v3__date-wrap date-input-wrapper">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
             <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="planStart" type="datetime-local" value="${escapeAttr(defaultPlanStart)}" />
           </div>
         </label>
-        <label class="task-tracker-dialog-v3__field">
+        <label class="task-tracker-dialog-v3__field task-time-field">
           <span class="task-tracker-dialog-v3__label">计划结束</span>
-          <div class="task-tracker-dialog-v3__date-wrap">
+          <div class="task-tracker-dialog-v3__date-wrap date-input-wrapper">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
             <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="planEnd" type="datetime-local" value="${escapeAttr(defaultPlanEnd)}" />
           </div>
         </label>
-        <label class="task-tracker-dialog-v3__field">
+        <label class="task-tracker-dialog-v3__field task-time-field">
           <span class="task-tracker-dialog-v3__label">截止日期</span>
-          <div class="task-tracker-dialog-v3__date-wrap">
+          <div class="task-tracker-dialog-v3__date-wrap date-input-wrapper">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.calendar}</span>
             <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="dueDate" type="date" value="${escapeAttr(defaultDueDate)}" />
           </div>
         </label>
-        <label class="task-tracker-dialog-v3__field">
+        <label class="task-tracker-dialog-v3__field task-time-field">
           <span class="task-tracker-dialog-v3__label">完成时间</span>
-          <div class="task-tracker-dialog-v3__date-wrap">
+          <div class="task-tracker-dialog-v3__date-wrap date-input-wrapper">
             <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
             <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date" name="completedAt" type="datetime-local" value="${escapeAttr(defaultCompletedAt)}" />
           </div>
@@ -385,29 +380,44 @@ export class TaskDialog {
       </div>
     </div>
 
-    ${sectionDivider()}
-
-    <div class="task-tracker-dialog-v3__section">
-      ${sectionTitle("笔记信息")}
-      <div class="task-tracker-dialog-v3__source-row">
-        <div class="task-tracker-dialog-v3__source-left">
-          <span class="task-tracker-dialog-v3__label">来源</span>
-          <div class="task-tracker-dialog-v3__source-control">
-            ${sourceSegmentHtml}
-            <input class="task-tracker-dialog-v3__source-note-input" name="sourceDocId" placeholder="填写笔记ID" value="${escapeAttr(defaultSourceDocId)}" data-source-note style="${sourceMode === "note" ? "" : "display:none"}" />
+    <div class="task-tracker-dialog-v3__note-layout">
+      <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
+        ${sectionTitle("笔记信息")}
+        <div class="task-tracker-dialog-v3__source-row">
+          <div class="task-tracker-dialog-v3__source-left">
+            <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--compact">
+              <span class="task-tracker-dialog-v3__label">来源</span>
+              <div class="task-tracker-dialog-v3__source-control">
+                ${sourceSegmentHtml}
+                <input class="task-tracker-dialog-v3__source-note-input" name="sourceDocId" placeholder="填写笔记ID" value="${escapeAttr(defaultSourceDocId)}" data-source-note style="${sourceMode === "note" ? "" : "display:none"}" />
+              </div>
+            </label>
+            <div class="task-note-folder" data-note-folder-root>
+              <div class="task-note-folder__header">
+                <span class="task-note-folder__label">笔记对应的文件夹位置</span>
+              </div>
+              <div data-note-folder-card></div>
+            </div>
           </div>
         </div>
+      </div>
+      <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
+        ${sectionTitle("任务描述")}
         <div class="task-tracker-dialog-v3__source-right">
-          <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full">
-            <span class="task-tracker-dialog-v3__label">任务描述</span>
-            <textarea class="task-tracker-dialog-v3__textarea" name="description" rows="3" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
+          <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--description">
+            <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--description" name="description" rows="4" placeholder="补充任务的背景、目标、注意事项等">${escapeHtml(defaultDescription)}</textarea>
           </label>
         </div>
       </div>
+    </div>
+
+    <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
+      ${sectionTitle("任务详情")}
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--detail">
-        <span class="task-tracker-dialog-v3__label">任务详情</span>
         <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--detail" name="detail" rows="30" placeholder="编写任务正文内容、过程记录或补充说明"></textarea>
-        <span class="task-tracker-dialog-v3__hint task-tracker-dialog-v3__detail-status" data-detail-status>${editMode ? "读取正文中..." : "将在创建任务文档时写入正文受控分区。"}</span>
+        <div class="task-tracker-dialog-v3__detail-footer">
+          <span class="task-tracker-dialog-v3__hint task-tracker-dialog-v3__detail-status" data-detail-status>${editMode ? "读取正文中..." : "将在创建任务文档时写入正文受控分区。"}</span>
+        </div>
       </label>
     </div>
     </div>
@@ -432,6 +442,7 @@ export class TaskDialog {
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
+    const noteFolderCard = root.querySelector<HTMLElement>("[data-note-folder-card]");
     titleInput?.focus();
     titleInput?.select();
 
@@ -440,11 +451,87 @@ export class TaskDialog {
     let detailSaving = false;
     let detailDirty = false;
     let destroyed = false;
+    let noteFolderPath = defaultNoteFolderPath;
+    let noteFolderDraft = defaultNoteFolderPath;
+    let noteFolderEditing = false;
 
     const setDetailStatus = (text: string, error = false) => {
       if (!detailStatus) return;
       detailStatus.textContent = text;
       detailStatus.classList.toggle("is-error", error);
+    };
+
+    const syncNoteFolderInput = () => {
+      const hidden = root.querySelector<HTMLInputElement>("input[name='noteFolderPath']");
+      if (hidden) {
+        hidden.value = noteFolderPath;
+      }
+    };
+
+    const renderNoteFolder = () => {
+      if (!noteFolderCard) {
+        return;
+      }
+      const openDisabled = !noteFolderPath || !canOpenLocalFolder;
+      noteFolderCard.innerHTML = noteFolderEditing
+        ? `<div class="task-note-folder__card task-note-folder__card--editing">
+            <div class="task-note-folder__edit">
+              <input class="task-note-folder__input" name="noteFolderPathDraft" value="${escapeAttr(noteFolderDraft)}" placeholder="例如：D:\\Work\\Notes\\项目资料 或 /Users/xxx/Documents/Notes/项目资料" data-note-folder-input />
+              <button type="button" class="task-note-folder__action task-note-folder__action--primary" data-note-folder-action="save">${ICONS.save}<span>保存</span></button>
+              <button type="button" class="task-note-folder__action task-note-folder__action--neutral" data-note-folder-action="cancel">取消</button>
+            </div>
+            <input type="hidden" name="noteFolderPath" value="${escapeAttr(noteFolderPath)}" />
+          </div>`
+        : `<div class="task-note-folder__card">
+            <div class="task-note-folder__summary">
+              <span class="task-note-folder__icon">${ICONS.folderOpen}</span>
+              <span class="task-note-folder__path ${noteFolderPath ? "" : "is-empty"}" ${noteFolderPath ? `title="${escapeAttr(noteFolderPath)}"` : ""}>${escapeHtml(noteFolderPath || "未设置")}</span>
+            </div>
+            <div class="task-note-folder__actions">
+              ${noteFolderPath
+                ? `<button type="button" class="task-note-folder__action" data-note-folder-action="edit">${ICONS.edit}<span>编辑</span></button>
+                   <button type="button" class="task-note-folder__action" data-note-folder-action="open" ${openDisabled ? "disabled" : ""} title="${escapeAttr(canOpenLocalFolder ? "打开本地文件夹" : "当前环境不支持打开本地文件夹。")}">${ICONS.folder}<span>打开</span></button>
+                   <button type="button" class="task-note-folder__action task-note-folder__action--danger" data-note-folder-action="clear">${ICONS.trash}<span>清空</span></button>`
+                : `<button type="button" class="task-note-folder__action" data-note-folder-action="edit">${ICONS.edit}<span>设置</span></button>`
+              }
+            </div>
+            <input type="hidden" name="noteFolderPath" value="${escapeAttr(noteFolderPath)}" />
+          </div>`;
+      syncNoteFolderInput();
+    };
+
+    const saveNoteFolderDraft = (): boolean => {
+      const nextPath = noteFolderDraft.trim();
+      if (!isAbsoluteFolderPath(nextPath)) {
+        showMessage("请填写文件夹绝对路径。", 5000, "error");
+        return false;
+      }
+      noteFolderPath = nextPath;
+      noteFolderDraft = nextPath;
+      noteFolderEditing = false;
+      renderNoteFolder();
+      return true;
+    };
+
+    const cancelNoteFolderEdit = () => {
+      noteFolderDraft = noteFolderPath;
+      noteFolderEditing = false;
+      renderNoteFolder();
+    };
+
+    const openNoteFolder = async () => {
+      if (!noteFolderPath) {
+        return;
+      }
+      if (!canOpenLocalFolder) {
+        showMessage("当前环境不支持打开本地文件夹。", 5000, "error");
+        return;
+      }
+      try {
+        await openLocalFolderPath(noteFolderPath);
+      } catch {
+        showMessage("无法打开该文件夹，请检查路径是否存在。", 5000, "error");
+      }
     };
 
     const renderSourceMode = () => {
@@ -477,6 +564,7 @@ export class TaskDialog {
     };
 
     renderSourceMode();
+    renderNoteFolder();
 
     const openMenu = (menu: HTMLElement, trigger: HTMLElement) => {
       menu.style.display = "";
@@ -732,6 +820,47 @@ export class TaskDialog {
     root.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
 
+      const noteFolderAction = target.closest<HTMLElement>("[data-note-folder-action]");
+      if (noteFolderAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const action = noteFolderAction.dataset.noteFolderAction;
+        if (action === "edit") {
+          noteFolderDraft = noteFolderPath;
+          noteFolderEditing = true;
+          renderNoteFolder();
+          root.querySelector<HTMLInputElement>("[data-note-folder-input]")?.focus();
+          return;
+        }
+        if (action === "save") {
+          const noteFolderInput = root.querySelector<HTMLInputElement>("[data-note-folder-input]");
+          noteFolderDraft = noteFolderInput?.value || noteFolderDraft;
+          if (saveNoteFolderDraft()) {
+            root.querySelector<HTMLInputElement>("input[name='title']")?.focus();
+          }
+          return;
+        }
+        if (action === "cancel") {
+          cancelNoteFolderEdit();
+          return;
+        }
+        if (action === "clear") {
+          const confirmed = window.confirm("确认清空笔记对应的文件夹位置？");
+          if (!confirmed) {
+            return;
+          }
+          noteFolderPath = "";
+          noteFolderDraft = "";
+          noteFolderEditing = false;
+          renderNoteFolder();
+          return;
+        }
+        if (action === "open") {
+          void openNoteFolder();
+          return;
+        }
+      }
+
       const dropdownToggle = target.closest<HTMLElement>("[data-dropdown-toggle]");
       if (dropdownToggle) {
         event.stopPropagation();
@@ -779,6 +908,22 @@ export class TaskDialog {
     });
 
     root.addEventListener("keydown", (event) => {
+      const noteFolderInput = event.target instanceof HTMLInputElement && event.target.matches("[data-note-folder-input]")
+        ? event.target
+        : undefined;
+      if (noteFolderInput) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          noteFolderDraft = noteFolderInput.value;
+          saveNoteFolderDraft();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelNoteFolderEdit();
+          return;
+        }
+      }
       if (event.key === "Escape") {
         const anyOpen = root.querySelector<HTMLElement>("[data-dropdown-menu]:not([style*='display: none'])");
         const anyCombobox = root.querySelector<HTMLElement>("[data-combobox-menu]:not([style*='display: none'])");
@@ -842,6 +987,13 @@ export class TaskDialog {
       submitButton.textContent = submittingLabel;
 
       try {
+        if (noteFolderEditing) {
+          const noteFolderInput = root.querySelector<HTMLInputElement>("[data-note-folder-input]");
+          noteFolderDraft = noteFolderInput?.value || noteFolderDraft;
+          if (!saveNoteFolderDraft()) {
+            throw new Error("请填写文件夹绝对路径。");
+          }
+        }
         const data = new FormData(form);
         if (sourceMode === "note") {
           await applyDocIdSource();
@@ -862,7 +1014,8 @@ export class TaskDialog {
           planEnd: fromDatetimeLocal(String(data.get("planEnd") || "")),
           completedAt: fromDatetimeLocal(String(data.get("completedAt") || "")),
           description: String(data.get("description") || "").trim() || undefined,
-          detail: String(data.get("detail") || "")
+          detail: String(data.get("detail") || ""),
+          noteFolderPath: String(data.get("noteFolderPath") || "").trim() || undefined
         };
         if (!input.title) {
           throw new Error("请填写任务标题");
@@ -907,4 +1060,45 @@ export function escapeHtml(value: string): string {
 
 function escapeAttr(value: string): string {
   return escapeHtml(value).replace(/'/g, "&#039;");
+}
+
+function isAbsoluteFolderPath(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("/");
+}
+
+function supportsLocalFolderOpen(): boolean {
+  const runtimeRequire = getRuntimeRequire();
+  if (!runtimeRequire) {
+    return false;
+  }
+  try {
+    const electron = runtimeRequire("electron");
+    return Boolean(electron?.shell?.openPath);
+  } catch {
+    return false;
+  }
+}
+
+async function openLocalFolderPath(folderPath: string): Promise<void> {
+  const runtimeRequire = getRuntimeRequire();
+  if (!runtimeRequire) {
+    throw new Error("unsupported");
+  }
+  const fs = runtimeRequire("fs") as { existsSync?: (path: string) => boolean; statSync?: (path: string) => { isDirectory?: () => boolean } };
+  const electron = runtimeRequire("electron") as { shell?: { openPath?: (path: string) => Promise<string> } };
+  if (!fs?.existsSync?.(folderPath) || !fs?.statSync?.(folderPath)?.isDirectory?.()) {
+    throw new Error("missing");
+  }
+  const result = await electron?.shell?.openPath?.(folderPath);
+  if (typeof result === "string" && result.trim()) {
+    throw new Error(result);
+  }
+}
+
+function getRuntimeRequire(): ((moduleName: string) => any) | undefined {
+  const globalWindow = window as Window & { require?: (moduleName: string) => any };
+  return typeof globalWindow.require === "function" ? globalWindow.require : undefined;
 }

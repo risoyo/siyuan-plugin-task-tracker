@@ -150,6 +150,7 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
     : fallbackTaskTitle(task);
   return {
     ...task,
+    noteFolderPath: typeof task.noteFolderPath === "string" ? task.noteFolderPath.trim() || undefined : undefined,
     title: normalizedTitle,
     createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };

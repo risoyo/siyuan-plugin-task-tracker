@@ -77,6 +77,7 @@ export interface TaskItem {
   updatedAt: string;
   completedAt?: string;
   description?: string;
+  noteFolderPath?: string;
 }
 
 export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "plan" | "due" | "actions" | "planStart" | "completedAt";
@@ -155,6 +156,7 @@ export interface TaskCreateInput {
   completedAt?: string;
   description?: string;
   detail?: string;
+  noteFolderPath?: string;
 }
 
 export interface SourceContext {
@@ -242,7 +244,8 @@ export const TASK_ATTRS = {
   sourceBlockId: "custom-task-tracker-source",
   sourceDocId: "custom-task-tracker-source-doc",
   sourceText: "custom-task-tracker-source-text",
-  description: "custom-task-tracker-description"
+  description: "custom-task-tracker-description",
+  noteFolderPath: "custom-task-tracker-note-folder-path"
 } as const;
 
 export const ROOT_ATTRS = {

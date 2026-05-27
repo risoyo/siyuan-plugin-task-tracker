@@ -122,6 +122,7 @@ export class TaskService {
       planStart: input.planStart || undefined,
       planEnd: input.planEnd || undefined,
       description: input.description?.trim() || undefined,
+      noteFolderPath: input.noteFolderPath?.trim() || undefined,
       createdAt,
       updatedAt: now,
       completedAt: input.status === "completed" ? now : undefined
@@ -634,6 +635,9 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   if ("description" in normalized && typeof normalized.description === "string") {
     normalized.description = normalized.description.trim() || undefined;
   }
+  if ("noteFolderPath" in normalized && typeof normalized.noteFolderPath === "string") {
+    normalized.noteFolderPath = normalized.noteFolderPath.trim() || undefined;
+  }
   if ("dueDate" in normalized && normalized.dueDate === "") {
     normalized.dueDate = undefined;
   }
@@ -898,7 +902,8 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>, settings: Tas
     createdAt: attrs[TASK_ATTRS.createdAt] || updatedToIso(doc.updated) || nowIso(),
     updatedAt: updatedToIso(doc.updated) || nowIso(),
     completedAt: attrs[TASK_ATTRS.completedAt] || undefined,
-    description: attrs[TASK_ATTRS.description]?.trim() || undefined
+    description: attrs[TASK_ATTRS.description]?.trim() || undefined,
+    noteFolderPath: attrs[TASK_ATTRS.noteFolderPath]?.trim() || undefined
   };
 }
 
@@ -2293,7 +2298,8 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.sourceBlockId]: task.sourceBlockId || "",
     [TASK_ATTRS.sourceDocId]: task.sourceDocId || "",
     [TASK_ATTRS.sourceText]: task.sourceText || "",
-    [TASK_ATTRS.description]: task.description || ""
+    [TASK_ATTRS.description]: task.description || "",
+    [TASK_ATTRS.noteFolderPath]: task.noteFolderPath || ""
   });
 }
 
@@ -2365,6 +2371,7 @@ function taskSnapshot(task: TaskItem): string {
     planStart: task.planStart || "",
     planEnd: task.planEnd || "",
     description: task.description || "",
+    noteFolderPath: task.noteFolderPath || "",
     createdAt: task.createdAt || "",
     updatedAt: task.updatedAt || "",
     completedAt: task.completedAt || ""
