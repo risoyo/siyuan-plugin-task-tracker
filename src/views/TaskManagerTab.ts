@@ -388,7 +388,7 @@ export class TaskManagerTab {
     }).join("")}
   </div>
   <div class="task-manager-view-switch__right">
-    ${supportsPageSettings ? `<button class="task-manager-settings-btn" data-action="open-page-config"><span>页面设置</span><svg class="task-manager-settings-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.8 1.5h2.4l.35 1.55c.42.14.82.31 1.18.53l1.34-.85 1.7 1.7-.85 1.34c.22.36.39.76.53 1.18L15 7.3v2.4l-1.55.35c-.14.42-.31.82-.53 1.18l.85 1.34-1.7 1.7-1.34-.85c-.36.22-.76.39-1.18.53L9.2 15H6.8l-.35-1.55a5.6 5.6 0 0 1-1.18-.53l-1.34.85-1.7-1.7.85-1.34a5.6 5.6 0 0 1-.53-1.18L1 9.7V7.3l1.55-.35c.14-.42.31-.82.53-1.18l-.85-1.34 1.7-1.7 1.34.85c.36-.22.76-.39 1.18-.53L6.8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>` : ""}
+    ${supportsPageSettings ? `<button class="task-icon-btn task-icon-btn--settings task-manager-settings-btn" data-action="open-page-config" type="button" aria-label="页面设置" title="页面设置">${renderControlsIcon()}</button>` : ""}
     ${this.view === "table" ? this.renderBulkParentMenu(tableParentTaskIds.length === 0) : ""}
     ${dropdownHtml}
   </div>
@@ -398,7 +398,7 @@ export class TaskManagerTab {
   private renderBulkParentMenu(disabled: boolean): string {
     return `<div class="task-manager-bulk-parent-dropdown">
       <button
-        class="task-manager-bulk-parent-btn"
+        class="task-icon-btn task-icon-btn--toggle-tree task-manager-bulk-parent-btn"
         data-action="toggle-parent-bulk-menu"
         type="button"
         aria-label="一键展开/收缩所有父任务"
@@ -2639,7 +2639,7 @@ function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
   if (type === "collapse") {
     return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11.5h10M5.5 8.5 8 6l2.5 2.5M8 13.5v-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
-  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5h5M3 8h10M3 12.5h5M11 2.5v3M9.5 4l1.5 1.5L12.5 4M11 13.5v-3M9.5 12l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.25h6M3 8h6M3 11.75h6M10.5 3v3M9 4.5l1.5 1.5L12 4.5M10.5 13v-3M9 11.5l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
 function renderSourceFolderIcon(): string {
@@ -2651,4 +2651,8 @@ function renderFreezeColumnIcon(active: boolean): string {
     return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5 13 6l-2 1.2-.7 3.8-1.8-1.8-2.9 2.9-.9-.9 2.9-2.9L5.8 6.5l3.7-.8 1.3-1.9Z" fill="currentColor"/></svg>`;
   }
   return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5 13 6l-2 1.2-.7 3.8-1.8-1.8-2.9 2.9-.9-.9 2.9-2.9L5.8 6.5l3.7-.8 1.3-1.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+}
+
+function renderControlsIcon(): string {
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="5" cy="4" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/><circle cx="10.5" cy="8" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="12" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/></svg>`;
 }

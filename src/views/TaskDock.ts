@@ -13,12 +13,22 @@ type DockFilter = "all" | "important" | "today";
 
 type DockPopoverField = "status";
 type TaskDockMode = "desktop" | "mobile";
+type SidebarDisplayOptions = {
+  showStatus: boolean;
+  showDate: boolean;
+};
+
+const SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY = "task-tracker-sidebar-display-options";
 
 export class TaskDock {
   private filter: DockFilter = "all";
   private collapsedTaskIds = new Set<string>();
+  private bulkParentMenuOpen = false;
   private activePopover: { taskId: string; field: DockPopoverField } | null = null;
   private activePopoverCleanup?: () => void;
+  private displaySettingsOpen = false;
+  private displaySettingsCleanup?: () => void;
+  private displayOptions: SidebarDisplayOptions = readSidebarDisplayOptions();
   private unsubscribe?: () => void;
   private readonly mode: TaskDockMode;
   private readonly isMobile: boolean;
@@ -46,6 +56,7 @@ export class TaskDock {
   destroy(): void {
     this.unsubscribe?.();
     this.closePopover();
+    this.closeDisplaySettings();
     this.container.onclick = null;
     this.container.onchange = null;
     this.container.onkeydown = null;
@@ -55,24 +66,76 @@ export class TaskDock {
     const settings = this.service.store.getSettings();
     const tree = this.filteredTaskTree();
     const counts = this.counts();
+    const parentTaskIds = this.parentTaskIdsForTree(tree);
 
     this.closePopover();
+    this.displaySettingsCleanup?.();
+    this.displaySettingsCleanup = undefined;
     this.container.innerHTML = `<div class="task-tracker task-tracker--dock ${this.isMobile ? "task-tracker--mobile" : ""}">
-  ${this.renderHeader()}
+  ${this.renderHeader(parentTaskIds.length === 0)}
   ${settings.taskRootDocId ? this.renderContent(tree, counts) : this.renderEmptyRoot()}
 </div>`;
 
     this.bind();
+    if (this.displaySettingsOpen) {
+      this.openDisplaySettings();
+    }
   }
 
   /* ── Header ──────────────────────────────────────────────── */
 
-  private renderHeader(): string {
+  private renderHeader(disableBulkParentToggle: boolean): string {
     return `<div class="task-tracker-dock__header">
   <svg class="task-tracker-dock__header-icon"><use xlink:href="#iconTaskTracker"></use></svg>
   <span class="task-tracker-dock__header-title">任务追踪</span>
   <span class="fn__flex-1 fn__space"></span>
-  <button class="task-tracker-dock__add-icon-btn" data-action="new" title="添加任务">+</button>
+  ${this.renderDockBulkParentMenu(disableBulkParentToggle)}
+  <div class="task-tracker-dock__display-settings" data-display-settings>
+    <button class="task-icon-btn task-icon-btn--settings task-tracker-display-btn ${this.displaySettingsOpen ? "is-active" : ""}" data-action="toggle-display-settings" title="显示设置" aria-label="显示设置" aria-expanded="${this.displaySettingsOpen}" type="button">
+      ${renderControlsIcon()}
+    </button>
+    ${this.displaySettingsOpen ? this.renderDisplaySettingsPopover() : ""}
+  </div>
+  <button class="task-icon-btn task-tracker-dock__add-icon-btn" data-action="new" title="添加任务" aria-label="添加任务" type="button">+</button>
+</div>`;
+  }
+
+  private renderDockBulkParentMenu(disabled: boolean): string {
+    return `<div class="task-tracker-dock__bulk-parent-dropdown">
+  <button
+    class="task-icon-btn task-icon-btn--toggle-tree task-tracker-dock__bulk-parent-btn"
+    data-action="toggle-dock-parent-bulk-menu"
+    type="button"
+    aria-label="展开 / 收缩父任务"
+    title="展开 / 收缩父任务"
+    ${disabled ? "disabled" : ""}
+  >
+    ${renderBulkParentIcon("entry")}
+  </button>
+  ${this.bulkParentMenuOpen && !disabled ? `<div class="task-manager-bulk-parent-dropdown__menu task-tracker-dock__bulk-parent-menu" role="menu">
+    <button class="task-manager-bulk-parent-dropdown__item" data-action="expand-all-dock-parents" role="menuitem" type="button">
+      <span class="task-manager-bulk-parent-dropdown__item-icon">${renderBulkParentIcon("expand")}</span>
+      <span>展开所有父任务</span>
+    </button>
+    <button class="task-manager-bulk-parent-dropdown__item" data-action="collapse-all-dock-parents" role="menuitem" type="button">
+      <span class="task-manager-bulk-parent-dropdown__item-icon">${renderBulkParentIcon("collapse")}</span>
+      <span>收缩所有父任务</span>
+    </button>
+  </div>` : ""}
+</div>`;
+  }
+
+  private renderDisplaySettingsPopover(): string {
+    return `<div class="task-tracker-display-popover" data-display-settings-popover>
+  <div class="task-tracker-display-popover__title">显示设置</div>
+  <label class="task-tracker-display-option">
+    <span>显示任务状态</span>
+    <input type="checkbox" data-display-option="showStatus" ${this.displayOptions.showStatus ? "checked" : ""} />
+  </label>
+  <label class="task-tracker-display-option">
+    <span>显示计划时间</span>
+    <input type="checkbox" data-display-option="showDate" ${this.displayOptions.showDate ? "checked" : ""} />
+  </label>
 </div>`;
   }
 
@@ -126,6 +189,7 @@ export class TaskDock {
     const childClass = depth > 0 ? " task-tracker-dock__task--child" : "";
     const parentClass = isParent ? " task-tracker-dock__task--parent" : "";
 
+    const badges = this.renderTaskBadges(task);
     return `<div class="task-tracker-dock__task ${childClass}${contextClass}${parentClass}" data-task-id="${task.id}" data-depth="${depth}">
   <div class="task-tracker-dock__task-row">
     ${depth > 0 ? `<span class="task-tracker-dock__task-indent"></span>` : ""}
@@ -133,16 +197,27 @@ export class TaskDock {
       ? `<button class="task-tracker-dock__task-toggle" data-action="toggle-children" aria-label="${collapsed ? "展开子任务" : "折叠子任务"}" title="${collapsed ? "展开子任务" : "折叠子任务"}">${renderChevron(!collapsed)}</button>`
       : `<span class="task-tracker-dock__task-toggle-placeholder"></span>`}
     <span class="task-tracker-dock__task-title ${isParent ? "is-parent" : ""}" data-action="open" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</span>
-    <span class="task-tracker-dock__task-badges">
-      ${this.renderStatusBadge(task)}
-      ${this.renderDateBadge(task)}
-    </span>
+    ${badges}
     ${childCount && depth === 0 ? this.renderChildCountBadge(childCount) : ""}
   </div>
   ${childCount && !collapsed
     ? `<div class="task-tracker-dock__task-children">${node.children.map((child) => this.renderTaskCard(child, depth + 1, child.children.length > 0)).join("")}</div>`
     : ""}
 </div>`;
+  }
+
+  private renderTaskBadges(task: TaskItem): string {
+    const parts: string[] = [];
+    if (this.displayOptions.showStatus) {
+      parts.push(this.renderStatusBadge(task));
+    }
+    if (this.displayOptions.showDate) {
+      parts.push(this.renderDateBadge(task));
+    }
+    if (!parts.length) {
+      return "";
+    }
+    return `<span class="task-tracker-dock__task-badges">${parts.join("")}</span>`;
   }
 
   /* ── Badges ──────────────────────────────────────────────── */
@@ -236,6 +311,33 @@ export class TaskDock {
     const actionButton = target.closest<HTMLElement>("[data-action]");
     if (actionButton) {
       const action = actionButton.dataset.action;
+      if (action === "toggle-dock-parent-bulk-menu") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeDisplaySettings();
+        this.bulkParentMenuOpen = !this.bulkParentMenuOpen;
+        this.render();
+        return;
+      }
+      if (action === "expand-all-dock-parents") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.expandAllVisibleParents();
+        return;
+      }
+      if (action === "collapse-all-dock-parents") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.collapseAllVisibleParents();
+        return;
+      }
+      if (action === "toggle-display-settings") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.bulkParentMenuOpen = false;
+        this.toggleDisplaySettings();
+        return;
+      }
       if (action === "new") {
         this.actions.newTask();
         return;
@@ -296,6 +398,12 @@ export class TaskDock {
       this.closePopover();
     }
 
+    if (this.bulkParentMenuOpen && !target.closest(".task-tracker-dock__bulk-parent-dropdown")) {
+      this.bulkParentMenuOpen = false;
+      this.render();
+      return;
+    }
+
     const dateChip = this.isMobile ? null : target.closest<HTMLElement>(".task-tracker-dock__date-chip");
     if (dateChip) {
       const input = dateChip.querySelector<HTMLInputElement>("input[type='date']");
@@ -313,6 +421,20 @@ export class TaskDock {
   }
 
   private handleChange(event: Event): void {
+    const displayOptionInput = event.target instanceof HTMLInputElement && event.target.dataset.displayOption
+      ? event.target
+      : null;
+    if (displayOptionInput) {
+      const option = displayOptionInput.dataset.displayOption as keyof SidebarDisplayOptions;
+      this.displayOptions = {
+        ...this.displayOptions,
+        [option]: displayOptionInput.checked
+      };
+      writeSidebarDisplayOptions(this.displayOptions);
+      this.render();
+      return;
+    }
+
     if (this.isMobile) {
       return;
     }
@@ -345,6 +467,18 @@ export class TaskDock {
   }
 
   private handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && this.displaySettingsOpen) {
+      event.preventDefault();
+      this.closeDisplaySettings();
+      this.render();
+      return;
+    }
+    if (event.key === "Escape" && this.bulkParentMenuOpen) {
+      event.preventDefault();
+      this.bulkParentMenuOpen = false;
+      this.render();
+      return;
+    }
     if (event.key === "Escape" && this.activePopover) {
       event.preventDefault();
       this.closePopover();
@@ -355,6 +489,44 @@ export class TaskDock {
     this.activePopoverCleanup?.();
     this.activePopoverCleanup = undefined;
     this.activePopover = null;
+  }
+
+  private toggleDisplaySettings(): void {
+    if (this.displaySettingsOpen) {
+      this.closeDisplaySettings();
+      this.render();
+      return;
+    }
+    this.closePopover();
+    this.displaySettingsOpen = true;
+    this.render();
+  }
+
+  private openDisplaySettings(): void {
+    this.closeDisplaySettings();
+    this.displaySettingsOpen = true;
+    const root = this.container.querySelector<HTMLElement>("[data-display-settings]");
+    if (!root) {
+      return;
+    }
+    const closeOnOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && root.contains(target)) {
+        return;
+      }
+      this.closeDisplaySettings();
+      this.render();
+    };
+    document.addEventListener("click", closeOnOutside);
+    this.displaySettingsCleanup = () => {
+      document.removeEventListener("click", closeOnOutside);
+    };
+  }
+
+  private closeDisplaySettings(): void {
+    this.displaySettingsCleanup?.();
+    this.displaySettingsCleanup = undefined;
+    this.displaySettingsOpen = false;
   }
 
   private openPopover(taskId: string, field: DockPopoverField, trigger: HTMLElement): void {
@@ -426,6 +598,44 @@ export class TaskDock {
     } else {
       this.collapsedTaskIds.add(taskId);
     }
+    this.render();
+  }
+
+  private parentTaskIdsForTree(tree: TaskTreeNode[]): string[] {
+    const ids: string[] = [];
+    const visit = (nodes: TaskTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.children.length) {
+          ids.push(node.task.id);
+          visit(node.children);
+        }
+      }
+    };
+    visit(tree);
+    return ids;
+  }
+
+  private expandAllVisibleParents(): void {
+    const parentTaskIds = this.parentTaskIdsForTree(this.filteredTaskTree());
+    if (!parentTaskIds.length) {
+      return;
+    }
+    for (const taskId of parentTaskIds) {
+      this.collapsedTaskIds.delete(taskId);
+    }
+    this.bulkParentMenuOpen = false;
+    this.render();
+  }
+
+  private collapseAllVisibleParents(): void {
+    const parentTaskIds = this.parentTaskIdsForTree(this.filteredTaskTree());
+    if (!parentTaskIds.length) {
+      return;
+    }
+    for (const taskId of parentTaskIds) {
+      this.collapsedTaskIds.add(taskId);
+    }
+    this.bulkParentMenuOpen = false;
     this.render();
   }
 
@@ -565,4 +775,47 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
 
 function renderChevron(expanded: boolean): string {
   return `<span class="task-tree-chevron${expanded ? " is-expanded" : ""}" aria-hidden="true"></span>`;
+}
+
+function renderControlsIcon(): string {
+  return `<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+  <path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <circle cx="5" cy="4" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/>
+  <circle cx="10.5" cy="8" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/>
+  <circle cx="7" cy="12" r="1.35" fill="#FFFFFF" stroke="currentColor" stroke-width="1.2"/>
+</svg>`;
+}
+
+function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
+  if (type === "expand") {
+    return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M5.5 7.5 8 10l2.5-2.5M8 2.5v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  if (type === "collapse") {
+    return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11.5h10M5.5 8.5 8 6l2.5 2.5M8 13.5v-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.25h6M3 8h6M3 11.75h6M10.5 3v3M9 4.5l1.5 1.5L12 4.5M10.5 13v-3M9 11.5l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function readSidebarDisplayOptions(): SidebarDisplayOptions {
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY);
+    if (!raw) {
+      return { showStatus: true, showDate: true };
+    }
+    const parsed = JSON.parse(raw) as Partial<SidebarDisplayOptions> | null;
+    return {
+      showStatus: parsed?.showStatus !== false,
+      showDate: parsed?.showDate !== false
+    };
+  } catch {
+    return { showStatus: true, showDate: true };
+  }
+}
+
+function writeSidebarDisplayOptions(options: SidebarDisplayOptions): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch {
+    // ignore storage failures
+  }
 }

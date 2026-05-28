@@ -272,7 +272,55 @@
   position: relative;
 }
 
-.task-manager-settings-btn,
+.task-icon-btn {
+  align-items: center;
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #D8DEE8;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  box-sizing: border-box;
+  color: #64748B;
+  cursor: pointer;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  width: 40px;
+}
+
+.task-icon-btn svg {
+  height: 18px;
+  width: 18px;
+}
+
+.task-icon-btn:focus,
+.task-icon-btn:focus-visible {
+  border-color: #BFDBFE;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.task-icon-btn--settings {
+  color: #2563EB;
+}
+
+.task-icon-btn--settings:hover,
+.task-icon-btn--settings.is-active {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #2563EB;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+}
+
+.task-icon-btn--toggle-tree:hover {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+  color: #2563EB;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.08);
+}
+
 .task-manager-filter-btn,
 .task-manager-filter-all-btn {
   align-items: center;
@@ -295,7 +343,6 @@
   width: auto;
 }
 
-.task-manager-settings-btn:hover,
 .task-manager-filter-btn:hover {
   background: var(--manager-accent-soft);
 }
@@ -311,7 +358,6 @@
   text-align: center;
 }
 
-.task-manager-settings-btn__icon,
 .task-manager-filter-btn__arrow {
   color: currentColor;
   flex-shrink: 0;
@@ -325,37 +371,16 @@
   width: 11px;
 }
 
+.task-manager-settings-btn,
 .task-manager-bulk-parent-btn {
-  align-items: center;
-  appearance: none;
-  background: #FFFFFF;
-  border: 1px solid #D8DEE8;
-  border-radius: 8px;
-  box-sizing: border-box;
-  color: #64748B;
-  cursor: pointer;
-  display: inline-flex;
-  height: 34px;
-  justify-content: center;
-  padding: 0;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-  width: 34px;
-}
-
-.task-manager-bulk-parent-btn:hover {
-  background: #EFF6FF;
-  border-color: #BFDBFE;
-  color: #2563EB;
+  border-radius: 10px;
+  height: 30px;
+  width: 30px;
 }
 
 .task-manager-bulk-parent-btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
-}
-
-.task-manager-bulk-parent-btn svg {
-  height: 16px;
-  width: 16px;
 }
 
 .task-manager-filter-dropdown__menu {
@@ -2197,7 +2222,7 @@
   align-items: center;
   display: flex;
   flex-shrink: 0;
-  gap: 6px;
+  gap: 8px;
   padding: 12px 12px 0;
 }
 
@@ -2214,30 +2239,75 @@
   font-weight: 600;
 }
 
+.task-tracker-dock__bulk-parent-dropdown,
+.task-tracker-dock__display-settings {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.task-tracker-dock__bulk-parent-btn,
+.task-tracker-display-btn {
+  border-radius: 10px;
+  height: 30px;
+  width: 30px;
+}
+
 .task-tracker-dock__add-icon-btn {
-  align-items: center;
-  appearance: none;
-  background: #FFFFFF;
-  border: 1px solid #E5EAF2;
-  border-radius: 7px;
-  color: #64748B;
-  cursor: pointer;
-  display: inline-flex;
-  flex-shrink: 0;
+  border-radius: 10px;
   font-size: 16px;
   font-weight: 500;
-  height: 26px;
-  justify-content: center;
+  height: 30px;
   line-height: 1;
-  padding: 0;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-  width: 26px;
+  width: 30px;
+}
+
+.task-tracker-display-popover {
+  background: #FFFFFF;
+  border: 1px solid #E5EAF2;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  min-width: 180px;
+  padding: 10px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 240;
+}
+
+.task-tracker-display-popover__title {
+  color: #1F2937;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.task-tracker-display-option {
+  align-items: center;
+  color: #334155;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+  height: 34px;
+  justify-content: space-between;
+}
+
+.task-tracker-display-option input[type="checkbox"] {
+  accent-color: #2563EB;
+  cursor: pointer;
+  flex: 0 0 auto;
 }
 
 .task-tracker-dock__add-icon-btn:hover {
   background: #EFF6FF;
   border-color: #BFDBFE;
   color: #3B82F6;
+}
+
+.task-tracker-dock__bulk-parent-menu {
+  left: auto;
+  min-width: 148px;
+  right: 0;
 }
 
 /* ── Body ───────────────────────────────────────────────────── */
