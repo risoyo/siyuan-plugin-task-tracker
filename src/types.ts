@@ -88,6 +88,15 @@ export type CompletedPageColumnKey = "task" | "project" | "source" | "latest" | 
 
 export type SortDirection = "asc" | "desc";
 
+export type SidebarTaskSortField = "default" | "task" | "createdAt" | "updatedAt" | "planStart" | "dueDate" | "priority" | "status";
+
+export interface DockDisplayOptions {
+  showStatus: boolean;
+  showDate: boolean;
+  sortField: SidebarTaskSortField;
+  sortDirection: SortDirection;
+}
+
 export type TableSortColumn = TablePageColumnKey;
 
 export type CompletedSortColumn = CompletedPageColumnKey;
@@ -131,6 +140,7 @@ export interface TaskSettings {
   taskRootSource?: "manual" | "auto";
   defaultProject?: string;
   taskTemplate?: string;
+  dockDisplayOptions?: DockDisplayOptions;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   pageConfigs?: {
@@ -182,6 +192,13 @@ export const TASKS_DATA_FILE = "tasks.json";
 export const SETTINGS_DATA_FILE = "settings.json";
 
 export const DEFAULT_SETTINGS: TaskSettings = {};
+
+export const DEFAULT_DOCK_DISPLAY_OPTIONS: DockDisplayOptions = {
+  showStatus: true,
+  showDate: true,
+  sortField: "default",
+  sortDirection: "asc"
+};
 
 export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 

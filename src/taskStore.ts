@@ -1,12 +1,15 @@
 import type { Plugin } from "siyuan";
 import {
+  DEFAULT_DOCK_DISPLAY_OPTIONS,
   DEFAULT_SETTINGS,
   SETTINGS_DATA_FILE,
   TASKS_DATA_FILE,
   type CompletedPageColumnKey,
   type CompletedPageConfig,
   type CompletedSortSpec,
+  type DockDisplayOptions,
   type SortDirection,
+  type SidebarTaskSortField,
   type TableColumnKey,
   type TablePageColumnKey,
   type TablePageConfig,
@@ -160,6 +163,7 @@ function normalizeSettings(settings: TaskSettings): TaskSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
+    dockDisplayOptions: normalizeDockDisplayOptions(settings.dockDisplayOptions),
     pageConfigs: {
       ...settings.pageConfigs,
       table: normalizeTablePageConfig(settings.pageConfigs?.table),
@@ -241,6 +245,26 @@ function normalizeDefaultSort(raw?: { column: TableSortColumn; direction: SortDi
 
 function normalizeSortDirection(direction?: SortDirection): SortDirection | undefined {
   return direction === "asc" || direction === "desc" ? direction : undefined;
+}
+
+function normalizeDockDisplayOptions(raw?: DockDisplayOptions): DockDisplayOptions {
+  return {
+    showStatus: raw?.showStatus !== false,
+    showDate: raw?.showDate !== false,
+    sortField: isSidebarTaskSortField(raw?.sortField) ? raw.sortField : DEFAULT_DOCK_DISPLAY_OPTIONS.sortField,
+    sortDirection: normalizeSortDirection(raw?.sortDirection) || DEFAULT_DOCK_DISPLAY_OPTIONS.sortDirection
+  };
+}
+
+function isSidebarTaskSortField(value: unknown): value is SidebarTaskSortField {
+  return value === "default"
+    || value === "task"
+    || value === "createdAt"
+    || value === "updatedAt"
+    || value === "planStart"
+    || value === "dueDate"
+    || value === "priority"
+    || value === "status";
 }
 
 function isTableSortColumn(value: unknown): value is TableSortColumn {

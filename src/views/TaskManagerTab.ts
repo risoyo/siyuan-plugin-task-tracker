@@ -20,6 +20,7 @@ import {
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
+import { compareOptionalDates, compareTasksByColumn, sortTaskTree } from "../taskSort";
 import {
   PRIORITY_BADGE_CONFIG,
   STATUS_BADGE_CONFIG,
@@ -388,8 +389,8 @@ export class TaskManagerTab {
     }).join("")}
   </div>
   <div class="task-manager-view-switch__right">
-    ${supportsPageSettings ? `<button class="task-icon-btn task-icon-btn--settings task-manager-settings-btn" data-action="open-page-config" type="button" aria-label="页面设置" title="页面设置">${renderControlsIcon()}</button>` : ""}
     ${this.view === "table" ? this.renderBulkParentMenu(tableParentTaskIds.length === 0) : ""}
+    ${supportsPageSettings ? `<button class="task-icon-btn task-icon-btn--settings task-manager-settings-btn" data-action="open-page-config" type="button" aria-label="页面设置" title="页面设置">${renderControlsIcon()}</button>` : ""}
     ${dropdownHtml}
   </div>
 </div>`;
@@ -2465,72 +2466,6 @@ function compareTimelineTasks(a: TaskItem, b: TaskItem): number {
     || a.title.localeCompare(b.title, "zh-Hans-CN");
 }
 
-function sortTaskTree(nodes: TaskTreeNode[], comparator?: (a: TaskItem, b: TaskItem) => number): TaskTreeNode[] {
-  const sorted = nodes.map((node) => ({
-    ...node,
-    children: sortTaskTree(node.children, comparator)
-  }));
-  if (!comparator) {
-    return sorted;
-  }
-  return sorted.sort((a, b) => comparator(a.task, b.task));
-}
-
-function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSortColumn): number {
-  if (column === "task") {
-    return a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "project") {
-    return (a.project || "").localeCompare(b.project || "", "zh-Hans-CN")
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "source") {
-    const aSource = a.sourceText?.trim() || (a.sourceDocId ? "来源笔记" : "手动创建");
-    const bSource = b.sourceText?.trim() || (b.sourceDocId ? "来源笔记" : "手动创建");
-    return aSource.localeCompare(bSource, "zh-Hans-CN")
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "createdAt") {
-    return compareOptionalDates(a.createdAt, b.createdAt, "asc")
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "status") {
-    return compareBusinessOrder(a.status, b.status, ["todo", "doing", "waiting", "completed", "cancelled"])
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "priority") {
-    return compareBusinessOrder(a.priority, b.priority, ["none", "low", "medium", "high"])
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "latest") {
-    return (a.description || "").localeCompare(b.description || "", "zh-Hans-CN")
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  if (column === "plan") {
-    return compareOptionalDates(a.planStart, b.planStart, "asc")
-      || a.title.localeCompare(b.title, "zh-Hans-CN");
-  }
-  return compareOptionalDates(a.dueDate, b.dueDate, "asc")
-    || a.title.localeCompare(b.title, "zh-Hans-CN");
-}
-
-function compareBusinessOrder<T extends string>(a: T | undefined, b: T | undefined, order: T[]): number {
-  const rank = new Map(order.map((value, index) => [value, index]));
-  return (rank.get(a || order[0]) ?? order.length) - (rank.get(b || order[0]) ?? order.length);
-}
-
-function compareOptionalDates(a?: string, b?: string, direction: "asc" | "desc" = "asc"): number {
-  if (!a && !b) {
-    return 0;
-  }
-  if (!a) {
-    return 1;
-  }
-  if (!b) {
-    return -1;
-  }
-  return direction === "desc" ? b.localeCompare(a) : a.localeCompare(b);
-}
 
 function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumnKey, number> {
   const widths = {

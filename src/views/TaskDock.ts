@@ -2,23 +2,38 @@ import { showMessage } from "siyuan";
 import { formatSidebarDate, mergeDateInputWithExisting, toDateKey } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
+import { compareTasksBySidebarSortField, sortTaskTree } from "../taskSort";
 import {
   ACTIVE_TASK_STATUSES,
+  DEFAULT_DOCK_DISPLAY_OPTIONS,
+  type DockDisplayOptions,
+  type SidebarTaskSortField,
   type TaskItem,
   STATUS_BADGE_CONFIG,
   type TaskStatus
 } from "../types";
 
-type DockFilter = "all" | "important" | "today";
+type DockFilter = "all" | "important" | "nextThreeDays";
 
 type DockPopoverField = "status";
 type TaskDockMode = "desktop" | "mobile";
-type SidebarDisplayOptions = {
-  showStatus: boolean;
-  showDate: boolean;
-};
+type SidebarDisplayOptions = DockDisplayOptions;
 
 const SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY = "task-tracker-sidebar-display-options";
+const SIDEBAR_SORT_FIELD_OPTIONS: Array<{ value: SidebarTaskSortField; label: string }> = [
+  { value: "default", label: "默认顺序" },
+  { value: "task", label: "任务名" },
+  { value: "createdAt", label: "创建时间" },
+  { value: "updatedAt", label: "更新时间" },
+  { value: "planStart", label: "计划时间" },
+  { value: "dueDate", label: "截止时间" },
+  { value: "priority", label: "优先级" },
+  { value: "status", label: "任务状态" }
+];
+const SIDEBAR_SORT_DIRECTION_OPTIONS: Array<{ value: "asc" | "desc"; label: string }> = [
+  { value: "asc", label: "升序" },
+  { value: "desc", label: "降序" }
+];
 
 export class TaskDock {
   private filter: DockFilter = "all";
@@ -28,7 +43,7 @@ export class TaskDock {
   private activePopoverCleanup?: () => void;
   private displaySettingsOpen = false;
   private displaySettingsCleanup?: () => void;
-  private displayOptions: SidebarDisplayOptions = readSidebarDisplayOptions();
+  private displayOptions: SidebarDisplayOptions;
   private unsubscribe?: () => void;
   private readonly mode: TaskDockMode;
   private readonly isMobile: boolean;
@@ -50,6 +65,8 @@ export class TaskDock {
   ) {
     this.mode = options.mode || "desktop";
     this.isMobile = this.mode === "mobile";
+    this.displayOptions = readSidebarDisplayOptions(this.service.store.getSettings().dockDisplayOptions);
+    void this.ensureDisplayOptionsPersisted();
     this.unsubscribe = this.service.onChange(() => this.render());
   }
 
@@ -136,6 +153,21 @@ export class TaskDock {
     <span>显示计划时间</span>
     <input type="checkbox" data-display-option="showDate" ${this.displayOptions.showDate ? "checked" : ""} />
   </label>
+  <div class="task-tracker-display-popover__section">
+    <div class="task-tracker-display-popover__section-title">排序方式</div>
+    <label class="task-tracker-display-field">
+      <span>排序字段</span>
+      <select class="b3-select fn__block" data-display-option-select="sortField">
+        ${SIDEBAR_SORT_FIELD_OPTIONS.map((option) => `<option value="${option.value}" ${this.displayOptions.sortField === option.value ? "selected" : ""}>${option.label}</option>`).join("")}
+      </select>
+    </label>
+    <label class="task-tracker-display-field">
+      <span>排序方向</span>
+      <select class="b3-select fn__block" data-display-option-select="sortDirection">
+        ${SIDEBAR_SORT_DIRECTION_OPTIONS.map((option) => `<option value="${option.value}" ${this.displayOptions.sortDirection === option.value ? "selected" : ""}>${option.label}</option>`).join("")}
+      </select>
+    </label>
+  </div>
 </div>`;
   }
 
@@ -166,7 +198,7 @@ export class TaskDock {
     const tabs: Array<{ key: DockFilter; label: string }> = [
       { key: "all", label: "全部" },
       { key: "important", label: "重点" },
-      { key: "today", label: "今日" }
+      { key: "nextThreeDays", label: "未来三日" }
     ];
     return `<div class="task-tracker-dock__tabs">
   ${tabs.map((tab) => {
@@ -269,10 +301,10 @@ export class TaskDock {
 
   private renderEmptyState(): string {
     switch (this.filter) {
-      case "today":
+      case "nextThreeDays":
         return `<div class="task-tracker-dock__empty">
   <svg class="task-tracker-dock__empty-icon" viewBox="0 0 24 24" width="36" height="36"><rect x="3" y="4" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 10h18M8 2v4M16 2v4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
-  <div class="task-tracker-dock__empty-title">今天暂无需要处理的任务</div>
+  <div class="task-tracker-dock__empty-title">未来三日暂无需要处理的任务</div>
   <div class="task-tracker-dock__empty-text">可切换到全部查看仍需跟踪的任务</div>
 </div>`;
       case "important":
@@ -430,8 +462,27 @@ export class TaskDock {
         ...this.displayOptions,
         [option]: displayOptionInput.checked
       };
-      writeSidebarDisplayOptions(this.displayOptions);
-      this.render();
+      void this.persistDisplayOptions();
+      return;
+    }
+
+    const displayOptionSelect = event.target instanceof HTMLSelectElement && event.target.dataset.displayOptionSelect
+      ? event.target
+      : null;
+    if (displayOptionSelect) {
+      const option = displayOptionSelect.dataset.displayOptionSelect as "sortField" | "sortDirection";
+      if (option === "sortField") {
+        this.displayOptions = {
+          ...this.displayOptions,
+          sortField: displayOptionSelect.value as SidebarTaskSortField
+        };
+      } else {
+        this.displayOptions = {
+          ...this.displayOptions,
+          sortDirection: displayOptionSelect.value === "desc" ? "desc" : "asc"
+        };
+      }
+      void this.persistDisplayOptions();
       return;
     }
 
@@ -645,7 +696,7 @@ export class TaskDock {
     const tasks = this.service.store.all();
     const matched = new Set(tasks.filter((task) => this.matchesFilter(task)).map((task) => task.id));
     const visible = includeAncestors(tasks, matched);
-    return buildTaskTree(tasks, visible, matched);
+    return sortTaskTree(buildTaskTree(tasks, visible, matched), this.sidebarComparator());
   }
 
   private matchesFilter(task: TaskItem): boolean {
@@ -654,11 +705,10 @@ export class TaskDock {
     if (!ACTIVE_TASK_STATUSES.includes(task.status)) return false;
 
     const today = toDateKey(new Date().toISOString());
+    const threeDaysLater = toDateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
     switch (this.filter) {
-      case "today":
-        return toDateKey(task.planStart) === today
-          || toDateKey(task.planEnd) === today
-          || toDateKey(task.dueDate) === today;
+      case "nextThreeDays":
+        return isTaskWithinDateRange(task, today, threeDaysLater);
       case "all":
         return true;
       case "important":
@@ -671,17 +721,14 @@ export class TaskDock {
   private counts(): Record<DockFilter, number> {
     const tasks = this.service.store.all();
     const today = toDateKey(new Date().toISOString());
+    const threeDaysLater = toDateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
     const activePool = tasks.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
 
     const allCount = activePool.length;
     const importantCount = activePool.filter((t) => isImportantTask(t)).length;
-    const todayCount = activePool.filter((t) => {
-      return toDateKey(t.planStart) === today
-        || toDateKey(t.planEnd) === today
-        || toDateKey(t.dueDate) === today;
-    }).length;
+    const nextThreeDaysCount = activePool.filter((t) => isTaskWithinDateRange(t, today, threeDaysLater)).length;
 
-    return { all: allCount, important: importantCount, today: todayCount };
+    return { all: allCount, important: importantCount, nextThreeDays: nextThreeDaysCount };
   }
 
   private taskFromElement(element: Element): TaskItem | undefined {
@@ -697,6 +744,36 @@ export class TaskDock {
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "更新任务失败", 5000, "error");
       this.render();
+    }
+  }
+
+  private sidebarComparator(): (a: TaskItem, b: TaskItem) => number {
+    const direction = this.displayOptions.sortDirection === "desc" ? -1 : 1;
+    return (a, b) => compareTasksBySidebarSortField(a, b, this.displayOptions.sortField) * direction;
+  }
+
+  private async persistDisplayOptions(): Promise<void> {
+    this.render();
+    try {
+      await this.service.store.setSettings({
+        dockDisplayOptions: this.displayOptions
+      });
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : "保存侧栏显示设置失败", 5000, "error");
+    }
+  }
+
+  private async ensureDisplayOptionsPersisted(): Promise<void> {
+    const settings = this.service.store.getSettings();
+    if (settings.dockDisplayOptions) {
+      return;
+    }
+    try {
+      await this.service.store.setSettings({
+        dockDisplayOptions: this.displayOptions
+      });
+    } catch (error) {
+      console.warn("Task Tracker: failed to persist dock display options", error);
     }
   }
 }
@@ -731,6 +808,15 @@ function isImportantTask(task: TaskItem): boolean {
   if (task.status === "doing" && (task.planStart || task.planEnd)) return true;
 
   return false;
+}
+
+function isTaskWithinDateRange(task: TaskItem, startKey?: string, endKey?: string): boolean {
+  if (!startKey || !endKey) {
+    return false;
+  }
+  return [task.planStart, task.planEnd, task.dueDate]
+    .map((value) => toDateKey(value))
+    .some((dateKey) => Boolean(dateKey && dateKey >= startKey && dateKey <= endKey));
 }
 
 function includeAncestors(tasks: TaskItem[], matched: Set<string>): Set<string> {
@@ -796,26 +882,36 @@ function renderBulkParentIcon(type: "entry" | "expand" | "collapse"): string {
   return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.25h6M3 8h6M3 11.75h6M10.5 3v3M9 4.5l1.5 1.5L12 4.5M10.5 13v-3M9 11.5l1.5-1.5 1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function readSidebarDisplayOptions(): SidebarDisplayOptions {
+function readSidebarDisplayOptions(stored?: DockDisplayOptions): SidebarDisplayOptions {
+  const fromSettings = normalizeSidebarDisplayOptions(stored);
+  if (stored) {
+    return fromSettings;
+  }
+  return readSidebarDisplayOptionsFromLegacyStorage() || fromSettings;
+}
+
+function normalizeSidebarDisplayOptions(raw?: Partial<DockDisplayOptions>): SidebarDisplayOptions {
+  return {
+    showStatus: raw?.showStatus !== false,
+    showDate: raw?.showDate !== false,
+    sortField: isSidebarSortField(raw?.sortField) ? raw.sortField : DEFAULT_DOCK_DISPLAY_OPTIONS.sortField,
+    sortDirection: raw?.sortDirection === "desc" ? "desc" : DEFAULT_DOCK_DISPLAY_OPTIONS.sortDirection
+  };
+}
+
+function readSidebarDisplayOptionsFromLegacyStorage(): SidebarDisplayOptions | undefined {
   try {
     const raw = window.localStorage.getItem(SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY);
     if (!raw) {
-      return { showStatus: true, showDate: true };
+      return undefined;
     }
     const parsed = JSON.parse(raw) as Partial<SidebarDisplayOptions> | null;
-    return {
-      showStatus: parsed?.showStatus !== false,
-      showDate: parsed?.showDate !== false
-    };
+    return normalizeSidebarDisplayOptions(parsed || undefined);
   } catch {
-    return { showStatus: true, showDate: true };
+    return undefined;
   }
 }
 
-function writeSidebarDisplayOptions(options: SidebarDisplayOptions): void {
-  try {
-    window.localStorage.setItem(SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY, JSON.stringify(options));
-  } catch {
-    // ignore storage failures
-  }
+function isSidebarSortField(value: unknown): value is SidebarTaskSortField {
+  return typeof value === "string" && SIDEBAR_SORT_FIELD_OPTIONS.some((option) => option.value === value);
 }
