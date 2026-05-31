@@ -1458,25 +1458,25 @@ async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Pr
 }
 
 async function resolveParentCreatePath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
-  if (parent?.path) {
-    return stripDocSuffix(parent.path);
-  }
-
   if (parent?.docId) {
     const parentPath = await getTaskPath(parent.docId).catch(() => undefined);
     if (parentPath) {
-      return stripDocSuffix(parentPath);
+      return parentPath;
     }
   }
 
+  if (parent?.path) {
+    return parent.path;
+  }
+
   if (settings.taskRootPath) {
-    return stripDocSuffix(settings.taskRootPath);
+    return settings.taskRootPath;
   }
 
   if (settings.taskRootDocId) {
     const rootPath = await getTaskPath(settings.taskRootDocId).catch(() => undefined);
     if (rootPath) {
-      return stripDocSuffix(rootPath);
+      return rootPath;
     }
   }
 
@@ -1492,16 +1492,20 @@ async function createTaskDocWithTitle(
   const finalParentPath = normalizeCreatePath(parentPath);
   const tempName = `__task-tracker-tmp-${newSiyuanId()}`;
   const tempHPath = `/${tempName}.sy`;
-  const docId = await createDocWithMd(notebookId, tempHPath, markdown);
-  const createdPath = await getTaskPath(docId) || tempHPath;
+  const created = await resolveCreatedDocRef(
+    notebookId,
+    await createDocWithMd(notebookId, tempHPath, markdown),
+    tempHPath
+  );
+  const createdPath = created.path || tempHPath;
 
   if (finalParentPath !== "/") {
     await moveDocs([createdPath], notebookId, finalParentPath);
   }
 
-  await renameDocWithUniqueTitle(docId, title);
-  const finalPath = await getTaskPath(docId);
-  return { docId, path: finalPath || createdPath };
+  await renameDocWithUniqueTitle(created.docId, title);
+  const finalPath = await getTaskPath(created.docId);
+  return { docId: created.docId, path: finalPath || createdPath };
 }
 
 function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string {
@@ -1543,6 +1547,30 @@ async function renameDocWithUniqueTitle(docId: string, title: string): Promise<v
 async function getTaskPath(docId: string): Promise<string | undefined> {
   const block = await getBlockById(docId).catch(() => undefined);
   return block?.path;
+}
+
+async function resolveCreatedDocRef(
+  notebookId: string,
+  createResult: string,
+  requestedHPath: string
+): Promise<{ docId: string; path?: string }> {
+  const directPath = await getTaskPath(createResult).catch(() => undefined);
+  if (directPath) {
+    return {
+      docId: createResult,
+      path: directPath
+    };
+  }
+
+  const docRef = await getDocRefByHPath(notebookId, requestedHPath).catch(() => undefined);
+  if (docRef) {
+    return {
+      docId: docRef.id,
+      path: docRef.path
+    };
+  }
+
+  throw new Error("创建任务文档后无法定位真实文档路径");
 }
 
 async function getDocPathByHPath(notebookId: string, hpath: string): Promise<string | undefined> {
@@ -1620,9 +1648,13 @@ async function createWeeklyReportDoc(
     const name = index === 0 ? baseName : `${baseName} (${index + 1})`;
     const hpath = `${parent === "/" ? "" : parent}/${name}`;
     try {
-      const docId = await createDocWithMd(notebookId, `${hpath}.sy`, markdown);
-      const path = await getTaskPath(docId);
-      return { docId, path: path || `${hpath}.sy` };
+      const created = await resolveCreatedDocRef(
+        notebookId,
+        await createDocWithMd(notebookId, `${hpath}.sy`, markdown),
+        hpath
+      );
+      const path = await getTaskPath(created.docId);
+      return { docId: created.docId, path: path || created.path || `${hpath}.sy` };
     } catch (error) {
       lastError = error;
       const message = String(error instanceof Error ? error.message : error).toLowerCase();
