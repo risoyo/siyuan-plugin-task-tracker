@@ -43,16 +43,16 @@ const ICONS = {
   folder: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4.5v7a1 1 0 001 1h10a1 1 0 001-1v-7a1 1 0 00-1-1H7.5L6.5 2.5H3a1 1 0 00-1 1z"/></svg>`,
   folderOpen: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5v5.5a1 1 0 001 1h8.5a1 1 0 001-.78l1-4A1 1 0 0012.53 6H7.5L6.5 4.5H3a1 1 0 00-1 1z"/><path d="M10.5 2.5h3v3"/><path d="M13.5 2.5L9.75 6.25"/></svg>`,
   hierarchy: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M8 4.5v4M5.2 10L4 11.5M10.8 10l1.2 1.5"/></svg>`,
-  calendar: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>`,
+  calendar: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="16" rx="2.5" style="fill:none;stroke:currentColor;stroke-width:1.8"/><path d="M7.5 2.8v4M16.5 2.8v4M3.5 9h17" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round"/><circle cx="8" cy="13" r="1" style="fill:currentColor;stroke:none"/><circle cx="12" cy="13" r="1" style="fill:currentColor;stroke:none"/><circle cx="16" cy="13" r="1" style="fill:currentColor;stroke:none"/><circle cx="8" cy="17" r="1" style="fill:currentColor;stroke:none"/><circle cx="12" cy="17" r="1" style="fill:currentColor;stroke:none"/></svg>`,
   clock: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.5V8l2 1.5"/></svg>`,
   chevronDown: `<svg viewBox="0 0 10 6" width="10" height="10"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   check: `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M4 8l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  edit: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><path d="M3 21h6" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/><path d="M14.2 4.8a1.8 1.8 0 0 1 2.6 0l2.4 2.4a1.8 1.8 0 0 1 0 2.6L8.7 20.3 4 21l.7-4.7L14.2 4.8z" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/></svg>`,
   doc: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h6l4 4v8a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4"/></svg>`,
   info: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.3"/><path d="M8 4.8h.01"/></svg>`,
   search: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>`,
   save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`,
-  trash: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4.5h11"/><path d="M6 2.5h4"/><path d="M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/><path d="M6.5 6.5v4.5M9.5 6.5v4.5"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true"><path d="M4 7h16" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/><path d="M9 4h6" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/><path d="M7 7v12a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 17 19V7" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/><path d="M10 11v5M14 11v5" style="fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"/></svg>`,
   plus: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg>`
 };
 
@@ -157,15 +157,6 @@ function sectionTitle(title: string): string {
   return `<div class="task-tracker-dialog-v3__section-title">${escapeHtml(title)}</div>`;
 }
 
-function sectionTitleWithHint(title: string, hint: string): string {
-  return `<div class="task-tracker-dialog-v3__section-title">
-    <span>${escapeHtml(title)}</span>
-    <button type="button" class="task-progress-section__hint-button" title="${escapeAttr(hint)}" aria-label="${escapeAttr(hint)}">
-      ${ICONS.info}
-    </button>
-  </div>`;
-}
-
 interface ProgressEditorState {
   mode: "create" | "edit";
   recordId?: string;
@@ -174,10 +165,9 @@ interface ProgressEditorState {
 }
 
 function renderProgressSectionBody(records: ProgressRecord[], editor?: ProgressEditorState): string {
-  const description = "记录任务推进过程中的关键进展、沟通情况、问题解决等，支持多条记录。";
   return `
     <div class="task-progress-section__topbar">
-      <div class="task-progress-section__description">${escapeHtml(description)}</div>
+      <div class="task-progress-section__title">${escapeHtml("推进记录")}</div>
       <button type="button" class="task-progress-section__add-button" data-progress-action="add">
         <span class="task-progress-section__add-icon">${ICONS.plus}</span>
         <span>添加记录</span>
@@ -192,15 +182,7 @@ function renderProgressSectionBody(records: ProgressRecord[], editor?: ProgressE
 
 function renderProgressEditor(editor: ProgressEditorState): string {
   const submitLabel = editor.mode === "edit" ? "保存" : "保存记录";
-  const title = editor.mode === "edit" ? "编辑推进记录" : "新增推进记录";
-  const subtitle = editor.mode === "edit"
-    ? "更新本次推进的时间和内容，保存后会同步覆盖任务笔记中的对应记录。"
-    : "按日期记录关键动作、沟通结论和下一步计划，方便后续追溯与周报汇总。";
   return `<div class="task-progress-editor">
-    <div class="task-progress-editor__header">
-      <div class="task-progress-editor__title">${title}</div>
-      <div class="task-progress-editor__subtitle">${subtitle}</div>
-    </div>
     <div class="task-progress-editor__grid">
       <label class="task-progress-editor__field task-progress-editor__field--date">
         <span class="task-progress-editor__label">记录日期</span>
@@ -208,7 +190,7 @@ function renderProgressEditor(editor: ProgressEditorState): string {
       </label>
       <label class="task-progress-editor__field task-progress-editor__field--content">
         <span class="task-progress-editor__label">推进内容</span>
-        <textarea class="task-tracker-dialog-v3__textarea task-progress-editor__textarea" rows="4" placeholder="填写本次推进情况、沟通结果、问题或下一步计划" data-progress-input="content">${escapeHtml(editor.content)}</textarea>
+        <textarea class="task-tracker-dialog-v3__textarea task-progress-editor__textarea" rows="2" placeholder="填写本次推进情况、沟通结果、问题或下一步计划" data-progress-input="content">${escapeHtml(editor.content)}</textarea>
       </label>
     </div>
     <div class="task-progress-editor__actions">
@@ -526,13 +508,12 @@ export class TaskDialog {
       <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--full task-tracker-dialog-v3__field--detail">
         <textarea class="task-tracker-dialog-v3__textarea task-tracker-dialog-v3__textarea--detail" name="detail" rows="30" placeholder="编写任务正文内容、过程记录或补充说明"></textarea>
         <div class="task-tracker-dialog-v3__detail-footer">
-          <span class="task-tracker-dialog-v3__hint task-tracker-dialog-v3__detail-status" data-detail-status>${editMode ? "读取正文中..." : "将在创建任务文档时写入正文受控分区。"}</span>
+          <span class="task-tracker-dialog-v3__hint task-tracker-dialog-v3__detail-status" data-detail-status>${editMode ? "读取正文中..." : ""}</span>
         </div>
       </label>
     </div>
 
     <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
-      ${sectionTitleWithHint("推进记录", "记录任务推进过程中的关键进展、沟通情况、问题风险等，可用于周报导出和后续追溯。")}
       <div data-progress-root></div>
     </div>
     </div>
@@ -989,7 +970,7 @@ export class TaskDialog {
             detailTextarea.value = detail;
             detailLoadedValue = detail;
             detailTextarea.disabled = false;
-            setDetailStatus("任务详情会近实时写回正文受控分区。");
+            setDetailStatus("");
           })
           .catch((error) => {
             if (destroyed || !detailTextarea) {
@@ -1008,7 +989,7 @@ export class TaskDialog {
           }
         });
       } else {
-        setDetailStatus("将在创建任务文档时写入正文受控分区。");
+        setDetailStatus("");
       }
     }
 
