@@ -2137,9 +2137,12 @@ function normalizeWeeklyProgressLine(value: string): string {
 }
 
 function truncateWeeklyReportDirtyTail(value: string): string {
-  const taskMetadataStart = /(?:^|\n)(?:>\s*)?来源：[^\n]*(?:\n(?:>\s*)?父任务：[^\n]*)?(?:\n(?:>\s*)?项目：[^\n]*)?(?:\n(?:>\s*)?状态：[^\n]*)?/m.exec(value)?.index;
-  const taskSummaryTableStart = /(?:^|\n)\|\s*项目\s*\|[^\n]*\|\s*来源\s*\|/m.exec(value)?.index;
-  const starts = [taskMetadataStart, taskSummaryTableStart].filter((index): index is number => index !== undefined);
+  const footnoteStart = /(?:^|\n)\[\^[^\]]+\]:\s+/m.exec(value)?.index;
+  const taskSectionHeadingStart = /(?:^|\n)\s*##\s+(?:任务概要|任务详情|推进记录)\s*$/m.exec(value)?.index;
+  const taskMetadataStart = /(?:^|\n)\s*(?:>\s*)?来源：[^\n]*(?:\n\s*(?:>\s*)?父任务：[^\n]*)?(?:\n\s*(?:>\s*)?项目：[^\n]*)?(?:\n\s*(?:>\s*)?状态：[^\n]*)?/m.exec(value)?.index;
+  const taskSummaryTableStart = /(?:^|\n)\s*\|\s*项目\s*\|[^\n]*\|\s*来源\s*\|/m.exec(value)?.index;
+  const starts = [footnoteStart, taskSectionHeadingStart, taskMetadataStart, taskSummaryTableStart]
+    .filter((index): index is number => index !== undefined);
   if (!starts.length) {
     return value;
   }
