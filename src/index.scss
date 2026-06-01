@@ -485,6 +485,12 @@
   overflow: auto;
 }
 
+.task-manager--table .task-manager__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .task-manager-empty {
   color: var(--manager-muted);
   padding: 32px 20px;
@@ -501,13 +507,29 @@
   overflow: hidden;
 }
 
+.task-manager--table .task-manager-table-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .task-manager-table-card.is-freeze-first-column {
   overflow: visible;
 }
 
 /* ── Table ─────────────────────────────────────────────────────── */
 .task-manager-table-wrap {
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
+  position: relative;
+}
+
+.task-manager--table .task-manager-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .task-manager-table {
@@ -532,7 +554,7 @@
   text-align: left;
   top: 0;
   vertical-align: middle;
-  z-index: 1;
+  z-index: 3;
 }
 
 .task-manager-table__row,

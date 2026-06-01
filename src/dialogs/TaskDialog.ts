@@ -65,11 +65,12 @@ function buildComboboxSelect(
   leftIcon: string,
   optionsHtml: string,
   mode: ComboboxMode = "select-only",
-  extraAttrs: string = ""
+  extraAttrs: string = "",
+  displayValue?: string
 ): string {
   const editableInput = mode === "editable"
     ? `<input class="task-tracker-dialog-v3__combobox-input" name="${name}" value="${escapeAttr(value)}" placeholder="${escapeAttr(placeholder)}" autocomplete="off" ${extraAttrs} />`
-    : `<span class="task-tracker-dialog-v3__combobox-value" data-combobox-value="${name}">${escapeHtml(value || placeholder)}</span>`;
+    : `<span class="task-tracker-dialog-v3__combobox-value" data-combobox-value="${name}">${escapeHtml(displayValue || value || placeholder)}</span>`;
   const hiddenInput = mode === "editable"
     ? ""
     : `<input type="hidden" name="${name}" value="${escapeAttr(value)}" ${extraAttrs} />`;
@@ -295,12 +296,21 @@ export class TaskDialog {
       if (editMode && task.id === editingTask?.id) {
         return false;
       }
-      return task.id === this.options.parentId || task.id === editingTask?.parentId || (task.status !== "completed" && task.status !== "cancelled");
+      return task.id === this.options.parentId
+        || task.id === editingTask?.parentId
+        || task.docId === this.options.parentId
+        || task.docId === editingTask?.parentId
+        || (task.status !== "completed" && task.status !== "cancelled");
     });
     const projects = this.options.service.store.getProjects();
     const defaultTitle = editingTask?.title || this.options.presetTitle || effectiveSource?.text || "";
     const defaultProject = editingTask?.project || this.options.service.store.getSettings().defaultProject || "";
     const defaultParentId = editingTask?.parentId || this.options.parentId || "";
+    const defaultParentTask = defaultParentId
+      ? tasks.find((task) => task.id === defaultParentId || task.docId === defaultParentId)
+      : undefined;
+    const selectedParentId = defaultParentTask?.id || defaultParentId;
+    const selectedParentTitle = defaultParentTask?.title || "";
     const defaultStatus: TaskStatus = editingTask?.status || "todo";
     const defaultPriority: TaskPriority = editingTask?.priority || "medium";
     const defaultCreatedAt = editingTask ? formatDateKey(new Date(editingTask.createdAt)) : formatDateKey(new Date());
@@ -329,12 +339,12 @@ export class TaskDialog {
     const parentOptionsHtml = (() => {
       const topLevel = activeTasks.filter((t) => !t.parentId);
       const children = activeTasks.filter((t) => t.parentId && !topLevel.includes(t));
-      let html = buildComboboxOption("", "无（顶层任务）", !defaultParentId);
+      let html = buildComboboxOption("", "无（顶层任务）", !selectedParentId);
       for (const t of topLevel) {
-        html += buildComboboxOption(t.id, t.title, t.id === defaultParentId);
+        html += buildComboboxOption(t.id, t.title, t.id === selectedParentId);
       }
       for (const t of children) {
-        html += buildComboboxOption(t.id, t.title, t.id === defaultParentId, undefined, true);
+        html += buildComboboxOption(t.id, t.title, t.id === selectedParentId, undefined, true);
       }
       return html;
     })();
@@ -393,11 +403,11 @@ export class TaskDialog {
           ${isSubtasks
             ? `<div class="task-tracker-dialog-v3__parent-locked">
               <span class="task-tracker-dialog-v3__parent-icon">${ICONS.hierarchy}</span>
-              <span class="task-tracker-dialog-v3__parent-text">${escapeHtml(activeTasks.find((t) => t.id === defaultParentId)?.title || defaultParentId)}</span>
+              <span class="task-tracker-dialog-v3__parent-text">${escapeHtml(selectedParentTitle || selectedParentId)}</span>
               <span class="task-tracker-dialog-v3__parent-hint">当前任务将作为所选父任务的子任务</span>
             </div>
-            <input type="hidden" name="parentId" value="${escapeAttr(defaultParentId)}" />`
-            : buildComboboxSelect("parentId", defaultParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml)
+            <input type="hidden" name="parentId" value="${escapeAttr(selectedParentId)}" />`
+            : buildComboboxSelect("parentId", selectedParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml, "select-only", "", selectedParentTitle)
           }
         </label>
       </div>

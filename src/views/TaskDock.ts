@@ -38,6 +38,7 @@ const SIDEBAR_SORT_DIRECTION_OPTIONS: Array<{ value: "asc" | "desc"; label: stri
 export class TaskDock {
   private filter: DockFilter = "all";
   private collapsedTaskIds = new Set<string>();
+  private initialCollapsedParentsApplied = false;
   private bulkParentMenuOpen = false;
   private activePopover: { taskId: string; field: DockPopoverField } | null = null;
   private activePopoverCleanup?: () => void;
@@ -80,6 +81,7 @@ export class TaskDock {
   }
 
   render(): void {
+    this.ensureInitialCollapsedParents();
     const settings = this.service.store.getSettings();
     const tree = this.filteredTaskTree();
     const counts = this.counts();
@@ -652,6 +654,20 @@ export class TaskDock {
     this.render();
   }
 
+  private ensureInitialCollapsedParents(): void {
+    if (this.initialCollapsedParentsApplied) {
+      return;
+    }
+    const tasks = this.service.store.all();
+    if (!tasks.length) {
+      return;
+    }
+    this.initialCollapsedParentsApplied = true;
+    for (const taskId of collectParentTaskIds(tasks)) {
+      this.collapsedTaskIds.add(taskId);
+    }
+  }
+
   private parentTaskIdsForTree(tree: TaskTreeNode[]): string[] {
     const ids: string[] = [];
     const visit = (nodes: TaskTreeNode[]) => {
@@ -857,6 +873,24 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
   }
 
   return roots;
+}
+
+function collectParentTaskIds(tasks: TaskItem[]): string[] {
+  const byId = new Set(tasks.map((task) => task.id));
+  const byDocId = new Map(tasks.map((task) => [task.docId, task.id]));
+  const ids = new Set<string>();
+
+  for (const task of tasks) {
+    if (!task.parentId) {
+      continue;
+    }
+    const parentId = byId.has(task.parentId) ? task.parentId : byDocId.get(task.parentId);
+    if (parentId) {
+      ids.add(parentId);
+    }
+  }
+
+  return Array.from(ids);
 }
 
 function renderChevron(expanded: boolean): string {

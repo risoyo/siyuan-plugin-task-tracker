@@ -217,6 +217,7 @@ export class TaskManagerTab {
   private expandedCalendarDateKeys = new Set<string>();
   private isComposingSearch = false;
   private freezeFirstColumn = false;
+  private initialCollapsedParentsApplied = false;
   private tableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(TABLE_COLUMNS);
   private completedTableColumnWidths: Record<TableColumnKey, number> = defaultTableColumnWidths(COMPLETED_TABLE_COLUMNS);
   private resizeCleanup?: () => void;
@@ -270,6 +271,7 @@ export class TaskManagerTab {
       this.pendingTableScrollRestore = undefined;
     }
 
+    this.ensureInitialCollapsedParents();
     const tasks = this.tasksForCurrentView();
 
     this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
@@ -2273,8 +2275,22 @@ export class TaskManagerTab {
     return taskId ? this.service.store.get(taskId) : undefined;
   }
 
+  private ensureInitialCollapsedParents(): void {
+    if (this.initialCollapsedParentsApplied) {
+      return;
+    }
+    const tasks = this.service.store.all();
+    if (!tasks.length) {
+      return;
+    }
+    this.initialCollapsedParentsApplied = true;
+    for (const taskId of this.parentTaskIdsForTasks(tasks)) {
+      this.collapsedTaskIds.add(taskId);
+    }
+  }
+
   private parentTaskIdsForTasks(tasks: TaskItem[]): string[] {
-    return Array.from(countChildren(tasks).keys());
+    return collectParentTaskIds(tasks);
   }
 
   private expandAllParentTasks(): void {
@@ -2348,6 +2364,24 @@ function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<str
   }
 
   return roots;
+}
+
+function collectParentTaskIds(tasks: TaskItem[]): string[] {
+  const byId = new Set(tasks.map((task) => task.id));
+  const byDocId = new Map(tasks.map((task) => [task.docId, task.id]));
+  const ids = new Set<string>();
+
+  for (const task of tasks) {
+    if (!task.parentId) {
+      continue;
+    }
+    const parentId = byId.has(task.parentId) ? task.parentId : byDocId.get(task.parentId);
+    if (parentId) {
+      ids.add(parentId);
+    }
+  }
+
+  return Array.from(ids);
 }
 
 function buildCompletedTaskTree(tasks: TaskItem[]): TaskTreeNode[] {
