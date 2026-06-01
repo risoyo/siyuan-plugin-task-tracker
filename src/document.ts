@@ -434,10 +434,10 @@ export class TaskService {
       const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children);
       const summaryHeading = await findHeadingBlock(task.docId, [TASK_SUMMARY_HEADING]);
       if (summaryHeading) {
-        synced = await replaceManagedHeadingSection(
+        synced = await replaceManagedHeadingSectionBlocks(
           task.docId,
           [TASK_SUMMARY_HEADING],
-          renderManagedTaskSummarySectionBody(
+          buildManagedTaskSummaryBlocks(
             nextTableMarkdown,
             buildTaskSummaryLabelLines(task, parent, children)
           ),
@@ -2241,16 +2241,18 @@ function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children:
   ];
 }
 
-function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: string[]): string {
+function buildManagedTaskSummaryBlocks(tableMarkdown: string, lines: string[]): string[] {
   const normalizedTable = tableMarkdown.replace(/\s+$/u, "");
   const normalizedLines = lines.map((line) => line.trim()).filter(Boolean);
   return [
     normalizedTable,
-    "",
     ...normalizedLines,
-    "",
     "---"
-  ].join("\n");
+  ];
+}
+
+function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: string[]): string {
+  return buildManagedTaskSummaryBlocks(tableMarkdown, lines).join("\n\n");
 }
 
 function renderManagedTaskProgressSectionBody(records?: ProgressRecord[]): string {
