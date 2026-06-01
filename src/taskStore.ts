@@ -1,4 +1,5 @@
 import type { Plugin } from "siyuan";
+import { normalizeProgressRecords } from "./progressRecords";
 import {
   DEFAULT_DOCK_DISPLAY_OPTIONS,
   DEFAULT_SETTINGS,
@@ -151,9 +152,11 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
   const normalizedTitle = typeof task.title === "string" && task.title.trim()
     ? task.title.trim()
     : fallbackTaskTitle(task);
+  const fallbackTimestamp = task.updatedAt || task.createdAt || new Date().toISOString();
   return {
     ...task,
     noteFolderPath: typeof task.noteFolderPath === "string" ? task.noteFolderPath.trim() || undefined : undefined,
+    progressRecords: normalizeProgressRecords(task.progressRecords, fallbackTimestamp),
     title: normalizedTitle,
     createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };

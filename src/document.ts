@@ -25,6 +25,14 @@ import {
   toDateKey,
   weekKey
 } from "./date";
+import {
+  groupWeeklyProgressRecords,
+  normalizeProgressRecords,
+  parseProgressRecords,
+  renderProgressRecordsMarkdown,
+  serializeProgressRecords,
+  TASK_PROGRESS_HEADING
+} from "./progressRecords";
 import { TaskStore } from "./taskStore";
 import {
   ACTIVE_TASK_STATUSES,
@@ -37,6 +45,7 @@ import {
   TASK_STATUS_LABELS,
   WEEKLY_REPORT_KIND,
   type BlockRow,
+  type ProgressRecord,
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
@@ -45,6 +54,8 @@ import {
 
 const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"] as const;
 const TASK_DETAIL_HEADING = "任务详情";
+const TASK_LATEST_LABEL = "任务近况";
+const TASK_DESCRIPTION_HEADINGS = [TASK_LATEST_LABEL, "任务描述"];
 
 type ChangeListener = () => void;
 
@@ -122,6 +133,7 @@ export class TaskService {
       planStart: input.planStart || undefined,
       planEnd: input.planEnd || undefined,
       description: input.description?.trim() || undefined,
+      progressRecords: normalizeProgressRecords(input.progressRecords, createdAt),
       noteFolderPath: input.noteFolderPath?.trim() || undefined,
       createdAt,
       updatedAt: now,
@@ -366,6 +378,7 @@ export class TaskService {
     const tasks = this.store.all()
       .filter((task) => task.status === "completed" && weekKey(task.completedAt || task.createdAt) === week)
       .sort(compareWeeklyReportTaskOrder);
+    const progressBody = renderWeeklyProgressBody(week, this.store.all());
     const weekLabel = formatCompletedWeekLabel(week);
     const title = `${weekLabel}工作`;
     const reportRoot = await ensureWeeklyReportRoot(settings);
@@ -374,15 +387,14 @@ export class TaskService {
     const itemsBody = renderWeeklyReportItemsBody(week, tasks);
 
     if (!existing) {
-      const markdown = buildWeeklyReportMarkdown(title, itemsBody, "", "");
+      const markdown = buildWeeklyReportMarkdown(title, itemsBody, progressBody, "", "");
       const created = await createWeeklyReportDoc(settings.taskRootNotebookId, reportRoot.hpath, title, markdown);
       await markWeeklyReportDoc(created.docId);
       return { docId: created.docId, title };
     }
 
-    await replaceManagedHeadingSection(existing.id, ["一、本周工作事项", "本周工作事项"], itemsBody, {
-      createIfMissing: false
-    });
+    const currentMarkdown = await readDocMarkdown(existing.id).catch(() => "");
+    await updateBlock(existing.id, rewriteWeeklyReportMarkdown(currentMarkdown, title, itemsBody, progressBody));
     await markWeeklyReportDoc(existing.id);
     return { docId: existing.id, title };
   }
@@ -406,7 +418,9 @@ export class TaskService {
 
     const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
-      return await syncManagedTaskDescriptionSection(task, false);
+      let synced = await syncManagedTaskProgressSection(task, false);
+      synced = await syncManagedTaskDescriptionSection(task, synced);
+      return synced;
     }
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
@@ -436,6 +450,7 @@ export class TaskService {
         synced = true;
       }
     }
+    synced = await syncManagedTaskProgressSection(task, synced);
     synced = await syncManagedTaskDescriptionSection(task, synced);
     return synced;
   }
@@ -634,6 +649,14 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   }
   if ("description" in normalized && typeof normalized.description === "string") {
     normalized.description = normalized.description.trim() || undefined;
+  }
+  if ("progressRecords" in normalized) {
+    normalized.progressRecords = normalizeProgressRecords(
+      normalized.progressRecords,
+      typeof normalized.updatedAt === "string"
+        ? normalized.updatedAt
+        : (typeof normalized.createdAt === "string" ? normalized.createdAt : undefined)
+    );
   }
   if ("noteFolderPath" in normalized && typeof normalized.noteFolderPath === "string") {
     normalized.noteFolderPath = normalized.noteFolderPath.trim() || undefined;
@@ -883,6 +906,10 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>, settings: Tas
   const status = normalizeRecoveredTaskStatus(attrs[TASK_ATTRS.status], doc.path, doc.hpath, settings);
   const priority = normalizeTaskPriority(attrs[TASK_ATTRS.priority]);
   const sourceText = attrs[TASK_ATTRS.sourceText]?.trim() || undefined;
+  const progressRecords = parseProgressRecords(
+    attrs[TASK_ATTRS.progressRecords],
+    attrs[TASK_ATTRS.createdAt] || updatedToIso(doc.updated) || nowIso()
+  );
   return {
     id: attrs[TASK_ATTRS.id] || doc.id,
     title: normalizeRecoveredTitle(doc, attrs[TASK_ATTRS.createdAt]),
@@ -903,6 +930,7 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>, settings: Tas
     updatedAt: updatedToIso(doc.updated) || nowIso(),
     completedAt: attrs[TASK_ATTRS.completedAt] || undefined,
     description: attrs[TASK_ATTRS.description]?.trim() || undefined,
+    progressRecords,
     noteFolderPath: attrs[TASK_ATTRS.noteFolderPath]?.trim() || undefined
   };
 }
@@ -1100,7 +1128,7 @@ function parseTaskSummaryQuoteMarkdown(markdown: string): Partial<TaskItem> | un
     project: normalizeTaskFieldValue(values.get("项目")),
     status: parseTaskStatusLabel(values.get("状态")),
     priority: parseTaskPriorityLabel(values.get("优先级")),
-    description: normalizeTaskFieldValue(values.get("任务描述")),
+    description: normalizeTaskFieldValue(values.get(TASK_LATEST_LABEL) || values.get("任务描述")),
     createdAt: parseRenderedTaskDate(values.get("创建时间")),
     completedAt: parseRenderedTaskDate(values.get("完成时间")),
     dueDate: parseRenderedTaskDate(values.get("截止时间")),
@@ -1790,7 +1818,8 @@ function renderTaskMarkdown(
 ): string {
   const template = settings.taskTemplate?.trim() || DEFAULT_TASK_TEMPLATE;
   const markdown = renderTemplate(template, task, parent, children);
-  return rewriteTaskDetail(markdown, detail || "");
+  const withProgress = rewriteTaskProgressSection(markdown, task.progressRecords);
+  return rewriteTaskDetail(withProgress, detail || "");
 }
 
 function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
@@ -1823,7 +1852,7 @@ function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: Ta
 > 项目：${task.project || "未设置"}
 > 状态：${TASK_STATUS_LABELS[task.status]}
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
-> 任务描述：${task.description || "无"}
+> ${TASK_LATEST_LABEL}：${task.description || "无"}
 > 创建时间：${formatTaskDate(task.createdAt)}
 > 完成时间：${formatTaskDate(task.completedAt)}
 > 截止时间：${formatTaskDate(task.dueDate)}
@@ -1854,6 +1883,31 @@ function renderChildRefs(children: TaskItem[], mode: "inline" | "list"): string 
 
 function formatTaskDate(value?: string): string {
   return formatLocalDateTimeOrEmpty(value) || "未设置";
+}
+
+function buildTaskProgressSection(records?: ProgressRecord[]): string {
+  const body = renderManagedTaskProgressSectionBody(records);
+  return `## ${TASK_PROGRESS_HEADING}\n\n${body}\n`;
+}
+
+function rewriteTaskProgressSection(markdown: string, records?: ProgressRecord[]): string {
+  const normalizedMarkdown = markdown.replace(/\s+$/u, "");
+  const nextSection = buildTaskProgressSection(records).replace(/\s+$/u, "");
+  const progressSection = findTaskProgressSection(normalizedMarkdown);
+  if (progressSection) {
+    const before = normalizedMarkdown.slice(0, progressSection.headingStart).replace(/\s+$/u, "");
+    const after = normalizedMarkdown.slice(progressSection.nextHeadingStart).replace(/^\s*/u, "");
+    return `${before}\n\n${nextSection}${after ? `\n\n${after}` : ""}`.trimStart() + "\n";
+  }
+
+  const detailSection = findTaskDetailSection(normalizedMarkdown);
+  if (detailSection) {
+    const before = normalizedMarkdown.slice(0, detailSection.headingStart).replace(/\s+$/u, "");
+    const after = normalizedMarkdown.slice(detailSection.headingStart).replace(/^\s*/u, "");
+    return `${before}\n\n${nextSection}\n\n${after}`.trimStart() + "\n";
+  }
+
+  return `${normalizedMarkdown}\n\n${nextSection}`.trimStart() + "\n";
 }
 
 function buildTaskDetailSection(detail: string): string {
@@ -1893,26 +1947,62 @@ function truncateTaskDetailDirtyTail(value: string): string {
 }
 
 function findTaskDetailSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
-  const sections = findNamedSectionBounds(markdown, TASK_DETAIL_HEADING, []);
-  if (sections.length !== 1) {
-    return undefined;
-  }
-  const [section] = sections;
-  return section;
+  return findSectionBoundsByHeadings(markdown, [TASK_DETAIL_HEADING]);
 }
 
-function buildWeeklyReportMarkdown(title: string, itemsBody: string, summaryBody: string, planBody: string): string {
+function findTaskProgressSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
+  return findSectionBoundsByHeadings(markdown, [TASK_PROGRESS_HEADING]);
+}
+
+function findSectionBoundsByHeadings(markdown: string, headings: string[]): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
+  const normalizedHeadings = headings
+    .map((heading) => heading.trim())
+    .filter(Boolean);
+  if (!normalizedHeadings.length) {
+    return undefined;
+  }
+
+  const escapedHeadings = normalizedHeadings
+    .map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const headingRegex = new RegExp(`^#{1,6}\\s+(?:${escapedHeadings})\\s*$`, "gm");
+  const match = headingRegex.exec(markdown);
+  if (!match) {
+    return undefined;
+  }
+
+  const headingStart = match.index || 0;
+  const headingEnd = headingStart + match[0].length;
+  const bodyStart = headingEnd < markdown.length && markdown[headingEnd] === "\n" ? headingEnd + 1 : headingEnd;
+  const nextHeadingRegex = /^#{1,6}\s+/gm;
+  nextHeadingRegex.lastIndex = bodyStart;
+  const nextHeading = nextHeadingRegex.exec(markdown);
+  return {
+    headingStart,
+    bodyStart,
+    nextHeadingStart: nextHeading?.index ?? markdown.length
+  };
+}
+
+function buildWeeklyReportMarkdown(title: string, itemsBody: string, progressBody: string, summaryBody: string, planBody: string): string {
+  const normalizedProgress = normalizeSectionBody(progressBody);
   const normalizedSummary = normalizeSectionBody(summaryBody);
   const normalizedPlan = normalizeSectionBody(planBody);
+  const hasProgress = Boolean(normalizedProgress);
+  const summaryHeading = hasProgress ? "## 三、本周工作总结" : "## 二、本周工作总结";
+  const planHeading = hasProgress ? "## 四、下周工作计划" : "## 三、下周工作计划";
   return `# ${title}
 
-## 一、本周工作事项
+## 一、本周完成事项
 ${itemsBody}
 
-## 二、本周工作总结
+${hasProgress ? `## 二、本周推进事项
+${normalizedProgress}
+
+` : ""}${summaryHeading}
 ${normalizedSummary}${normalizedSummary ? "\n" : ""}
 
-## 三、下周工作计划
+${planHeading}
 ${normalizedPlan}${normalizedPlan ? "\n" : ""}`.trimEnd() + "\n";
 }
 
@@ -1938,14 +2028,33 @@ function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
   }).join("\n\n");
 }
 
-function rewriteWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string): string {
+function renderWeeklyProgressBody(week: string, tasks: TaskItem[]): string {
+  const groups = groupWeeklyProgressRecords(tasks, week);
+  if (!groups.length) {
+    return "";
+  }
+
+  return groups.map(({ groupTask, entries }) => {
+    const lines = entries.map(({ task, record }) => {
+      const taskPrefix = task.id !== groupTask.id ? `【${task.title}】` : "";
+      return `- ${record.date.slice(5)}${taskPrefix}：${normalizeWeeklyProgressLine(record.content)}`;
+    }).join("\n");
+    return `### ${groupTask.title}\n${lines}`;
+  }).join("\n\n");
+}
+
+function rewriteWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string, progressBody: string): string {
   const report = parseWeeklyReportSections(markdown);
-  return buildWeeklyReportMarkdown(title, itemsBody, report.summaryBody, report.planBody);
+  return buildWeeklyReportMarkdown(title, itemsBody, progressBody, report.summaryBody, report.planBody);
 }
 
 function parseWeeklyReportSections(markdown: string): { summaryBody: string; planBody: string } {
-  const summaryBody = extractWeeklyReportSectionBody(markdown, ["二、本周工作总结", "本周工作总结"], ["三、下周工作计划", "下周工作计划"]);
-  const planBody = extractWeeklyReportSectionBody(markdown, ["三、下周工作计划", "下周工作计划"], []);
+  const summaryBody = extractWeeklyReportSectionBody(
+    markdown,
+    ["三、本周工作总结", "二、本周工作总结", "本周工作总结"],
+    ["四、下周工作计划", "三、下周工作计划", "下周工作计划"]
+  );
+  const planBody = extractWeeklyReportSectionBody(markdown, ["四、下周工作计划", "三、下周工作计划", "下周工作计划"], []);
   return { summaryBody, planBody };
 }
 
@@ -1966,6 +2075,10 @@ function normalizeSectionBody(value: string): string {
     .replace(/^# .*$/gm, "")
     .replace(/^\[\^.+?\]:.*$/gm, "")
     .trim();
+}
+
+function normalizeWeeklyProgressLine(value: string): string {
+  return value.replace(/\r?\n+/g, " ").trim();
 }
 
 function truncateWeeklyReportDirtyTail(value: string): string {
@@ -2003,7 +2116,7 @@ function findNextWeeklyReportSectionStart(markdown: string, bodyStart: number, n
     return Math.min(...candidates);
   }
 
-  const unexpectedReportSection = /^## (?:一、本周工作事项|本周工作事项|二、本周工作总结|本周工作总结|三、下周工作计划|下周工作计划)$/gm;
+  const unexpectedReportSection = /^## (?:一、本周完成事项|本周完成事项|二、本周推进事项|本周推进事项|三、本周工作总结|二、本周工作总结|本周工作总结|四、下周工作计划|三、下周工作计划|下周工作计划)$/gm;
   unexpectedReportSection.lastIndex = bodyStart;
   const next = unexpectedReportSection.exec(markdown);
   return next?.index ?? markdown.length;
@@ -2034,7 +2147,7 @@ type TaskSummaryValueMap = {
   状态: string;
   来源: string;
   优先级: string;
-  任务描述: string;
+  任务近况: string;
   创建时间: string;
   完成时间: string;
   截止时间: string;
@@ -2051,7 +2164,7 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
     状态: TASK_STATUS_LABELS[task.status],
     来源: sourceRef,
     优先级: TASK_PRIORITY_LABELS[task.priority],
-    任务描述: task.description || "无",
+    任务近况: task.description || "无",
     创建时间: formatTaskDate(task.createdAt),
     完成时间: formatTaskDate(task.completedAt),
     截止时间: formatTaskDate(task.dueDate),
@@ -2066,7 +2179,7 @@ function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children:
   return [
     `**父任务** ：${values["父任务"]}`,
     `**子任务** ：${values["子任务"]}`,
-    `**任务描述** ：${values["任务描述"]}`
+    `**${TASK_LATEST_LABEL}** ：${values["任务近况"]}`
   ];
 }
 
@@ -2077,6 +2190,15 @@ function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: strin
     normalizedTable,
     "",
     ...normalizedLines,
+    "",
+    "---"
+  ].join("\n");
+}
+
+function renderManagedTaskProgressSectionBody(records?: ProgressRecord[]): string {
+  const content = renderProgressRecordsMarkdown(records).replace(/\s+$/u, "");
+  return [
+    content,
     "",
     "---"
   ].join("\n");
@@ -2201,14 +2323,80 @@ order by sort asc`);
 }
 
 async function syncManagedTaskDescriptionSection(task: TaskItem, currentSynced = false): Promise<boolean> {
-  const heading = await findHeadingBlock(task.docId, ["任务描述"]);
+  const heading = await findHeadingBlock(task.docId, TASK_DESCRIPTION_HEADINGS);
   if (!heading) {
     return currentSynced;
   }
-  const changed = await replaceManagedHeadingSection(task.docId, ["任务描述"], task.description || "", {
+  const changed = await replaceManagedHeadingSection(task.docId, TASK_DESCRIPTION_HEADINGS, task.description || "", {
     createIfMissing: false
   });
   return currentSynced || changed;
+}
+
+async function syncManagedTaskProgressSection(task: TaskItem, currentSynced = false): Promise<boolean> {
+  const changed = await replaceManagedHeadingSectionBlocks(task.docId, [TASK_PROGRESS_HEADING], [
+    renderProgressRecordsMarkdown(task.progressRecords),
+    "---"
+  ], {
+    createIfMissing: true
+  });
+  return currentSynced || changed;
+}
+
+async function replaceManagedHeadingSectionBlocks(
+  docId: string,
+  headings: string[],
+  bodyBlocks: string[],
+  options: {
+    createIfMissing?: boolean;
+    headingLevel?: number;
+  } = {}
+): Promise<boolean> {
+  const normalizedBlocks = bodyBlocks
+    .map((block) => normalizeManagedSectionBody(block))
+    .filter(Boolean);
+  const normalizedBody = normalizedBlocks.join("\n\n");
+  const heading = await findHeadingBlock(docId, headings);
+  if (!heading) {
+    if (!options.createIfMissing || !normalizedBlocks.length) {
+      return false;
+    }
+    const level = Math.min(Math.max(options.headingLevel || 2, 1), 6);
+    const title = headings[0] || TASK_DETAIL_HEADING;
+    const headingMarkdown = `${"#".repeat(level)} ${title}`;
+    const [firstBlock, ...restBlocks] = normalizedBlocks;
+    const nextMarkdown = firstBlock ? `${headingMarkdown}\n\n${firstBlock}` : headingMarkdown;
+    await appendBlock(docId, nextMarkdown);
+    if (!restBlocks.length) {
+      return true;
+    }
+    const createdHeading = await findHeadingBlock(docId, headings);
+    if (!createdHeading) {
+      return true;
+    }
+    for (const block of restBlocks) {
+      await appendBlock(createdHeading.id, block);
+    }
+    return true;
+  }
+
+  const currentMarkdown = await readDocMarkdown(docId).catch(() => "");
+  const currentBody = normalizeManagedSectionBody(extractHeadingSectionBody(currentMarkdown, headings) || "");
+  if (currentBody === normalizedBody) {
+    return false;
+  }
+
+  const children = await getChildBlocks(heading.id).catch(() => []);
+  for (const child of [...children].reverse()) {
+    await deleteBlock(child.id).catch(() => undefined);
+  }
+  if (!normalizedBlocks.length) {
+    return children.length > 0;
+  }
+  for (const block of normalizedBlocks) {
+    await appendBlock(heading.id, block);
+  }
+  return true;
 }
 
 async function replaceManagedHeadingSection(
@@ -2331,6 +2519,7 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.sourceDocId]: task.sourceDocId || "",
     [TASK_ATTRS.sourceText]: task.sourceText || "",
     [TASK_ATTRS.description]: task.description || "",
+    [TASK_ATTRS.progressRecords]: serializeProgressRecords(task.progressRecords),
     [TASK_ATTRS.noteFolderPath]: task.noteFolderPath || ""
   });
 }
@@ -2403,6 +2592,7 @@ function taskSnapshot(task: TaskItem): string {
     planStart: task.planStart || "",
     planEnd: task.planEnd || "",
     description: task.description || "",
+    progressRecords: normalizeProgressRecords(task.progressRecords),
     noteFolderPath: task.noteFolderPath || "",
     createdAt: task.createdAt || "",
     updatedAt: task.updatedAt || "",

@@ -265,6 +265,7 @@ export default class TaskTrackerPlugin extends Plugin {
       presetTitle: options.presetTitle,
       presetPlanDate: options.presetPlanDate,
       task: options.task,
+      onSaved: () => this.refreshViews(),
       onOpenTask: (task) => void this.openTask(task)
     }).show();
   }

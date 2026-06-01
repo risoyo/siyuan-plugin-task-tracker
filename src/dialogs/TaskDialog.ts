@@ -1,5 +1,11 @@
 import { Dialog, getFrontend, showMessage } from "siyuan";
-import { formatDateKey, fromDatetimeLocal, toDatetimeLocal } from "../date";
+import { formatDateKey, fromDatetimeLocal, nowIso, toDatetimeLocal } from "../date";
+import {
+  createProgressRecord,
+  formatProgressRecordWeekday,
+  normalizeProgressRecordDate,
+  normalizeProgressRecords
+} from "../progressRecords";
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
@@ -8,6 +14,7 @@ import {
   STATUS_BADGE_CONFIG,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  type ProgressRecord,
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
@@ -45,7 +52,8 @@ const ICONS = {
   info: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v3.3"/><path d="M8 4.8h.01"/></svg>`,
   search: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4"/><path d="M10 10l3 3"/></svg>`,
   save: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h8l2 2V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 2.5v4h5v-4"/><path d="M5 11h6"/></svg>`,
-  trash: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4.5h11"/><path d="M6 2.5h4"/><path d="M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/><path d="M6.5 6.5v4.5M9.5 6.5v4.5"/></svg>`
+  trash: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4.5h11"/><path d="M6 2.5h4"/><path d="M4 4.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9l.6-8"/><path d="M6.5 6.5v4.5M9.5 6.5v4.5"/></svg>`,
+  plus: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg>`
 };
 
 type ComboboxMode = "select-only" | "editable";
@@ -149,6 +157,91 @@ function sectionTitle(title: string): string {
   return `<div class="task-tracker-dialog-v3__section-title">${escapeHtml(title)}</div>`;
 }
 
+function sectionTitleWithHint(title: string, hint: string): string {
+  return `<div class="task-tracker-dialog-v3__section-title">
+    <span>${escapeHtml(title)}</span>
+    <button type="button" class="task-progress-section__hint-button" title="${escapeAttr(hint)}" aria-label="${escapeAttr(hint)}">
+      ${ICONS.info}
+    </button>
+  </div>`;
+}
+
+interface ProgressEditorState {
+  mode: "create" | "edit";
+  recordId?: string;
+  date: string;
+  content: string;
+}
+
+function renderProgressSectionBody(records: ProgressRecord[], editor?: ProgressEditorState): string {
+  return `
+    <div class="task-progress-section__topbar">
+      <div class="task-progress-section__description">记录任务在推进过程中的关键进展、沟通情况、问题风险等，支持多条记录，便于周报导出和追溯。</div>
+      <button type="button" class="task-progress-section__add-button" data-progress-action="add">
+        <span class="task-progress-section__add-icon">${ICONS.plus}</span>
+        <span>添加记录</span>
+      </button>
+    </div>
+    <div class="task-progress-section__content">
+      ${editor ? renderProgressEditor(editor) : ""}
+      ${records.length ? renderProgressList(records) : (editor ? "" : renderProgressEmpty())}
+    </div>
+  `;
+}
+
+function renderProgressEditor(editor: ProgressEditorState): string {
+  const submitLabel = editor.mode === "edit" ? "保存" : "保存记录";
+  return `<div class="task-progress-editor">
+    <div class="task-progress-editor__grid">
+      <label class="task-progress-editor__field task-progress-editor__field--date">
+        <span class="task-progress-editor__label">记录日期</span>
+        <input class="task-tracker-dialog-v3__input task-progress-editor__input" type="date" value="${escapeAttr(editor.date)}" data-progress-input="date" />
+      </label>
+      <label class="task-progress-editor__field task-progress-editor__field--content">
+        <span class="task-progress-editor__label">推进内容</span>
+        <textarea class="task-tracker-dialog-v3__textarea task-progress-editor__textarea" rows="4" placeholder="填写本次推进情况、沟通结果、问题或下一步计划" data-progress-input="content">${escapeHtml(editor.content)}</textarea>
+      </label>
+    </div>
+    <div class="task-progress-editor__actions">
+      <button type="button" class="task-progress-editor__button task-progress-editor__button--cancel" data-progress-action="cancel-editor">取消</button>
+      <button type="button" class="task-progress-editor__button task-progress-editor__button--primary" data-progress-action="save-editor">${submitLabel}</button>
+    </div>
+  </div>`;
+}
+
+function renderProgressList(records: ProgressRecord[]): string {
+  return `<div class="task-progress-list">
+    ${records.map((record) => renderProgressListItem(record)).join("")}
+  </div>`;
+}
+
+function renderProgressListItem(record: ProgressRecord): string {
+  const weekday = formatProgressRecordWeekday(record.date);
+  const content = escapeHtml(record.content).replace(/\r?\n/g, "<br>");
+  return `<div class="task-progress-item" data-progress-record="${escapeAttr(record.id)}">
+    <div class="task-progress-item__date">
+      <div class="task-progress-item__date-main">${escapeHtml(record.date)}</div>
+      <div class="task-progress-item__date-sub">${escapeHtml(weekday)}</div>
+    </div>
+    <div class="task-progress-item__content">${content}</div>
+    <div class="task-progress-item__actions">
+      <button type="button" class="task-progress-item__icon-button" data-progress-action="edit" data-progress-id="${escapeAttr(record.id)}" aria-label="编辑推进记录" title="编辑">
+        ${ICONS.edit}
+      </button>
+      <button type="button" class="task-progress-item__icon-button task-progress-item__icon-button--danger" data-progress-action="delete" data-progress-id="${escapeAttr(record.id)}" aria-label="删除推进记录" title="删除">
+        ${ICONS.trash}
+      </button>
+    </div>
+  </div>`;
+}
+
+function renderProgressEmpty(): string {
+  return `<div class="task-progress-empty">
+    <div class="task-progress-empty__title">暂无推进记录</div>
+    <div class="task-progress-empty__description">添加阶段性进展后，这里会按日期展示，并在保存任务时同步写入任务笔记。</div>
+  </div>`;
+}
+
 function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
   const triggerRect = trigger.getBoundingClientRect();
   const menuHeight = menu.offsetHeight || 200;
@@ -221,6 +314,7 @@ export class TaskDialog {
     const defaultDueDate = editingTask?.dueDate?.slice(0, 10) || "";
     const defaultCompletedAt = editingTask?.completedAt ? toDatetimeLocal(editingTask.completedAt) : "";
     const defaultDescription = editingTask?.description || "";
+    const defaultProgressRecords = normalizeProgressRecords(editingTask?.progressRecords);
     const defaultNoteFolderPath = editingTask?.noteFolderPath?.trim() || "";
     const defaultSourceDocId = effectiveSource?.docId || "";
     const isSubtasks = Boolean(!editMode && this.options.parentId);
@@ -421,6 +515,11 @@ export class TaskDialog {
         </div>
       </label>
     </div>
+
+    <div class="task-tracker-dialog-v3__section task-tracker-dialog-v3__section-card">
+      ${sectionTitleWithHint("推进记录", "记录任务推进过程中的关键进展、沟通情况、问题风险等，可用于周报导出和后续追溯。")}
+      <div data-progress-root></div>
+    </div>
     </div>
   </form>
 
@@ -442,6 +541,7 @@ export class TaskDialog {
     const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
+    const progressRoot = root.querySelector<HTMLElement>("[data-progress-root]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     const noteFolderCard = root.querySelector<HTMLElement>("[data-note-folder-card]");
     titleInput?.focus();
@@ -455,11 +555,89 @@ export class TaskDialog {
     let noteFolderPath = defaultNoteFolderPath;
     let noteFolderDraft = defaultNoteFolderPath;
     let noteFolderEditing = false;
+    let progressRecordsDraft = [...defaultProgressRecords];
+    let progressEditor: ProgressEditorState | undefined;
 
     const setDetailStatus = (text: string, error = false) => {
       if (!detailStatus) return;
       detailStatus.textContent = text;
       detailStatus.classList.toggle("is-error", error);
+    };
+
+    const renderProgressSection = () => {
+      if (!progressRoot) {
+        return;
+      }
+      progressRoot.innerHTML = renderProgressSectionBody(progressRecordsDraft, progressEditor);
+    };
+
+    const startCreateProgressRecord = () => {
+      progressEditor = {
+        mode: "create",
+        date: formatDateKey(new Date()),
+        content: ""
+      };
+      renderProgressSection();
+      progressRoot?.querySelector<HTMLInputElement>("[data-progress-input='date']")?.focus();
+    };
+
+    const startEditProgressRecord = (recordId: string) => {
+      const record = progressRecordsDraft.find((item) => item.id === recordId);
+      if (!record) {
+        return;
+      }
+      progressEditor = {
+        mode: "edit",
+        recordId: record.id,
+        date: record.date,
+        content: record.content
+      };
+      renderProgressSection();
+      progressRoot?.querySelector<HTMLTextAreaElement>("[data-progress-input='content']")?.focus();
+    };
+
+    const saveProgressEditor = (): boolean => {
+      if (!progressEditor) {
+        return true;
+      }
+      const date = normalizeProgressRecordDate(progressEditor.date);
+      if (!date) {
+        showMessage("请选择记录日期。", 5000, "error");
+        return false;
+      }
+      const content = progressEditor.content.trim();
+      if (!content) {
+        showMessage("请填写推进内容。", 5000, "error");
+        return false;
+      }
+
+      if (progressEditor.mode === "edit" && progressEditor.recordId) {
+        const editingRecordId = progressEditor.recordId;
+        const timestamp = nowIso();
+        progressRecordsDraft = normalizeProgressRecords(progressRecordsDraft.map((record) => {
+          if (record.id !== editingRecordId) {
+            return record;
+          }
+          return {
+            ...record,
+            date,
+            content,
+            updatedAt: timestamp
+          };
+        }));
+      } else {
+        progressRecordsDraft = normalizeProgressRecords([
+          createProgressRecord({
+            date,
+            content
+          }),
+          ...progressRecordsDraft
+        ]);
+      }
+
+      progressEditor = undefined;
+      renderProgressSection();
+      return true;
     };
 
     const syncNoteFolderInput = () => {
@@ -566,6 +744,7 @@ export class TaskDialog {
 
     renderSourceMode();
     renderNoteFolder();
+    renderProgressSection();
 
     const openMenu = (menu: HTMLElement, trigger: HTMLElement) => {
       menu.style.display = "";
@@ -821,6 +1000,49 @@ export class TaskDialog {
     root.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
 
+      const progressAction = target.closest<HTMLElement>("[data-progress-action]");
+      if (progressAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const action = progressAction.dataset.progressAction;
+        if (action === "add") {
+          startCreateProgressRecord();
+          return;
+        }
+        if (action === "edit") {
+          const progressId = progressAction.dataset.progressId;
+          if (progressId) {
+            startEditProgressRecord(progressId);
+          }
+          return;
+        }
+        if (action === "delete") {
+          const progressId = progressAction.dataset.progressId;
+          if (!progressId) {
+            return;
+          }
+          const confirmed = window.confirm("确认删除这条推进记录？\n\n删除后不会影响任务详情正文。");
+          if (!confirmed) {
+            return;
+          }
+          progressRecordsDraft = normalizeProgressRecords(progressRecordsDraft.filter((record) => record.id !== progressId));
+          if (progressEditor?.recordId === progressId) {
+            progressEditor = undefined;
+          }
+          renderProgressSection();
+          return;
+        }
+        if (action === "cancel-editor") {
+          progressEditor = undefined;
+          renderProgressSection();
+          return;
+        }
+        if (action === "save-editor") {
+          saveProgressEditor();
+          return;
+        }
+      }
+
       const noteFolderAction = target.closest<HTMLElement>("[data-note-folder-action]");
       if (noteFolderAction) {
         event.preventDefault();
@@ -925,6 +1147,11 @@ export class TaskDialog {
           return;
         }
       }
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.matches("[data-progress-input='date']")) {
+        event.preventDefault();
+        saveProgressEditor();
+        return;
+      }
       if (event.key === "Escape") {
         const anyOpen = root.querySelector<HTMLElement>("[data-dropdown-menu]:not([style*='display: none'])");
         const anyCombobox = root.querySelector<HTMLElement>("[data-combobox-menu]:not([style*='display: none'])");
@@ -933,6 +1160,26 @@ export class TaskDialog {
           closeAllDropdowns();
           closeAllComboboxes();
         }
+      }
+    });
+
+    progressRoot?.addEventListener("input", (event) => {
+      const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+      if (!progressEditor) {
+        return;
+      }
+      const inputName = target.dataset.progressInput;
+      if (inputName === "date") {
+        progressEditor = {
+          ...progressEditor,
+          date: target.value
+        };
+      }
+      if (inputName === "content") {
+        progressEditor = {
+          ...progressEditor,
+          content: target.value
+        };
       }
     });
 
@@ -995,13 +1242,16 @@ export class TaskDialog {
             throw new Error("请填写文件夹绝对路径。");
           }
         }
+        if (progressEditor && !saveProgressEditor()) {
+          throw new Error("请先完成推进记录编辑。");
+        }
         const data = new FormData(form);
         if (sourceMode === "note") {
           await applyDocIdSource();
         } else {
           selectedSource = undefined;
         }
-        const input: TaskCreateInput = {
+        const baseInput = {
           title: String(data.get("title") || "").trim(),
           parentId: String(data.get("parentId") || "") || undefined,
           sourceBlockId: selectedSource?.blockId,
@@ -1015,18 +1265,26 @@ export class TaskDialog {
           planEnd: fromDatetimeLocal(String(data.get("planEnd") || "")),
           completedAt: fromDatetimeLocal(String(data.get("completedAt") || "")),
           description: String(data.get("description") || "").trim() || undefined,
-          detail: String(data.get("detail") || ""),
           noteFolderPath: String(data.get("noteFolderPath") || "").trim() || undefined
         };
-        if (!input.title) {
+        if (!baseInput.title) {
           throw new Error("请填写任务标题");
         }
+        const normalizedProgressRecords = normalizeProgressRecords(progressRecordsDraft);
+        const detailValue = String(data.get("detail") || "");
         if (editMode && editingTask && detailTextarea && detailTextarea.value !== detailLoadedValue) {
           await saveDetail(true);
         }
         const task = editMode && editingTask
-          ? await this.options.service.updateTask(editingTask.id, input)
-          : await this.options.service.createTask(input);
+          ? await this.options.service.updateTask(editingTask.id, {
+            ...baseInput,
+            progressRecords: normalizedProgressRecords
+          })
+          : await this.options.service.createTask({
+            ...(baseInput as TaskCreateInput),
+            progressRecords: normalizedProgressRecords,
+            detail: detailValue
+          });
         showMessage(editMode ? "任务已更新" : "任务文档已创建");
         this.options.onSaved?.(task);
         cleanupDialog();

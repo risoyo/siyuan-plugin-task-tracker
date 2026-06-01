@@ -3,8 +3,9 @@ import type { TaskService } from "./document";
 import { DEFAULT_TASK_TEMPLATE } from "./types";
 
 const MANAGED_DETAIL_SECTION_TITLE = "## 任务详情";
+const MANAGED_PROGRESS_SECTION_TITLE = "## 推进记录";
 const REQUIRED_TEMPLATE_PLACEHOLDERS = ["{{source}}", "{{status}}", "{{priority}}", "{{description}}"];
-const MANAGED_SUMMARY_HINT = "任务概要受控区正式支持 Markdown 表格，以及紧随表格后的父任务 / 子任务 / 任务描述标签行；插件会持续同步表格和这些标签行。";
+const MANAGED_SUMMARY_HINT = "任务概要受控区正式支持 Markdown 表格，以及紧随表格后的父任务 / 子任务 / 任务近况标签行；插件会持续同步表格和这些标签行。";
 const TEMPLATE_PLACEHOLDER_CHIPS = [
   "{{project}}",
   "{{status}}",
@@ -130,7 +131,7 @@ export function createTaskSettings(
   maintenanceCard.controlsBody.append(maintenanceButtons);
   addSettingsCard(setting, maintenanceCard.card);
 
-  const templateCard = createSettingsCard("template", "任务模板", "新建任务文档时使用。模板中的任务概要受控区与任务详情正文分区会由插件持续管理。");
+  const templateCard = createSettingsCard("template", "任务模板", "新建任务文档时使用。模板中的任务概要、推进记录与任务详情分区会由插件持续管理。");
   const resetButton = createSettingsButton("恢复默认模板", "ghost");
   resetButton.addEventListener("click", () => {
     templateInput.value = DEFAULT_TASK_TEMPLATE;
@@ -172,10 +173,11 @@ export function createTaskSettings(
       <div class="task-tracker-settings__callout-title">插件管理的正文交互字段</div>
       <ul>
         <li>${MANAGED_SUMMARY_HINT}</li>
-        <li><code>{{description}}</code>：对应任务描述，属于任务元信息字段。</li>
+        <li><code>{{description}}</code>：对应任务近况，属于任务元信息字段。</li>
+        <li><code>${MANAGED_PROGRESS_SECTION_TITLE}</code>：对应推进记录受控分区；保存任务时会把结构化推进记录实体化写回该区块。</li>
         <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
       </ul>
-      <div>保存模板时会校验是否仍保留插件管理所需字段；如果缺少必要字段，将拒绝保存并提示补回。</div>
+      <div>保存模板时会校验是否仍保留插件管理所需字段；推进记录区块建议保留，但不会阻止旧模板继续保存。</div>
     </div>
   `;
 
@@ -363,7 +365,7 @@ function showHelpDialog(): void {
   </ul>
 
   <h2>六、完成、删除与归档</h2>
-  <p>顶层任务标记为已完成后，会自动移动到 <code>事项库/已完成/&lt;周起始日&gt;</code>，按任务完成时间所在自然周归档，例如 <code>事项库/已完成/2026-05-11</code>。已完成页可把该周任务导出到 <code>事项库/周报</code>，重复导出只会重建“本周工作事项”每日引用列表，并保留用户已填写的总结与下周计划正文。子任务单独完成时会保持在父任务下；历史的月归档目录不会被批量迁移或删除。</p>
+  <p>顶层任务标记为已完成后，会自动移动到 <code>事项库/已完成/&lt;周起始日&gt;</code>，按任务完成时间所在自然周归档，例如 <code>事项库/已完成/2026-05-11</code>。已完成页可把该周任务导出到 <code>事项库/周报</code>，重复导出会重建“本周完成事项”和“本周推进事项”分区，并保留用户已填写的总结与下周计划正文。子任务单独完成时会保持在父任务下；历史的月归档目录不会被批量迁移或删除。</p>
 
   <p class="task-tracker-help__warning">在任务控制面板中删除任务，会删除该任务文档及其所有子任务文档；“清理已删除任务记录”只会清理那些思源文档已经不存在的插件索引记录。</p>
 
@@ -376,7 +378,7 @@ function showHelpDialog(): void {
 
   <h2>八、任务模板占位符</h2>
   <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{description}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>
-  <p><code>{{description}}</code> 对应“任务描述”元信息字段；<code>${MANAGED_DETAIL_SECTION_TITLE}</code> 对应“任务详情”正文受控分区，不通过模板占位符填写，而是在创建后由插件自动补入并在编辑时持续写回。</p>
+  <p><code>{{description}}</code> 对应“任务近况”元信息字段；<code>${MANAGED_PROGRESS_SECTION_TITLE}</code> 对应“推进记录”受控分区；<code>${MANAGED_DETAIL_SECTION_TITLE}</code> 对应“任务详情”正文受控分区。后两者不通过模板占位符填写，而是在创建后由插件自动补入并在编辑时持续写回。</p>
   <p>${MANAGED_SUMMARY_HINT}</p>
 
   <h2>九、使用建议</h2>

@@ -77,7 +77,16 @@ export interface TaskItem {
   updatedAt: string;
   completedAt?: string;
   description?: string;
+  progressRecords?: ProgressRecord[];
   noteFolderPath?: string;
+}
+
+export interface ProgressRecord {
+  id: string;
+  date: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "plan" | "due" | "actions" | "planStart" | "completedAt";
@@ -165,6 +174,7 @@ export interface TaskCreateInput {
   createdAt?: string;
   completedAt?: string;
   description?: string;
+  progressRecords?: ProgressRecord[];
   detail?: string;
   noteFolderPath?: string;
 }
@@ -210,23 +220,17 @@ export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 
 **父任务** ：{{parent}}
 **子任务** ：{{childTasks}}
-**任务描述** ：{{description}}
+**任务近况** ：{{description}}
 
 ---
 
-## 目标
-
-
-## 背景
-
-
-## 分析与拆解
-
-
 ## 推进记录
 
+暂无推进记录
 
-## 结果与复盘
+---
+
+## 任务详情
 
 `;
 
@@ -262,6 +266,7 @@ export const TASK_ATTRS = {
   sourceDocId: "custom-task-tracker-source-doc",
   sourceText: "custom-task-tracker-source-text",
   description: "custom-task-tracker-description",
+  progressRecords: "custom-task-tracker-progress-records",
   noteFolderPath: "custom-task-tracker-note-folder-path"
 } as const;
 
