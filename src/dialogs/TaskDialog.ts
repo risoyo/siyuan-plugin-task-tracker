@@ -174,9 +174,10 @@ interface ProgressEditorState {
 }
 
 function renderProgressSectionBody(records: ProgressRecord[], editor?: ProgressEditorState): string {
+  const description = "记录任务推进过程中的关键进展、沟通情况、问题解决等，支持多条记录。";
   return `
     <div class="task-progress-section__topbar">
-      <div class="task-progress-section__description">记录任务在推进过程中的关键进展、沟通情况、问题风险等，支持多条记录，便于周报导出和追溯。</div>
+      <div class="task-progress-section__description">${escapeHtml(description)}</div>
       <button type="button" class="task-progress-section__add-button" data-progress-action="add">
         <span class="task-progress-section__add-icon">${ICONS.plus}</span>
         <span>添加记录</span>
@@ -191,7 +192,15 @@ function renderProgressSectionBody(records: ProgressRecord[], editor?: ProgressE
 
 function renderProgressEditor(editor: ProgressEditorState): string {
   const submitLabel = editor.mode === "edit" ? "保存" : "保存记录";
+  const title = editor.mode === "edit" ? "编辑推进记录" : "新增推进记录";
+  const subtitle = editor.mode === "edit"
+    ? "更新本次推进的时间和内容，保存后会同步覆盖任务笔记中的对应记录。"
+    : "按日期记录关键动作、沟通结论和下一步计划，方便后续追溯与周报汇总。";
   return `<div class="task-progress-editor">
+    <div class="task-progress-editor__header">
+      <div class="task-progress-editor__title">${title}</div>
+      <div class="task-progress-editor__subtitle">${subtitle}</div>
+    </div>
     <div class="task-progress-editor__grid">
       <label class="task-progress-editor__field task-progress-editor__field--date">
         <span class="task-progress-editor__label">记录日期</span>
@@ -220,8 +229,14 @@ function renderProgressListItem(record: ProgressRecord): string {
   const content = escapeHtml(record.content).replace(/\r?\n/g, "<br>");
   return `<div class="task-progress-item" data-progress-record="${escapeAttr(record.id)}">
     <div class="task-progress-item__date">
-      <div class="task-progress-item__date-main">${escapeHtml(record.date)}</div>
-      <div class="task-progress-item__date-sub">${escapeHtml(weekday)}</div>
+      <div class="task-progress-item__date-icon">${ICONS.calendar}</div>
+      <div class="task-progress-item__date-text">
+        <div class="task-progress-item__date-main">${escapeHtml(record.date)}</div>
+        <div class="task-progress-item__date-sub">${escapeHtml(weekday)}</div>
+      </div>
+    </div>
+    <div class="task-progress-item__marker" aria-hidden="true">
+      <span class="task-progress-item__dot"></span>
     </div>
     <div class="task-progress-item__content">${content}</div>
     <div class="task-progress-item__actions">

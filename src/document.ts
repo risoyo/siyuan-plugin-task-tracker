@@ -8,6 +8,7 @@ import {
   getDocMarkdown,
   getSyncInfo,
   getHPathById,
+  insertBlock,
   moveDocs,
   removeDoc,
   renameDocById,
@@ -53,9 +54,11 @@ import {
 } from "./types";
 
 const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"] as const;
+const TASK_SUMMARY_HEADING = "任务概要";
 const TASK_DETAIL_HEADING = "任务详情";
 const TASK_LATEST_LABEL = "任务近况";
 const TASK_DESCRIPTION_HEADINGS = [TASK_LATEST_LABEL, "任务描述"];
+const MANAGED_TASK_SECTION_HEADINGS = [TASK_SUMMARY_HEADING, TASK_PROGRESS_HEADING, TASK_DETAIL_HEADING] as const;
 
 type ChangeListener = () => void;
 
@@ -420,6 +423,7 @@ export class TaskService {
     if (!metadataBlock) {
       let synced = await syncManagedTaskProgressSection(task, false);
       synced = await syncManagedTaskDescriptionSection(task, synced);
+      synced = await healCorruptedTaskDocument(task, synced);
       return synced;
     }
 
@@ -428,11 +432,11 @@ export class TaskService {
     let synced = false;
     if (metadataBlock.format === "table") {
       const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children);
-      const summaryHeading = await findHeadingBlock(task.docId, ["任务概要"]);
+      const summaryHeading = await findHeadingBlock(task.docId, [TASK_SUMMARY_HEADING]);
       if (summaryHeading) {
         synced = await replaceManagedHeadingSection(
           task.docId,
-          ["任务概要"],
+          [TASK_SUMMARY_HEADING],
           renderManagedTaskSummarySectionBody(
             nextTableMarkdown,
             buildTaskSummaryLabelLines(task, parent, children)
@@ -452,6 +456,7 @@ export class TaskService {
     }
     synced = await syncManagedTaskProgressSection(task, synced);
     synced = await syncManagedTaskDescriptionSection(task, synced);
+    synced = await healCorruptedTaskDocument(task, synced);
     return synced;
   }
 
@@ -1946,6 +1951,56 @@ function truncateTaskDetailDirtyTail(value: string): string {
   return footnoteStart === undefined ? value : value.slice(0, footnoteStart);
 }
 
+function buildManagedHeadingSectionMarkdown(title: string, bodyMarkdown: string, level = 2): string {
+  const headingMarkdown = `${"#".repeat(Math.min(Math.max(level, 1), 6))} ${title}`;
+  return bodyMarkdown ? `${headingMarkdown}\n\n${bodyMarkdown}` : headingMarkdown;
+}
+
+async function insertManagedHeadingSectionBlock(
+  docId: string,
+  nextSectionMarkdown: string,
+  options: {
+    beforeHeadings?: string[];
+    afterHeadings?: string[];
+  } = {}
+): Promise<void> {
+  const nextSection = nextSectionMarkdown.replace(/\s+$/u, "");
+  const beforeHeading = options.beforeHeadings?.length
+    ? await findHeadingBlock(docId, options.beforeHeadings)
+    : undefined;
+  if (beforeHeading?.id) {
+    await insertBlock(nextSection, { nextID: beforeHeading.id, parentID: docId });
+    return;
+  }
+
+  const afterHeading = options.afterHeadings?.length
+    ? await findHeadingBlock(docId, options.afterHeadings)
+    : undefined;
+  if (afterHeading?.id) {
+    const nextSiblingId = await findNextSiblingBlockId(docId, afterHeading.id);
+    if (nextSiblingId) {
+      await insertBlock(nextSection, { nextID: nextSiblingId, parentID: docId });
+      return;
+    }
+    await insertBlock(nextSection, { previousID: afterHeading.id, parentID: docId });
+    return;
+  }
+
+  await appendBlock(docId, nextSection);
+}
+
+async function findNextSiblingBlockId(docId: string, blockId: string): Promise<string | undefined> {
+  const rows = await sql<Array<{ id: string }>[number]>(`select id from blocks
+where root_id = '${sqlText(docId)}'
+  and parent_id = '${sqlText(docId)}'
+order by sort asc`);
+  const index = rows.findIndex((row) => row.id === blockId);
+  if (index === -1) {
+    return undefined;
+  }
+  return rows[index + 1]?.id;
+}
+
 function findTaskDetailSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
   return findSectionBoundsByHeadings(markdown, [TASK_DETAIL_HEADING]);
 }
@@ -2204,6 +2259,126 @@ function renderManagedTaskProgressSectionBody(records?: ProgressRecord[]): strin
   ].join("\n");
 }
 
+type RootTaskBlock = {
+  id: string;
+  type: string;
+  content?: string;
+};
+
+async function healCorruptedTaskDocument(task: TaskItem, currentSynced = false): Promise<boolean> {
+  const expectedTitles = [task.title, taskDocumentTitle(task)];
+  const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
+  const duplicateHeadingBlocks = rootBlocks.filter((block) => block.type === "h" && matchesDuplicatedTaskTitle(block.content, expectedTitles));
+  const duplicateMetadataBlocks = rootBlocks.filter((block) => block.type === "p" && isDuplicatedTaskMetadataParagraph(block.content, expectedTitles));
+  const managedSectionBlocks = rootBlocks.filter((block) => block.type === "h" && isManagedTaskSectionHeading(block.content));
+  const separatorBlocks = rootBlocks.filter((block) => block.type === "tb");
+  const duplicateManagedSections = hasDuplicateManagedSections(managedSectionBlocks);
+  if (!duplicateHeadingBlocks.length && !duplicateMetadataBlocks.length && !duplicateManagedSections) {
+    return currentSynced;
+  }
+
+  const currentMarkdown = await readDocMarkdown(task.docId).catch(() => "");
+  if (!currentMarkdown) {
+    return currentSynced;
+  }
+
+  const summaryBody = normalizeManagedSectionBody(extractHeadingSectionBody(currentMarkdown, [TASK_SUMMARY_HEADING]) || "");
+  const detailBody = extractTaskDetail(currentMarkdown);
+  const blocksToDelete = uniqueRootBlocks([
+    ...duplicateHeadingBlocks,
+    ...duplicateMetadataBlocks,
+    ...separatorBlocks,
+    ...(duplicateHeadingBlocks.length || duplicateMetadataBlocks.length || duplicateManagedSections ? managedSectionBlocks : [])
+  ]);
+
+  for (const block of blocksToDelete) {
+    if (block.type === "h") {
+      await deleteBlockTree(block.id).catch(() => undefined);
+      continue;
+    }
+    await deleteBlock(block.id).catch(() => undefined);
+  }
+
+  if (summaryBody) {
+    await appendBlock(task.docId, buildManagedHeadingSectionMarkdown(TASK_SUMMARY_HEADING, summaryBody, 2));
+  }
+  await appendBlock(task.docId, buildTaskProgressSection(task.progressRecords).replace(/\s+$/u, ""));
+  await appendBlock(task.docId, buildTaskDetailSection(detailBody).replace(/\s+$/u, ""));
+  return true;
+}
+
+async function listRootTaskBlocks(docId: string): Promise<RootTaskBlock[]> {
+  return sql<RootTaskBlock>(`select id, type, content from blocks
+where root_id = '${sqlText(docId)}'
+  and parent_id = '${sqlText(docId)}'
+order by sort asc`);
+}
+
+function isDuplicatedTaskMetadataParagraph(content?: string, title?: string | string[]): boolean {
+  const expectedTitles = Array.isArray(title)
+    ? title.map((item) => item.trim()).filter(Boolean)
+    : [title?.trim()].filter(Boolean);
+  const normalizedContent = content?.replace(/\r\n/g, "\n") || "";
+  if (!expectedTitles.length || !normalizedContent) {
+    return false;
+  }
+
+  const lines = normalizedContent.split("\n").map((line) => line.trimEnd());
+  return expectedTitles.some((expectedTitle) => lines[0] === `title: ${expectedTitle}`)
+    && /^date:\s+\S+/u.test(lines[1] || "")
+    && /^lastmod:\s+\S+/u.test(lines[2] || "");
+}
+
+function matchesDuplicatedTaskTitle(content?: string, expectedTitles: string[] = []): boolean {
+  const normalizedContent = content?.trim();
+  if (!normalizedContent) {
+    return false;
+  }
+  return expectedTitles.map((title) => title.trim()).filter(Boolean).includes(normalizedContent);
+}
+
+function isManagedTaskSectionHeading(content?: string): boolean {
+  const normalizedContent = content?.trim();
+  if (!normalizedContent) {
+    return false;
+  }
+  return MANAGED_TASK_SECTION_HEADINGS.includes(normalizedContent as typeof MANAGED_TASK_SECTION_HEADINGS[number]);
+}
+
+function hasDuplicateManagedSections(blocks: RootTaskBlock[]): boolean {
+  const seen = new Set<string>();
+  for (const block of blocks) {
+    const key = block.content?.trim();
+    if (!key) {
+      continue;
+    }
+    if (seen.has(key)) {
+      return true;
+    }
+    seen.add(key);
+  }
+  return false;
+}
+
+function uniqueRootBlocks(blocks: RootTaskBlock[]): RootTaskBlock[] {
+  const seen = new Set<string>();
+  return blocks.filter((block) => {
+    if (!block.id || seen.has(block.id)) {
+      return false;
+    }
+    seen.add(block.id);
+    return true;
+  });
+}
+
+async function deleteBlockTree(blockId: string): Promise<void> {
+  const children = await getChildBlocks(blockId).catch(() => []);
+  for (const child of [...children].reverse()) {
+    await deleteBlockTree(child.id).catch(() => undefined);
+  }
+  await deleteBlock(blockId);
+}
+
 async function requireTaskPath(docId: string, errorMessage: string, retries = 4): Promise<string> {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     const path = await getTaskPath(docId);
@@ -2338,7 +2513,9 @@ async function syncManagedTaskProgressSection(task: TaskItem, currentSynced = fa
     renderProgressRecordsMarkdown(task.progressRecords),
     "---"
   ], {
-    createIfMissing: true
+    createIfMissing: true,
+    insertBeforeHeadings: [TASK_DETAIL_HEADING],
+    insertAfterHeadings: [TASK_SUMMARY_HEADING]
   });
   return currentSynced || changed;
 }
@@ -2350,6 +2527,8 @@ async function replaceManagedHeadingSectionBlocks(
   options: {
     createIfMissing?: boolean;
     headingLevel?: number;
+    insertBeforeHeadings?: string[];
+    insertAfterHeadings?: string[];
   } = {}
 ): Promise<boolean> {
   const normalizedBlocks = bodyBlocks
@@ -2363,20 +2542,11 @@ async function replaceManagedHeadingSectionBlocks(
     }
     const level = Math.min(Math.max(options.headingLevel || 2, 1), 6);
     const title = headings[0] || TASK_DETAIL_HEADING;
-    const headingMarkdown = `${"#".repeat(level)} ${title}`;
-    const [firstBlock, ...restBlocks] = normalizedBlocks;
-    const nextMarkdown = firstBlock ? `${headingMarkdown}\n\n${firstBlock}` : headingMarkdown;
-    await appendBlock(docId, nextMarkdown);
-    if (!restBlocks.length) {
-      return true;
-    }
-    const createdHeading = await findHeadingBlock(docId, headings);
-    if (!createdHeading) {
-      return true;
-    }
-    for (const block of restBlocks) {
-      await appendBlock(createdHeading.id, block);
-    }
+    const nextMarkdown = buildManagedHeadingSectionMarkdown(title, normalizedBody, level);
+    await insertManagedHeadingSectionBlock(docId, nextMarkdown, {
+      beforeHeadings: options.insertBeforeHeadings,
+      afterHeadings: options.insertAfterHeadings
+    });
     return true;
   }
 
@@ -2406,6 +2576,8 @@ async function replaceManagedHeadingSection(
   options: {
     createIfMissing?: boolean;
     headingLevel?: number;
+    insertBeforeHeadings?: string[];
+    insertAfterHeadings?: string[];
   } = {}
 ): Promise<boolean> {
   const normalizedBody = normalizeManagedSectionBody(bodyMarkdown);
@@ -2419,9 +2591,11 @@ async function replaceManagedHeadingSection(
     }
     const level = Math.min(Math.max(options.headingLevel || 2, 1), 6);
     const title = headings[0] || TASK_DETAIL_HEADING;
-    const headingMarkdown = `${"#".repeat(level)} ${title}`;
-    const nextMarkdown = normalizedBody ? `${headingMarkdown}\n\n${normalizedBody}` : headingMarkdown;
-    await appendBlock(docId, nextMarkdown);
+    const nextMarkdown = buildManagedHeadingSectionMarkdown(title, normalizedBody, level);
+    await insertManagedHeadingSectionBlock(docId, nextMarkdown, {
+      beforeHeadings: options.insertBeforeHeadings,
+      afterHeadings: options.insertAfterHeadings
+    });
     return true;
   }
 

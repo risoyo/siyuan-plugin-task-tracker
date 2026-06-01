@@ -72,6 +72,20 @@ export async function appendBlock(parentID: string, markdown: string): Promise<v
   await request("/api/block/appendBlock", { parentID, dataType: "markdown", data: markdown });
 }
 
+export async function insertBlock(markdown: string, options: {
+  nextID?: string;
+  previousID?: string;
+  parentID?: string;
+} = {}): Promise<void> {
+  await request("/api/block/insertBlock", {
+    dataType: "markdown",
+    data: markdown,
+    nextID: options.nextID || "",
+    previousID: options.previousID || "",
+    parentID: options.parentID || ""
+  });
+}
+
 export async function deleteBlock(id: string): Promise<void> {
   await request("/api/block/deleteBlock", { id });
 }
