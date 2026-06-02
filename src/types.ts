@@ -89,11 +89,11 @@ export interface ProgressRecord {
   updatedAt: string;
 }
 
-export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "plan" | "due" | "actions" | "planStart" | "completedAt";
+export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "progress" | "plan" | "due" | "actions" | "planStart" | "completedAt";
 
-export type TablePageColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "plan" | "due";
+export type TablePageColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "progress" | "plan" | "due";
 
-export type CompletedPageColumnKey = "task" | "project" | "source" | "latest" | "createdAt" | "planStart" | "completedAt";
+export type CompletedPageColumnKey = "task" | "project" | "source" | "latest" | "progress" | "createdAt" | "planStart" | "completedAt";
 
 export type SortDirection = "asc" | "desc";
 

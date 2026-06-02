@@ -912,8 +912,29 @@
   color: #94A3B8;
 }
 
+.task-manager-table__text--progress {
+  color: #475569;
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.task-manager-table__text--progress.is-empty {
+  color: #94A3B8;
+}
+
 .task-manager-table__cell.is-latest,
 .task-manager-table__head.is-latest {
+  min-width: 140px;
+}
+
+.task-manager-table__cell.is-progress,
+.task-manager-table__head.is-progress {
   min-width: 140px;
 }
 

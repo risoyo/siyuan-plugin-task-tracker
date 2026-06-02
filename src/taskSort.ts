@@ -1,3 +1,4 @@
+import { latestProgressRecordSummary } from "./progressRecords";
 import type { SidebarTaskSortField, TableSortColumn, TaskItem } from "./types";
 
 const TASK_TITLE_LOCALE = "zh-Hans-CN";
@@ -30,6 +31,10 @@ export function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSort
   }
   if (column === "latest") {
     return (a.description || "").localeCompare(b.description || "", TASK_TITLE_LOCALE)
+      || compareTaskTitle(a, b);
+  }
+  if (column === "progress") {
+    return latestProgressRecordSummary(a.progressRecords).localeCompare(latestProgressRecordSummary(b.progressRecords), TASK_TITLE_LOCALE)
       || compareTaskTitle(a, b);
   }
   if (column === "plan") {

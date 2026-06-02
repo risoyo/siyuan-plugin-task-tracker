@@ -19,6 +19,7 @@ import {
 } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
+import { latestProgressRecordSummary } from "../progressRecords";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import { compareOptionalDates, compareTasksByColumn, sortTaskTree } from "../taskSort";
 import {
@@ -151,6 +152,7 @@ const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "status", label: "状态", defaultWidth: 120, minWidth: 96 },
   { key: "priority", label: "优先级", defaultWidth: 120, minWidth: 96 },
   { key: "latest", label: "任务近况", defaultWidth: 320, minWidth: 140, className: "is-latest" },
+  { key: "progress", label: "推进记录", defaultWidth: 260, minWidth: 140, className: "is-progress" },
   { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 112 },
   { key: "plan", label: "计划时间", defaultWidth: 144, minWidth: 124 },
   { key: "due", label: "截止", defaultWidth: 144, minWidth: 124 },
@@ -158,7 +160,7 @@ const TABLE_COLUMNS: TableColumnDef[] = [
   { key: "actions", label: "操作", defaultWidth: 96, minWidth: 84, className: "is-actions" }
 ];
 
-const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "createdAt", "plan", "due", "source"];
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "progress", "createdAt", "plan", "due", "source"];
 const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default"; label: string }> = [
   { value: "default", label: "默认" },
   { value: "task", label: "任务" },
@@ -166,6 +168,7 @@ const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default"; label: str
   { value: "status", label: "状态" },
   { value: "priority", label: "优先级" },
   { value: "latest", label: "任务近况" },
+  { value: "progress", label: "推进记录" },
   { value: "createdAt", label: "创建时间" },
   { value: "plan", label: "计划时间" },
   { value: "due", label: "截止" },
@@ -180,6 +183,7 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "task", label: "任务", defaultWidth: 280, minWidth: 140, className: "is-task" },
   { key: "project", label: "项目", defaultWidth: 130, minWidth: 80 },
   { key: "latest", label: "任务近况", defaultWidth: 300, minWidth: 130, className: "is-latest" },
+  { key: "progress", label: "推进记录", defaultWidth: 260, minWidth: 140, className: "is-progress" },
   { key: "source", label: "来源", defaultWidth: 150, minWidth: 80 },
   { key: "createdAt", label: "创建时间", defaultWidth: 132, minWidth: 100 },
   { key: "planStart", label: "计划开始", defaultWidth: 132, minWidth: 100 },
@@ -187,12 +191,13 @@ const COMPLETED_TABLE_COLUMNS: TableColumnDef[] = [
   { key: "actions", label: "操作", defaultWidth: 84, minWidth: 72, className: "is-actions" }
 ];
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "source", "createdAt", "planStart", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "progress", "source", "createdAt", "planStart", "completedAt"];
 const COMPLETED_SORT_OPTIONS: Array<{ value: CompletedSortColumn | "default"; label: string }> = [
   { value: "default", label: "默认" },
   { value: "task", label: "任务" },
   { value: "project", label: "项目" },
   { value: "latest", label: "任务近况" },
+  { value: "progress", label: "推进记录" },
   { value: "source", label: "来源" },
   { value: "createdAt", label: "创建时间" },
   { value: "planStart", label: "计划开始" },
@@ -249,7 +254,7 @@ export class TaskManagerTab {
     const settings = this.service.store.getSettings();
     this.tableColumnWidths = normalizeTableColumnWidths(TABLE_COLUMNS, settings.tableColumnWidths);
     this.completedTableColumnWidths = normalizeTableColumnWidths(COMPLETED_TABLE_COLUMNS, settings.completedTableColumnWidths);
-    this.unsubscribe = this.service.onChange(() => this.render({ preserveTableScroll: this.view === "table" }));
+    this.unsubscribe = this.service.onChange(() => this.render({ preserveTableScroll: true }));
   }
 
   destroy(): void {
@@ -265,7 +270,7 @@ export class TaskManagerTab {
   }
 
   render(options: { preserveTableScroll?: boolean } = {}): void {
-    if (options.preserveTableScroll && this.view === "table") {
+    if (options.preserveTableScroll) {
       this.captureTableScrollPosition();
     } else {
       this.pendingTableScrollRestore = undefined;
@@ -301,11 +306,6 @@ export class TaskManagerTab {
   }
 
   private restoreTableScrollPosition(): void {
-    if (this.view !== "table") {
-      this.pendingTableScrollRestore = undefined;
-      this.pendingTableFocusTaskId = undefined;
-      return;
-    }
     const body = this.container.querySelector<HTMLElement>(".task-manager__body");
     const wrap = this.container.querySelector<HTMLElement>(".task-manager-table-wrap");
     if (body && this.pendingTableScrollRestore) {
@@ -534,6 +534,9 @@ export class TaskManagerTab {
     if (key === "latest") {
       return `<td class="task-manager-table__cell is-latest">${this.renderLatestText(task)}</td>`;
     }
+    if (key === "progress") {
+      return `<td class="task-manager-table__cell is-progress">${this.renderProgressText(task)}</td>`;
+    }
     if (key === "source") {
       return `<td class="task-manager-table__cell is-source">${this.renderCompletedSourceText(task)}</td>`;
     }
@@ -642,6 +645,9 @@ export class TaskManagerTab {
     }
     if (key === "latest") {
       return `<td class="task-manager-table__cell is-latest">${this.renderLatestText(task)}</td>`;
+    }
+    if (key === "progress") {
+      return `<td class="task-manager-table__cell is-progress">${this.renderProgressText(task)}</td>`;
     }
     if (key === "source") {
       return `<td class="task-manager-table__cell is-source">${this.renderTableSourceText(task)}</td>`;
@@ -1198,6 +1204,14 @@ export class TaskManagerTab {
       return `<span class="task-manager-table__text task-manager-table__text--latest is-empty" title="—">—</span>`;
     }
     return `<span class="task-manager-table__text task-manager-table__text--latest" title="${escapeAttr(latest)}">${escapeHtml(latest)}</span>`;
+  }
+
+  private renderProgressText(task: TaskItem): string {
+    const summary = latestProgressRecordSummary(task.progressRecords);
+    if (!summary) {
+      return `<span class="task-manager-table__text task-manager-table__text--progress is-empty" title="—">—</span>`;
+    }
+    return `<span class="task-manager-table__text task-manager-table__text--progress" title="${escapeAttr(summary)}">${escapeHtml(summary)}</span>`;
   }
 
   private renderSourcePill(task: TaskItem): string {
@@ -2510,6 +2524,7 @@ function defaultTableColumnWidths(columns: TableColumnDef[]): Record<TableColumn
     status: 0,
     priority: 0,
     latest: 0,
+    progress: 0,
     plan: 0,
     due: 0,
     actions: 0,

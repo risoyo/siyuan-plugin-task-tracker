@@ -2235,9 +2235,9 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
 function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string[] {
   const values = buildTaskSummaryValueMap(task, parent, children);
   return [
-    `**父任务** ：${values["父任务"]}`,
-    `**子任务** ：${values["子任务"]}`,
-    `**${TASK_LATEST_LABEL}** ：${values["任务近况"]}`
+    `<strong>父任务</strong> ：${values["父任务"]}`,
+    `<strong>子任务</strong> ：${values["子任务"]}`,
+    `<strong>${TASK_LATEST_LABEL}</strong> ：${values["任务近况"]}`
   ];
 }
 

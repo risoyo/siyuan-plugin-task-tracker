@@ -109,6 +109,14 @@ export function formatProgressRecordWeekday(date: string): string {
   return WEEKDAY_NAMES[parsed.getDay()] || "";
 }
 
+export function latestProgressRecordSummary(records?: ProgressRecord[]): string {
+  const latest = normalizeProgressRecords(records)[0];
+  if (!latest) {
+    return "";
+  }
+  return `${latest.date.slice(5, 7)}${latest.date.slice(8, 10)}:${latest.content.replace(/\r?\n+/g, " ").trim()}`;
+}
+
 export function groupWeeklyProgressRecords(tasks: TaskItem[], week: string): WeeklyProgressGroup[] {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const groups = new Map<string, WeeklyProgressGroup>();

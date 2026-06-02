@@ -20,11 +20,11 @@ import {
   type TaskSettings
 } from "./types";
 
-const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "createdAt", "plan", "due", "source"];
+const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "progress", "createdAt", "plan", "due", "source"];
 const DEFAULT_TABLE_PAGE_COLUMNS: TablePageColumnKey[] = [...TABLE_PAGE_COLUMNS];
 const DEFAULT_TABLE_SORT: TableSortSpec = { column: "default" };
 
-const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "source", "createdAt", "planStart", "completedAt"];
+const COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = ["task", "project", "latest", "progress", "source", "createdAt", "planStart", "completedAt"];
 const DEFAULT_COMPLETED_PAGE_COLUMNS: CompletedPageColumnKey[] = [...COMPLETED_PAGE_COLUMNS];
 const DEFAULT_COMPLETED_SORT: CompletedSortSpec = { column: "default" };
 
@@ -208,16 +208,24 @@ function normalizeColumnOrder(columns?: TablePageColumnKey[]): TablePageColumnKe
 }
 
 function migrateTableConfig(columns: TablePageColumnKey[]): TablePageColumnKey[] {
-  if (columns.includes("latest")) {
-    return columns;
+  let result = [...columns];
+  if (!result.includes("latest")) {
+    const priorityIndex = result.indexOf("priority");
+    if (priorityIndex >= 0) {
+      result.splice(priorityIndex + 1, 0, "latest");
+    } else {
+      result.push("latest");
+    }
   }
-  const priorityIndex = columns.indexOf("priority");
-  if (priorityIndex >= 0) {
-    const result = [...columns];
-    result.splice(priorityIndex + 1, 0, "latest");
-    return result;
+  if (!result.includes("progress")) {
+    const latestIndex = result.indexOf("latest");
+    if (latestIndex >= 0) {
+      result.splice(latestIndex + 1, 0, "progress");
+    } else {
+      result.push("progress");
+    }
   }
-  return [...columns, "latest"];
+  return result;
 }
 
 function normalizeSortSpec(raw?: TableSortSpec): TableSortSpec | undefined {
@@ -318,6 +326,14 @@ function migrateCompletedConfig(columns: CompletedPageColumnKey[]): CompletedPag
       result.splice(sourceIndex, 0, "latest");
     } else {
       result.push("latest");
+    }
+  }
+  if (!result.includes("progress")) {
+    const latestIndex = result.indexOf("latest");
+    if (latestIndex >= 0) {
+      result.splice(latestIndex + 1, 0, "progress");
+    } else {
+      result.push("progress");
     }
   }
   if (result.includes("planStart")) {

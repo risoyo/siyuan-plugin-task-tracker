@@ -135,9 +135,9 @@ export default class TaskTrackerPlugin extends Plugin {
         tab.element.innerHTML = `<div class="task-manager task-manager-empty">任务控制面板加载中...</div>`;
         void plugin.ready.then(() => {
           const view = new TaskManagerTab(tab.element, plugin.service, {
-            newTask: (options) => void plugin.showTaskDialog(options || {}),
-            createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId }),
-            editTask: (task: TaskItem) => void plugin.showTaskDialog({ task }),
+            newTask: (options) => void plugin.showTaskDialog({ ...(options || {}), preserveManagerScroll: true }),
+            createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId, preserveManagerScroll: true }),
+            editTask: (task: TaskItem) => void plugin.showTaskDialog({ task, preserveManagerScroll: true }),
             openTask: (task: TaskItem) => void plugin.openTask(task),
             openSourceDoc: (docId: string) => void plugin.openDocById(docId),
             sync: () => plugin.syncDeletedTasks()
@@ -256,6 +256,7 @@ export default class TaskTrackerPlugin extends Plugin {
     presetTitle?: string;
     presetPlanDate?: string;
     task?: TaskItem;
+    preserveManagerScroll?: boolean;
   } = {}): Promise<void> {
     await this.ready;
     new TaskDialog({
@@ -265,7 +266,7 @@ export default class TaskTrackerPlugin extends Plugin {
       presetTitle: options.presetTitle,
       presetPlanDate: options.presetPlanDate,
       task: options.task,
-      onSaved: () => this.refreshViews(),
+      onSaved: () => this.refreshViews(options.preserveManagerScroll === true),
       onOpenTask: (task) => void this.openTask(task)
     }).show();
   }
@@ -380,10 +381,10 @@ export default class TaskTrackerPlugin extends Plugin {
     showMessage(count > 0 ? `已重建 ${count} 个任务索引` : "事项库中没有可重建的任务文档");
   }
 
-  private refreshViews(): void {
+  private refreshViews(preserveManagerScroll = false): void {
     this.taskDock?.render();
     for (const view of this.managerViews.values()) {
-      view.render();
+      view.render({ preserveTableScroll: preserveManagerScroll });
     }
   }
 
