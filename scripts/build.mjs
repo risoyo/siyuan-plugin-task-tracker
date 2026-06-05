@@ -30,7 +30,7 @@ const css = compile(join(root, "src/index.scss"), {
 await writeFile(join(dist, "index.css"), css, "utf8");
 
 for (const file of await readdir(root)) {
-  if (file === "plugin.json" || /^README.*\.md$/.test(file)) {
+  if (file === "plugin.json" || /^README.*\.md$/.test(file) || /^(icon|preview)\.(png|jpg|jpeg|webp|svg)$/i.test(file)) {
     await cp(join(root, file), join(dist, basename(file)));
   }
 }

@@ -20,21 +20,30 @@ import {
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
 import { latestProgressRecordSummary } from "../progressRecords";
+import {
+  getActiveTaskStatuses,
+  getAllOrderedStatuses,
+  getKanbanStatuses,
+  getStatusBadgeConfig,
+  getStatusFilterOptions,
+  getStatusLabel,
+  isCancelledTaskStatus,
+  isCompletedTaskStatus,
+  isProtectedStatus,
+  STATUS_COLOR_PRESET_OPTIONS,
+  normalizeStatusOptions
+} from "../statusConfig";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import { compareOptionalDates, compareTasksByColumn, sortTaskTree } from "../taskSort";
 import {
   PRIORITY_BADGE_CONFIG,
-  STATUS_BADGE_CONFIG,
   TASK_PRIORITY_LABELS,
-  TASK_STATUS_COLORS,
-  TASK_STATUS_LABELS,
-  STATUS_FILTER_OPTIONS,
+  type StatusColorPreset,
   type CompletedPageColumnKey,
   type CompletedPageConfig,
   type CompletedSortColumn,
   type CompletedSortSpec,
   type SortDirection,
-  type StatusFilterOption,
   type TableColumnKey,
   type TablePageColumnKey,
   type TablePageConfig,
@@ -42,7 +51,9 @@ import {
   type TableSortSpec,
   type TaskItem,
   type TaskPriority,
-  type TaskStatus
+  type TaskSettings,
+  type TaskStatus,
+  type TaskStatusOption
 } from "../types";
 
 export type TaskManagerView = "table" | "list" | "timeline" | "kanban" | "calendar" | "completed";
@@ -94,6 +105,24 @@ interface CompletedConfigDialogState {
   };
 }
 
+type SettingsDialogPage = "table" | "completed";
+type SettingsDialogTab = "fields" | "sorting" | "status" | "priority";
+
+interface StatusMigrationDraft {
+  fromStatus: TaskStatus;
+  toStatus: TaskStatus;
+  taskCount: number;
+}
+
+interface SettingsDialogState {
+  page: SettingsDialogPage;
+  activeTab: SettingsDialogTab;
+  table: TableConfigDialogState;
+  completed: CompletedConfigDialogState;
+  statusOptions: TaskStatusOption[];
+  migrations: StatusMigrationDraft[];
+}
+
 interface TaskTreeNode {
   task: TaskItem;
   children: TaskTreeNode[];
@@ -134,16 +163,6 @@ const VIEW_ICONS: Partial<Record<TaskManagerView, string>> = {
   completed: "iconSelect"
 };
 
-const VIEW_FILTER_OPTIONS: Array<{ key: "all" | TaskStatus; label: string }> = [
-  { key: "all", label: "全部任务" },
-  { key: "todo", label: "待处理" },
-  { key: "doing", label: "进行中" },
-  { key: "waiting", label: "等待中" },
-  { key: "cancelled", label: "已取消" }
-];
-
-const STATUSES = Object.keys(TASK_STATUS_LABELS) as TaskStatus[];
-const KANBAN_STATUSES = STATUSES.filter((status) => status !== "completed");
 const FREEZE_FIRST_COLUMN_STORAGE_KEY = "task-tracker-table-freeze-first-column";
 
 const TABLE_COLUMNS: TableColumnDef[] = [
@@ -326,8 +345,8 @@ export class TaskManagerTab {
 
   private renderToolbar(tasks: TaskItem[]): string {
     const totalCount = this.view === "completed"
-      ? this.service.store.all().filter((t) => t.status === "completed").length
-      : this.service.store.all().filter((t) => t.status !== "completed").length;
+      ? this.service.store.all().filter((t) => isCompletedTaskStatus(t.status)).length
+      : this.service.store.all().filter((t) => !isCompletedTaskStatus(t.status)).length;
 
     return `<div class="task-manager-toolbar">
   <div class="task-manager-toolbar__header">
@@ -358,7 +377,10 @@ export class TaskManagerTab {
     const isCompletedView = this.view === "completed";
     const filter = this.currentFilter;
     const filterActive = filter !== "all";
-    const filterLabel = filterActive ? TASK_STATUS_LABELS[filter] : "全部任务";
+    const filterOptions = getStatusFilterOptions(this.service.store.getSettings());
+    const filterLabel = filterActive
+      ? (filterOptions.find((option) => option.key === filter)?.label || getStatusLabel(filter, this.service.store.getSettings()))
+      : "全部任务";
     const filterBtnClass = filterActive ? "task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "task-manager-filter-btn task-manager-filter-all-btn";
     const tableParentTaskIds = this.view === "table" ? this.parentTaskIdsForTasks(tasks) : [];
 
@@ -369,7 +391,7 @@ export class TaskManagerTab {
         <svg class="task-manager-filter-btn__arrow" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       ${this.statusDropdownOpen ? `<div class="task-manager-filter-dropdown__menu" role="listbox">
-        ${VIEW_FILTER_OPTIONS.map((option) => {
+        ${filterOptions.map((option) => {
           const selected = filter === option.key;
           return `<button class="task-manager-filter-dropdown__item ${selected ? "is-selected" : ""}" data-action="select-status-filter" data-status-key="${option.key}" role="option" aria-selected="${selected}">
             <span>${option.label}</span>
@@ -505,7 +527,7 @@ export class TaskManagerTab {
     const collapsed = this.collapsedTaskIds.has(task.id);
     const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
     const lastClass = depth > 0 && isLastSibling ? " is-last-child" : "";
-    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    const row = `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}" data-task-id="${task.id}" style="${escapeAttr(this.buildTaskStyleVars(task, `--task-depth: ${depth};`))}">
   ${columns.map((column) => this.renderCompletedTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
     const children = childCount && !collapsed
@@ -622,7 +644,7 @@ export class TaskManagerTab {
     const contextClass = node.contextOnly ? " task-manager-table__row--context" : "";
     const hierarchyClass = childCount > 0 ? " task-manager-table__row--parent" : depth > 0 ? " task-manager-table__row--child" : "";
     const lastClass = depth > 0 && isLastSibling ? " is-last-child" : "";
-    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}${contextClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    return `<tr class="task-manager-table__row task-manager-status-${task.status} task-manager-priority-${task.priority}${hierarchyClass}${lastClass}${contextClass}" data-task-id="${task.id}" style="${escapeAttr(this.buildTaskStyleVars(task, `--task-depth: ${depth};`))}">
   ${columns.map((column) => this.renderTableCell(column.key, task, childCount, collapsed)).join("")}
 </tr>`;
   }
@@ -943,6 +965,539 @@ export class TaskManagerTab {
     };
   }
 
+  private settingsDialogState(page: SettingsDialogPage): SettingsDialogState {
+    return {
+      page,
+      activeTab: "fields",
+      table: this.tableConfigDialogState(),
+      completed: this.completedConfigDialogState(),
+      statusOptions: normalizeStatusOptions(this.service.store.getSettings()),
+      migrations: []
+    };
+  }
+
+  private async openSettingsDialog(page: SettingsDialogPage): Promise<void> {
+    const state = this.settingsDialogState(page);
+    const dialog = new Dialog({
+      title: "任务控制面板设置",
+      content: this.renderSettingsDialog(state),
+      width: "1040px",
+      height: "80vh"
+    });
+
+    if (!dialog.element.querySelector<HTMLElement>(".task-manager-settings")) {
+      return;
+    }
+
+    let dragFieldKey: string | null = null;
+    let dragStatusId: string | null = null;
+    const rerender = () => {
+      const current = dialog.element.querySelector<HTMLElement>(".task-manager-settings");
+      if (current) {
+        current.outerHTML = this.renderSettingsDialog(state);
+      }
+    };
+
+    const getPageState = () => state.page === "table" ? state.table : state.completed;
+    const getColumnOrder = () => [...getPageState().columnOrder];
+    const getVisibleColumns = () => [...getPageState().visibleColumns];
+    const setPageState = (patch: Partial<TableConfigDialogState> | Partial<CompletedConfigDialogState>) => {
+      if (state.page === "table") {
+        state.table = { ...state.table, ...(patch as Partial<TableConfigDialogState>) };
+      } else {
+        state.completed = { ...state.completed, ...(patch as Partial<CompletedConfigDialogState>) };
+      }
+    };
+
+    dialog.element.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const nav = target.closest<HTMLElement>("[data-settings-tab]");
+      if (nav?.dataset.settingsTab) {
+        state.activeTab = nav.dataset.settingsTab as SettingsDialogTab;
+        rerender();
+        return;
+      }
+
+      const action = target.closest<HTMLElement>("[data-settings-action]")?.dataset.settingsAction;
+      if (!action) {
+        return;
+      }
+
+      if (action === "cancel") {
+        dialog.destroy();
+        return;
+      }
+      if (action === "restore-defaults") {
+        if (state.activeTab === "fields") {
+          if (state.page === "table") {
+            state.table.visibleColumns = [...TABLE_PAGE_COLUMNS];
+            state.table.columnOrder = [...TABLE_PAGE_COLUMNS];
+          } else {
+            state.completed.visibleColumns = [...COMPLETED_PAGE_COLUMNS];
+            state.completed.columnOrder = [...COMPLETED_PAGE_COLUMNS];
+          }
+          rerender();
+          return;
+        }
+        if (state.activeTab === "sorting") {
+          if (state.page === "table") {
+            state.table.currentSort = { column: "default" };
+            state.table.defaultSort = undefined;
+          } else {
+            state.completed.currentSort = { column: "default" };
+            state.completed.defaultSort = undefined;
+          }
+          rerender();
+          return;
+        }
+        if (state.activeTab === "status") {
+          showMessage("状态管理暂不支持一键恢复默认");
+        }
+        return;
+      }
+      if (action === "save-default-sort") {
+        const pageState = getPageState();
+        if (pageState.currentSort.column === "default") {
+          pageState.defaultSort = undefined as any;
+        } else {
+          pageState.defaultSort = {
+            column: pageState.currentSort.column as any,
+            direction: pageState.currentSort.direction || "asc"
+          } as any;
+        }
+        rerender();
+        return;
+      }
+      if (action === "add-status") {
+        void (async () => {
+          const result = await this.openStatusEditorDialog();
+          if (!result) {
+            return;
+          }
+          if (state.statusOptions.some((option) => option.label === result.label)) {
+            showMessage("状态名称不能重复");
+            return;
+          }
+          state.statusOptions = [
+            ...state.statusOptions,
+            {
+              id: `status-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+              label: result.label,
+              color: result.color,
+              order: state.statusOptions.length
+            }
+          ];
+          rerender();
+        })();
+        return;
+      }
+      const editStatusId = target.closest<HTMLElement>("[data-edit-status]")?.dataset.editStatus;
+      if (editStatusId) {
+        void (async () => {
+          const current = state.statusOptions.find((option) => option.id === editStatusId);
+          if (!current) {
+            return;
+          }
+          const result = await this.openStatusEditorDialog(current);
+          if (!result) {
+            return;
+          }
+          if (state.statusOptions.some((option) => option.id !== editStatusId && option.label === result.label)) {
+            showMessage("状态名称不能重复");
+            return;
+          }
+          state.statusOptions = state.statusOptions.map((option) => option.id === editStatusId ? {
+            ...option,
+            label: result.label,
+            color: result.color
+          } : option);
+          rerender();
+        })();
+        return;
+      }
+      const deleteStatusId = target.closest<HTMLElement>("[data-delete-status]")?.dataset.deleteStatus;
+      if (deleteStatusId) {
+        const current = state.statusOptions.find((option) => option.id === deleteStatusId);
+        if (!current) {
+          return;
+        }
+        if (isProtectedStatus(current.id)) {
+          showMessage("系统语义状态不可删除");
+          return;
+        }
+        const taskCount = this.service.store.all().filter((task) => task.status === current.id).length;
+        void (async () => {
+          if (taskCount > 0) {
+            const migration = await this.openStatusMigrationDialog(current.id, state.statusOptions, taskCount);
+            if (!migration) {
+              return;
+            }
+            state.migrations = [
+              ...state.migrations.filter((item) => item.fromStatus !== current.id),
+              migration
+            ];
+          } else {
+            state.migrations = state.migrations.filter((item) => item.fromStatus !== current.id);
+          }
+          state.statusOptions = state.statusOptions
+            .filter((option) => option.id !== current.id)
+            .map((option, index) => ({ ...option, order: index }));
+          rerender();
+        })();
+        return;
+      }
+      if (action === "save") {
+        const pageState = getPageState();
+        if (!pageState.visibleColumns.length) {
+          showMessage("至少保留一个字段");
+          return;
+        }
+        if (!pageState.visibleColumns.includes("task" as any)) {
+          showMessage("任务字段必须显示");
+          return;
+        }
+        void this.runUpdate(async () => {
+          if (state.page === "table") {
+            await this.updateTablePageConfig({
+              visibleColumns: state.table.visibleColumns,
+              columnOrder: state.table.columnOrder,
+              currentSort: state.table.currentSort,
+              defaultSort: state.table.defaultSort
+            });
+          } else {
+            await this.updateCompletedPageConfig({
+              visibleColumns: state.completed.visibleColumns,
+              columnOrder: state.completed.columnOrder,
+              currentSort: state.completed.currentSort,
+              defaultSort: state.completed.defaultSort
+            });
+          }
+          await this.service.store.setSettings({
+            statusOptions: state.statusOptions.map((option, index) => ({ ...option, order: index }))
+          });
+          const resolvedMigrations = state.migrations
+            .map((migration) => ({
+              ...migration,
+              toStatus: resolveMigrationTarget(migration.toStatus, state.migrations)
+            }))
+            .filter((migration) => migration.fromStatus !== migration.toStatus);
+          for (const migration of resolvedMigrations) {
+            await this.service.migrateTaskStatuses(migration.fromStatus, migration.toStatus);
+          }
+          const validFilterKeys = new Set<string>([
+            "all",
+            ...getStatusFilterOptions({ statusOptions: state.statusOptions } as TaskSettings).map((option) => String(option.key))
+          ]);
+          Array.from(this.viewFilters.entries()).forEach(([view, filter]) => {
+            if (!validFilterKeys.has(String(filter))) {
+              this.viewFilters.set(view, "all");
+            }
+          });
+          dialog.destroy();
+          this.render({ preserveTableScroll: true });
+        });
+      }
+    });
+
+    dialog.element.addEventListener("change", (event) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLInputElement && target.dataset.settingsColumnVisibility) {
+        const column = target.dataset.settingsColumnVisibility as TablePageColumnKey | CompletedPageColumnKey;
+        let visible = getVisibleColumns();
+        if (target.checked) {
+          if (!visible.includes(column as never)) {
+            visible.push(column as never);
+          }
+        } else {
+          if (column === "task") {
+            target.checked = true;
+            showMessage("任务字段必须显示");
+            return;
+          }
+          visible = visible.filter((item) => item !== column);
+        }
+        setPageState({ visibleColumns: visible } as any);
+        rerender();
+        return;
+      }
+      if (target instanceof HTMLSelectElement && target.dataset.settingsSortField) {
+        const pageState = getPageState();
+        const nextColumn = target.value as TableSortColumn | CompletedSortColumn | "default";
+        pageState.currentSort = nextColumn === "default"
+          ? { column: "default" }
+          : { column: nextColumn as any, direction: pageState.currentSort.direction || "asc" };
+        rerender();
+        return;
+      }
+      if (target instanceof HTMLSelectElement && target.dataset.settingsSortDirection) {
+        const pageState = getPageState();
+        if (pageState.currentSort.column !== "default") {
+          pageState.currentSort = {
+            column: pageState.currentSort.column,
+            direction: target.value as SortDirection
+          } as any;
+          rerender();
+        }
+      }
+    });
+
+    dialog.element.addEventListener("dragstart", (event) => {
+      const target = event.target as HTMLElement;
+      const fieldItem = target.closest<HTMLElement>("[data-draggable-column]");
+      if (fieldItem?.dataset.draggableColumn) {
+        dragFieldKey = fieldItem.dataset.draggableColumn;
+        event.dataTransfer?.setData("text/plain", dragFieldKey);
+        return;
+      }
+      const statusItem = target.closest<HTMLElement>("[data-draggable-status]");
+      if (statusItem?.dataset.draggableStatus) {
+        dragStatusId = statusItem.dataset.draggableStatus;
+        event.dataTransfer?.setData("text/plain", dragStatusId);
+      }
+    });
+
+    dialog.element.addEventListener("dragover", (event) => {
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-draggable-column]") || target.closest("[data-draggable-status]")) {
+        event.preventDefault();
+      }
+    });
+
+    dialog.element.addEventListener("drop", (event) => {
+      const target = event.target as HTMLElement;
+      const fieldTarget = target.closest<HTMLElement>("[data-draggable-column]");
+      if (fieldTarget?.dataset.draggableColumn && dragFieldKey) {
+        event.preventDefault();
+        const targetKey = fieldTarget.dataset.draggableColumn;
+        const next = reorderStringList(getColumnOrder(), dragFieldKey, targetKey);
+        setPageState({ columnOrder: next } as any);
+        rerender();
+        dragFieldKey = null;
+        return;
+      }
+      const statusTarget = target.closest<HTMLElement>("[data-draggable-status]");
+      if (statusTarget?.dataset.draggableStatus && dragStatusId) {
+        event.preventDefault();
+        const targetId = statusTarget.dataset.draggableStatus;
+        const ids = reorderStringList(state.statusOptions.map((item) => item.id), dragStatusId, targetId);
+        state.statusOptions = ids
+          .map((id, index) => {
+            const option = state.statusOptions.find((item) => item.id === id);
+            return option ? { ...option, order: index } : undefined;
+          })
+          .filter((option): option is TaskStatusOption => Boolean(option));
+        rerender();
+        dragStatusId = null;
+      }
+    });
+  }
+
+  private renderSettingsDialog(state: SettingsDialogState): string {
+    const pageState = state.page === "table" ? state.table : state.completed;
+    const currentOptions = state.page === "table" ? TABLE_SORT_OPTIONS : COMPLETED_SORT_OPTIONS;
+    const fieldRows = pageState.columnOrder.map((column) => {
+      const visible = pageState.visibleColumns.includes(column as never);
+      const label = currentOptions.find((option) => option.value === column)?.label || String(column);
+      return `<div class="task-manager-settings__list-row" draggable="true" data-draggable-column="${column}">
+  <label class="task-manager-settings__check-row">
+    <input type="checkbox" data-settings-column-visibility="${column}" ${visible ? "checked" : ""} ${column === "task" ? "disabled" : ""} />
+    <span>${label}</span>
+  </label>
+  <button type="button" class="task-manager-settings__drag-handle" title="拖拽调整顺序">≡</button>
+</div>`;
+    }).join("");
+
+    const defaultSortSummary = pageState.defaultSort
+      ? `已保存默认排序：${currentOptions.find((option) => option.value === pageState.defaultSort?.column)?.label || pageState.defaultSort.column} / ${SORT_DIRECTIONS.find((option) => option.value === pageState.defaultSort?.direction)?.label || pageState.defaultSort.direction}`
+      : "当前未保存默认排序，将回退系统默认顺序。";
+
+    return `<div class="task-manager-settings">
+  <div class="task-manager-settings__shell">
+    <aside class="task-manager-settings__nav">
+      <div class="task-manager-settings__nav-title">任务控制面板设置</div>
+      ${this.renderSettingsNavButton("fields", "字段显示", state.activeTab)}
+      ${this.renderSettingsNavButton("sorting", "排序设置", state.activeTab)}
+      ${this.renderSettingsNavButton("status", "状态管理", state.activeTab)}
+      ${this.renderSettingsNavButton("priority", "优先级管理", state.activeTab)}
+    </aside>
+    <section class="task-manager-settings__content">
+      ${state.activeTab === "fields" ? `<div class="task-manager-settings__panel">
+        <div class="task-manager-settings__panel-title">字段显示</div>
+        <div class="task-manager-settings__panel-hint">勾选需要在列表中显示的字段，并通过拖拽调整显示顺序。</div>
+        <div class="task-manager-settings__list">${fieldRows}</div>
+      </div>` : ""}
+      ${state.activeTab === "sorting" ? `<div class="task-manager-settings__panel">
+        <div class="task-manager-settings__panel-title">排序设置</div>
+        <div class="task-manager-settings__panel-hint">设置列表当前排序规则，保存后按此规则展示。</div>
+        <div class="task-manager-settings__form-grid">
+          <label class="task-manager-settings__field">
+            <span>排序字段</span>
+            <select class="b3-select fn__block" data-settings-sort-field="current">
+              ${currentOptions.map((option) => `<option value="${option.value}" ${pageState.currentSort.column === option.value ? "selected" : ""}>${option.label}</option>`).join("")}
+            </select>
+          </label>
+          <label class="task-manager-settings__field">
+            <span>排序方向</span>
+            <select class="b3-select fn__block" data-settings-sort-direction="current" ${pageState.currentSort.column === "default" ? "disabled" : ""}>
+              ${SORT_DIRECTIONS.map((option) => `<option value="${option.value}" ${((pageState.currentSort.direction || "asc") === option.value) ? "selected" : ""}>${option.label}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="task-manager-settings__status-note">${escapeHtml(defaultSortSummary)}</div>
+        <div class="task-manager-settings__inline-actions">
+          <button type="button" class="b3-button b3-button--outline" data-settings-action="save-default-sort">保存为默认排序</button>
+        </div>
+      </div>` : ""}
+      ${state.activeTab === "status" ? `<div class="task-manager-settings__panel">
+        <div class="task-manager-settings__panel-header">
+          <div>
+            <div class="task-manager-settings__panel-title">状态管理</div>
+            <div class="task-manager-settings__panel-hint">自定义任务状态，支持添加、编辑、删除和拖拽排序。</div>
+          </div>
+          <button type="button" class="task-manager-settings__primary-button" data-settings-action="add-status">+ 添加状态</button>
+        </div>
+        <div class="task-manager-settings__list">
+          ${state.statusOptions.map((option) => {
+            const badge = getStatusBadgeConfig(option.id, { statusOptions: state.statusOptions } as TaskSettings);
+            const protectedText = isProtectedStatus(option.id) ? "系统语义状态不可删除" : "删除";
+            const migration = state.migrations.find((item) => item.fromStatus === option.id);
+            return `<div class="task-manager-settings__status-row" draggable="true" data-draggable-status="${escapeAttr(option.id)}">
+  <div class="task-manager-settings__status-main">
+    <span class="task-manager-settings__status-dot" style="--dot-color:${badge.dotColor};"></span>
+    <span>${escapeHtml(option.label)}</span>
+  </div>
+  <div class="task-manager-settings__status-actions">
+    ${migration ? `<span class="task-manager-settings__migration-tag">迁移到 ${escapeHtml(getStatusLabel(migration.toStatus, { statusOptions: state.statusOptions } as TaskSettings))} · ${migration.taskCount}</span>` : ""}
+    <button type="button" class="task-manager-settings__icon-button task-progress-item__icon-button" data-edit-status="${escapeAttr(option.id)}" title="编辑" aria-label="编辑状态">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h6"/><path d="M14.2 4.8a1.8 1.8 0 0 1 2.6 0l2.4 2.4a1.8 1.8 0 0 1 0 2.6L8.7 20.3 4 21l.7-4.7L14.2 4.8z"/></svg>
+    </button>
+    <button type="button" class="task-manager-settings__icon-button task-progress-item__icon-button task-progress-item__icon-button--danger ${isProtectedStatus(option.id) ? "is-disabled" : ""}" data-delete-status="${escapeAttr(option.id)}" ${isProtectedStatus(option.id) ? "disabled" : ""} title="${escapeAttr(protectedText)}" aria-label="删除状态">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 4h6"/><path d="M7 7v12a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 17 19V7"/><path d="M10 11v5M14 11v5"/></svg>
+    </button>
+    <button type="button" class="task-manager-settings__drag-handle" title="拖拽调整顺序">≡</button>
+  </div>
+</div>`;
+          }).join("")}
+        </div>
+      </div>` : ""}
+      ${state.activeTab === "priority" ? `<div class="task-manager-settings__panel">
+        <div class="task-manager-settings__panel-title">优先级管理</div>
+        <div class="task-manager-settings__panel-hint">本次仅提供占位页，后续可在这里管理优先级名称、颜色和顺序。</div>
+        <div class="task-manager-settings__placeholder">当前版本暂不支持自定义优先级，现有优先级逻辑保持不变。</div>
+      </div>` : ""}
+    </section>
+  </div>
+  <div class="task-manager-settings__footer">
+    <button type="button" class="b3-button b3-button--outline" data-settings-action="restore-defaults">恢复默认设置</button>
+    <div class="fn__space"></div>
+    <button type="button" class="task-tracker-dialog-v3__btn-cancel task-manager-settings__footer-button" data-settings-action="cancel">取消</button>
+    <button type="button" class="task-tracker-dialog-v3__btn-primary task-manager-settings__footer-button" data-settings-action="save">保存</button>
+  </div>
+</div>`;
+  }
+
+  private renderSettingsNavButton(tab: SettingsDialogTab, label: string, activeTab: SettingsDialogTab): string {
+    return `<button type="button" class="task-manager-settings__nav-btn ${activeTab === tab ? "is-active" : ""}" data-settings-tab="${tab}">${label}</button>`;
+  }
+
+  private async openStatusEditorDialog(current?: TaskStatusOption): Promise<{ label: string; color: StatusColorPreset } | undefined> {
+    return new Promise((resolve) => {
+      const dialog = new Dialog({
+        title: current ? "编辑状态" : "添加状态",
+        content: `<div class="task-manager-settings-modal">
+  <label class="task-manager-settings__field">
+    <span>状态名称</span>
+    <input class="b3-text-field fn__block" name="label" value="${escapeAttr(current?.label || "")}" placeholder="请输入状态名称" />
+  </label>
+  <label class="task-manager-settings__field">
+    <span>颜色</span>
+    <select class="b3-select fn__block" name="color">
+      ${STATUS_COLOR_PRESET_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === (current?.color || "blue") ? "selected" : ""}>${option.label}</option>`).join("")}
+    </select>
+  </label>
+  <div class="b3-dialog__action">
+    <button type="button" class="b3-button b3-button--cancel" data-action="cancel">取消</button>
+    <div class="fn__space"></div>
+    <button type="button" class="b3-button b3-button--text" data-action="save">保存</button>
+  </div>
+</div>`,
+        width: "420px"
+      });
+
+      const root = dialog.element.querySelector<HTMLElement>(".task-manager-settings-modal");
+      root?.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
+        if (action === "cancel") {
+          dialog.destroy();
+          resolve(undefined);
+          return;
+        }
+        if (action === "save") {
+          const labelInput = root.querySelector<HTMLInputElement>("[name='label']");
+          const colorInput = root.querySelector<HTMLSelectElement>("[name='color']");
+          const label = labelInput?.value.trim() || "";
+          if (!label) {
+            showMessage("请填写状态名称");
+            return;
+          }
+          const color = (colorInput?.value || "blue") as StatusColorPreset;
+          dialog.destroy();
+          resolve({ label, color });
+        }
+      });
+    });
+  }
+
+  private async openStatusMigrationDialog(
+    fromStatus: TaskStatus,
+    options: TaskStatusOption[],
+    taskCount: number
+  ): Promise<StatusMigrationDraft | undefined> {
+    const candidates = options.filter((option) => option.id !== fromStatus);
+    if (!candidates.length) {
+      showMessage("至少需要保留一个可迁移状态");
+      return undefined;
+    }
+    return new Promise((resolve) => {
+      const dialog = new Dialog({
+        title: "迁移任务状态",
+        content: `<div class="task-manager-settings-modal">
+  <div class="task-manager-settings__panel-hint">共有 ${taskCount} 个任务正在使用该状态。删除前请选择迁移目标。</div>
+  <label class="task-manager-settings__field">
+    <span>迁移到</span>
+    <select class="b3-select fn__block" name="target">
+      ${candidates.map((option) => `<option value="${escapeAttr(option.id)}">${escapeHtml(option.label)}</option>`).join("")}
+    </select>
+  </label>
+  <div class="b3-dialog__action">
+    <button type="button" class="b3-button b3-button--cancel" data-action="cancel">取消</button>
+    <div class="fn__space"></div>
+    <button type="button" class="b3-button b3-button--text" data-action="confirm">确认迁移</button>
+  </div>
+</div>`,
+        width: "420px"
+      });
+
+      const root = dialog.element.querySelector<HTMLElement>(".task-manager-settings-modal");
+      root?.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        const action = target.closest<HTMLElement>("[data-action]")?.dataset.action;
+        if (action === "cancel") {
+          dialog.destroy();
+          resolve(undefined);
+          return;
+        }
+        if (action === "confirm") {
+          const select = root.querySelector<HTMLSelectElement>("[name='target']");
+          const toStatus = select?.value || candidates[0].id;
+          dialog.destroy();
+          resolve({ fromStatus, toStatus, taskCount });
+        }
+      });
+    });
+  }
+
   private async openCompletedConfigDialog(): Promise<void> {
     const state = this.completedConfigDialogState();
     const dialog = new Dialog({
@@ -1123,7 +1678,8 @@ export class TaskManagerTab {
       return undefined;
     }
     const direction = sort.direction === "desc" ? -1 : 1;
-    return (a, b) => compareTasksByColumn(a, b, sort.column) * direction;
+    const statusOrder = getAllOrderedStatuses(this.service.store.getSettings());
+    return (a, b) => compareTasksByColumn(a, b, sort.column, statusOrder) * direction;
   }
 
   private getEffectiveTableSort(): { column: TableSortColumn; direction: SortDirection } | undefined {
@@ -1159,7 +1715,7 @@ export class TaskManagerTab {
     const contextClass = node.contextOnly ? " task-manager-task--context" : "";
     const childClass = depth > 0 ? " task-manager-task--child" : "";
 
-    return `<div class="task-manager-task task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}${childClass}" data-task-id="${task.id}" style="--task-depth: ${depth}">
+    return `<div class="task-manager-task task-manager-status-${task.status} task-manager-priority-${task.priority}${contextClass}${childClass}" data-task-id="${task.id}" style="${escapeAttr(this.buildTaskStyleVars(task, `--task-depth: ${depth};`))}">
   <div class="task-manager-task__main">
     <div class="task-manager-task__title-row">
       ${childCount
@@ -1255,11 +1811,12 @@ export class TaskManagerTab {
   }
 
   private renderKanbanView(tasks: TaskItem[]): string {
+    const settings = this.service.store.getSettings();
     return `<div class="task-manager-kanban">
-  ${KANBAN_STATUSES.map((status) => {
+  ${getKanbanStatuses(settings).map((status) => {
     const columnTasks = tasks.filter((task) => task.status === status);
-    return `<section class="task-manager-kanban__column task-manager-status-${status}">
-      <div class="task-manager-kanban__header">${TASK_STATUS_LABELS[status]}<span>${columnTasks.length}</span></div>
+    return `<section class="task-manager-kanban__column task-manager-status-${status}" style="${escapeAttr(this.buildStatusStyleVars(status))}">
+      <div class="task-manager-kanban__header">${escapeHtml(getStatusLabel(status, settings))}<span>${columnTasks.length}</span></div>
       <div class="task-manager-kanban__items">
         ${columnTasks.length ? columnTasks.map((task) => this.renderTaskCard(task, "kanban")).join("") : `<div class="task-manager-empty">暂无任务</div>`}
       </div>
@@ -1279,7 +1836,7 @@ export class TaskManagerTab {
     const days = calendarDays(this.month);
     const weekRows = Math.ceil(days.length / 7);
     const tasksByDate = groupTasksByDate(tasks);
-    const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
+    const unplanned = tasks.filter((task) => !isCompletedTaskStatus(task.status) && !task.planStart);
     const monthValue = monthInputValue(this.month);
     const expandedWeekIndexes = new Set<number>();
     days.forEach((day, index) => {
@@ -1324,7 +1881,7 @@ export class TaskManagerTab {
   private renderCalendarWeekView(tasks: TaskItem[]): string {
     const weekLabel = `${formatWeekRangeCompact(formatDateKey(this.weekStart))}`;
     const tasksByDate = groupTasksByDate(tasks);
-    const unplanned = tasks.filter((task) => task.status !== "completed" && !task.planStart);
+    const unplanned = tasks.filter((task) => !isCompletedTaskStatus(task.status) && !task.planStart);
     const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
     const weekDays: Array<{ date: Date; label: string; dateKey: string; isToday: boolean }> = [];
     for (let i = 0; i < 7; i++) {
@@ -1377,7 +1934,7 @@ export class TaskManagerTab {
     ${tasks.length ? `<span class="task-manager-calendar-week-row__count">${tasks.length}</span>` : ""}
   </div>
   <div class="task-manager-calendar-week-row__tasks">
-    ${tasks.length ? tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>`).join("") : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
+    ${tasks.length ? tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" style="${escapeAttr(this.buildStatusStyleVars(task.status))}">${escapeHtml(task.title)}</button>`).join("") : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
   </div>
 </div>`;
   }
@@ -1393,14 +1950,14 @@ export class TaskManagerTab {
     return `<div class="task-manager-calendar-day ${outside ? "is-outside" : ""} ${isToday ? "is-today" : ""} ${expanded ? "is-expanded" : ""}" data-date="${dateKey}" data-week-index="${weekIndex}" role="button" tabindex="0">
   <span class="task-manager-calendar-day__num">${day.getDate()}</span>
   <div class="task-manager-calendar-day__tasks">
-    ${visibleTasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>`).join("")}
+    ${visibleTasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" style="${escapeAttr(this.buildStatusStyleVars(task.status))}">${escapeHtml(task.title)}</button>`).join("")}
     ${overflowCount > 0 ? `<button class="task-manager-calendar-day__more-button" data-action="toggle-calendar-day-expand" data-date="${dateKey}" aria-label="${expanded ? "收起当日事项" : "展开当日事项"}" aria-expanded="${expanded}">${expanded ? "↑" : "more"}</button>` : ""}
   </div>
 </div>`;
   }
 
   private renderTaskCard(task: TaskItem, mode: "timeline" | "kanban" | "calendar-aside" | "week"): string {
-    return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}">
+    return `<article class="task-manager-card task-manager-card--${mode} task-manager-card--compact task-manager-status-${task.status} task-manager-priority-${task.priority}" data-task-id="${task.id}" style="${escapeAttr(this.buildTaskStyleVars(task))}">
   <div class="task-manager-card__header task-manager-card__header--compact">
     <button class="task-manager-task-title" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
     ${this.renderRowActions(task, { compact: true })}
@@ -1471,7 +2028,7 @@ export class TaskManagerTab {
     const subtaskLabel = useCompact ? "添加子任务" : "创建子任务";
     const editLabel = "编辑任务";
     const deleteLabel = "删除任务";
-    const statusLabel = task.status === "completed"
+    const statusLabel = isCompletedTaskStatus(task.status)
       ? "重新打开"
       : "完成任务";
     const editButton = options.showEdit || !useCompact
@@ -1496,7 +2053,7 @@ export class TaskManagerTab {
     return `<span class="task-manager-actions${listClass}">
   ${editButton}
   <button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
-  ${task.status === "completed"
+  ${isCompletedTaskStatus(task.status)
     ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
     : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
   ${deleteButton}
@@ -1504,7 +2061,8 @@ export class TaskManagerTab {
   }
 
   private renderInlineStatusBadge(task: TaskItem, mode: "table" | "list" | "card"): string {
-    const cfg = STATUS_BADGE_CONFIG[task.status];
+    const settings = this.service.store.getSettings();
+    const cfg = getStatusBadgeConfig(task.status, settings);
     const open = this.activePopover?.taskId === task.id && this.activePopover?.field === "status";
     const sizeClass = mode === "table" ? "task-manager-inline-badge--table" : "task-manager-inline-badge--compact";
     return `<div class="task-manager-inline-dropdown" data-popover="status" data-task-id="${task.id}">
@@ -1514,8 +2072,8 @@ export class TaskManagerTab {
     <svg class="task-manager-inline-badge__arrow" viewBox="0 0 10 6" width="8" height="5"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </button>
   <div class="task-manager-inline-menu" data-popover-menu="status" data-task-id="${task.id}" style="display: ${open ? "" : "none"};">
-    ${(["todo", "doing", "waiting", "completed", "cancelled"] as TaskStatus[]).map((status) => {
-      const itemCfg = STATUS_BADGE_CONFIG[status];
+    ${getAllOrderedStatuses(settings).map((status) => {
+      const itemCfg = getStatusBadgeConfig(status, settings);
       const active = status === task.status;
       return `<button type="button" class="task-manager-inline-menu__item ${active ? "is-active" : ""}" data-popover-select="status" data-task-id="${task.id}" data-status-value="${status}">
         <span class="task-manager-inline-menu__dot" style="--dot-color: ${itemCfg.dotColor};"></span>
@@ -1525,6 +2083,18 @@ export class TaskManagerTab {
     }).join("")}
   </div>
 </div>`;
+  }
+
+  private buildTaskStyleVars(task: TaskItem, extra = ""): string {
+    const opacity = isCompletedTaskStatus(task.status)
+      ? "0.72"
+      : (isCancelledTaskStatus(task.status) ? "0.66" : "1");
+    return `${this.buildStatusStyleVars(task.status)} --task-status-opacity: ${opacity}; ${extra}`.trim();
+  }
+
+  private buildStatusStyleVars(status: TaskStatus): string {
+    const cfg = getStatusBadgeConfig(status, this.service.store.getSettings());
+    return `--task-status-accent: ${cfg.dotColor}; --task-status-border: ${cfg.borderColor}; --task-status-bg: ${cfg.bgColor};`;
   }
 
   private renderInlinePriorityBadge(task: TaskItem, mode: "table" | "list" | "card"): string {
@@ -1658,15 +2228,15 @@ export class TaskManagerTab {
       }
       if (action === "open-page-config") {
         if (this.view === "completed") {
-          void this.openCompletedConfigDialog();
+          void this.openSettingsDialog("completed");
         } else if (this.view === "table") {
-          void this.openTableConfigDialog();
+          void this.openSettingsDialog("table");
         }
         return;
       }
       if (action === "open-table-config") {
         // kept for compatibility — same as open-page-config for table
-        void this.openTableConfigDialog();
+        void this.openSettingsDialog("table");
         return;
       }
       if (action === "toggle-status-dropdown") {
@@ -1708,7 +2278,8 @@ export class TaskManagerTab {
       if (action === "select-status-filter") {
         event.stopPropagation();
         const statusKey = actionButton.dataset.statusKey as string;
-        if (statusKey === "all" || statusKey === "todo" || statusKey === "doing" || statusKey === "waiting" || statusKey === "cancelled") {
+        const allowedKeys = new Set<string>(["all", ...getStatusFilterOptions(this.service.store.getSettings()).map((option) => String(option.key))]);
+        if (allowedKeys.has(statusKey)) {
           this.viewFilters.set(this.view, statusKey as "all" | TaskStatus);
           this.statusDropdownOpen = false;
           this.bulkParentMenuOpen = false;
@@ -2251,10 +2822,11 @@ export class TaskManagerTab {
 
   private getTaskCollections(): { allTasks: TaskItem[]; activeTasks: TaskItem[]; completedTasks: TaskItem[] } {
     const allTasks = this.service.store.all();
+    const activeStatuses = new Set(getActiveTaskStatuses(this.service.store.getSettings()));
     return {
       allTasks,
-      activeTasks: allTasks.filter((task) => task.status !== "completed"),
-      completedTasks: allTasks.filter((task) => task.status === "completed")
+      activeTasks: allTasks.filter((task) => activeStatuses.has(task.status)),
+      completedTasks: allTasks.filter((task) => isCompletedTaskStatus(task.status))
     };
   }
 
@@ -2271,7 +2843,7 @@ export class TaskManagerTab {
         task.project,
         task.sourceText,
         task.sourceDocId ? "来源笔记" : "手动创建",
-        TASK_STATUS_LABELS[task.status],
+        getStatusLabel(task.status, this.service.store.getSettings()),
         TASK_PRIORITY_LABELS[task.priority],
         task.createdAt,
         task.planStart,
@@ -2575,6 +3147,35 @@ function calendarDays(month: Date): Date[] {
   const end = new Date(last.getFullYear(), last.getMonth(), last.getDate() + normalizedEndOffset);
   const dayCount = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
   return Array.from({ length: dayCount }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
+}
+
+function reorderStringList(values: string[], dragged: string, target: string): string[] {
+  if (!dragged || !target || dragged === target) {
+    return values;
+  }
+  const next = [...values];
+  const fromIndex = next.indexOf(dragged);
+  const toIndex = next.indexOf(target);
+  if (fromIndex === -1 || toIndex === -1) {
+    return values;
+  }
+  next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, dragged);
+  return next;
+}
+
+function resolveMigrationTarget(target: string, migrations: StatusMigrationDraft[]): string {
+  let current = target;
+  const seen = new Set<string>();
+  while (!seen.has(current)) {
+    seen.add(current);
+    const next = migrations.find((item) => item.fromStatus === current)?.toStatus;
+    if (!next || next === current) {
+      return current;
+    }
+    current = next;
+  }
+  return current;
 }
 
 function groupTasksByDate(tasks: TaskItem[]): Record<string, TaskItem[]> {

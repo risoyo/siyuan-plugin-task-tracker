@@ -2,14 +2,17 @@ import { showMessage } from "siyuan";
 import { formatSidebarDate, mergeDateInputWithExisting, toDateKey } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
+import {
+  getActiveTaskStatuses,
+  getAllOrderedStatuses,
+  getStatusBadgeConfig
+} from "../statusConfig";
 import { compareTasksBySidebarSortField, sortTaskTree } from "../taskSort";
 import {
-  ACTIVE_TASK_STATUSES,
   DEFAULT_DOCK_DISPLAY_OPTIONS,
   type DockDisplayOptions,
   type SidebarTaskSortField,
   type TaskItem,
-  STATUS_BADGE_CONFIG,
   type TaskStatus
 } from "../types";
 
@@ -37,8 +40,7 @@ const SIDEBAR_SORT_DIRECTION_OPTIONS: Array<{ value: "asc" | "desc"; label: stri
 
 export class TaskDock {
   private filter: DockFilter = "all";
-  private collapsedTaskIds = new Set<string>();
-  private initialCollapsedParentsApplied = false;
+  private collapsedTaskIdsByFilter = new Map<DockFilter, Set<string>>();
   private bulkParentMenuOpen = false;
   private activePopover: { taskId: string; field: DockPopoverField } | null = null;
   private activePopoverCleanup?: () => void;
@@ -81,7 +83,7 @@ export class TaskDock {
   }
 
   render(): void {
-    this.ensureInitialCollapsedParents();
+    this.ensureCollapsedStateForCurrentFilter();
     const settings = this.service.store.getSettings();
     const tree = this.filteredTaskTree();
     const counts = this.counts();
@@ -218,7 +220,7 @@ export class TaskDock {
   private renderTaskCard(node: TaskTreeNode, depth: number, isParent: boolean): string {
     const task = node.task;
     const childCount = node.children.length;
-    const collapsed = this.collapsedTaskIds.has(task.id);
+    const collapsed = this.currentCollapsedTaskIds().has(task.id);
     const contextClass = node.contextOnly ? " task-tracker-dock__task--context" : "";
     const childClass = depth > 0 ? " task-tracker-dock__task--child" : "";
     const parentClass = isParent ? " task-tracker-dock__task--parent" : "";
@@ -257,7 +259,7 @@ export class TaskDock {
   /* ── Badges ──────────────────────────────────────────────── */
 
   private renderStatusBadge(task: TaskItem): string {
-    const cfg = STATUS_BADGE_CONFIG[task.status];
+    const cfg = getStatusBadgeConfig(task.status, this.service.store.getSettings());
     if (this.isMobile) {
       return `<span class="task-manager-inline-badge task-manager-inline-badge--compact task-tracker-dock__inline-badge task-tracker-dock__inline-badge--text-only is-readonly" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
   <span class="task-manager-inline-badge__text">${escapeHtml(cfg.label)}</span>
@@ -269,8 +271,8 @@ export class TaskDock {
     <span class="task-manager-inline-badge__text">${escapeHtml(cfg.label)}</span>
   </button>
   <div class="task-manager-inline-menu" data-popover-menu="status" data-task-id="${task.id}" style="display: ${open ? "" : "none"};">
-    ${(["todo", "doing", "waiting", "completed", "cancelled"] as TaskStatus[]).map((status) => {
-      const itemCfg = STATUS_BADGE_CONFIG[status];
+    ${getAllOrderedStatuses(this.service.store.getSettings()).map((status) => {
+      const itemCfg = getStatusBadgeConfig(status, this.service.store.getSettings());
       const active = status === task.status;
       return `<button type="button" class="task-manager-inline-menu__item ${active ? "is-active" : ""}" data-popover-select="status" data-task-id="${task.id}" data-status-value="${status}">
         <span class="task-manager-inline-menu__dot" style="--dot-color: ${itemCfg.dotColor};"></span>
@@ -338,6 +340,7 @@ export class TaskDock {
     const filterButton = target.closest<HTMLElement>("[data-filter]");
     if (filterButton?.dataset.filter) {
       this.filter = filterButton.dataset.filter as DockFilter;
+      this.ensureCollapsedStateForCurrentFilter();
       this.render();
       return;
     }
@@ -646,26 +649,31 @@ export class TaskDock {
   }
 
   private toggleChildren(taskId: string): void {
-    if (this.collapsedTaskIds.has(taskId)) {
-      this.collapsedTaskIds.delete(taskId);
+    const collapsed = this.currentCollapsedTaskIds();
+    if (collapsed.has(taskId)) {
+      collapsed.delete(taskId);
     } else {
-      this.collapsedTaskIds.add(taskId);
+      collapsed.add(taskId);
     }
     this.render();
   }
 
-  private ensureInitialCollapsedParents(): void {
-    if (this.initialCollapsedParentsApplied) {
+  private ensureCollapsedStateForCurrentFilter(): void {
+    if (this.collapsedTaskIdsByFilter.has(this.filter)) {
       return;
     }
-    const tasks = this.service.store.all();
-    if (!tasks.length) {
-      return;
+    const collapsed = new Set<string>();
+    if (this.filter === "all") {
+      for (const taskId of collectParentTaskIds(this.service.store.all())) {
+        collapsed.add(taskId);
+      }
     }
-    this.initialCollapsedParentsApplied = true;
-    for (const taskId of collectParentTaskIds(tasks)) {
-      this.collapsedTaskIds.add(taskId);
-    }
+    this.collapsedTaskIdsByFilter.set(this.filter, collapsed);
+  }
+
+  private currentCollapsedTaskIds(): Set<string> {
+    this.ensureCollapsedStateForCurrentFilter();
+    return this.collapsedTaskIdsByFilter.get(this.filter) || new Set<string>();
   }
 
   private parentTaskIdsForTree(tree: TaskTreeNode[]): string[] {
@@ -687,8 +695,9 @@ export class TaskDock {
     if (!parentTaskIds.length) {
       return;
     }
+    const collapsed = this.currentCollapsedTaskIds();
     for (const taskId of parentTaskIds) {
-      this.collapsedTaskIds.delete(taskId);
+      collapsed.delete(taskId);
     }
     this.bulkParentMenuOpen = false;
     this.render();
@@ -699,8 +708,9 @@ export class TaskDock {
     if (!parentTaskIds.length) {
       return;
     }
+    const collapsed = this.currentCollapsedTaskIds();
     for (const taskId of parentTaskIds) {
-      this.collapsedTaskIds.add(taskId);
+      collapsed.add(taskId);
     }
     this.bulkParentMenuOpen = false;
     this.render();
@@ -718,7 +728,7 @@ export class TaskDock {
   private matchesFilter(task: TaskItem): boolean {
     // Base check: only show active (non-completed, non-cancelled) tasks,
     // matching the current business rule from ACTIVE_TASK_STATUSES.
-    if (!ACTIVE_TASK_STATUSES.includes(task.status)) return false;
+    if (!getActiveTaskStatuses(this.service.store.getSettings()).includes(task.status)) return false;
 
     const today = toDateKey(new Date().toISOString());
     const threeDaysLater = toDateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
@@ -738,7 +748,8 @@ export class TaskDock {
     const tasks = this.service.store.all();
     const today = toDateKey(new Date().toISOString());
     const threeDaysLater = toDateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
-    const activePool = tasks.filter((t) => ACTIVE_TASK_STATUSES.includes(t.status));
+    const activeStatuses = new Set(getActiveTaskStatuses(this.service.store.getSettings()));
+    const activePool = tasks.filter((t) => activeStatuses.has(t.status));
 
     const allCount = activePool.length;
     const importantCount = activePool.filter((t) => isImportantTask(t)).length;
@@ -765,7 +776,8 @@ export class TaskDock {
 
   private sidebarComparator(): (a: TaskItem, b: TaskItem) => number {
     const direction = this.displayOptions.sortDirection === "desc" ? -1 : 1;
-    return (a, b) => compareTasksBySidebarSortField(a, b, this.displayOptions.sortField) * direction;
+    const statusOrder = getAllOrderedStatuses(this.service.store.getSettings());
+    return (a, b) => compareTasksBySidebarSortField(a, b, this.displayOptions.sortField, statusOrder) * direction;
   }
 
   private async persistDisplayOptions(): Promise<void> {

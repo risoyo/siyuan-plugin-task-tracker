@@ -10,15 +10,22 @@ import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import {
+  defaultTaskStatus,
+  getAllOrderedStatuses,
+  getStatusBadgeConfig,
+  getStatusLabel
+} from "../statusConfig";
+import {
   PRIORITY_BADGE_CONFIG,
-  STATUS_BADGE_CONFIG,
+  CANCELLED_TASK_STATUS,
+  COMPLETED_TASK_STATUS,
   TASK_PRIORITY_LABELS,
-  TASK_STATUS_LABELS,
   type ProgressRecord,
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
   type TaskPriority,
+  type TaskSettings,
   type TaskStatus
 } from "../types";
 
@@ -98,8 +105,8 @@ function buildComboboxOption(value: string, label: string, active: boolean, icon
   </button>`;
 }
 
-function statusBadge(status: TaskStatus): string {
-  const cfg = STATUS_BADGE_CONFIG[status];
+function statusBadge(status: TaskStatus, settings: TaskSettings): string {
+  const cfg = getStatusBadgeConfig(status, settings);
   return `<span class="task-tracker-dialog-v3__badge-inner" style="--badge-color: ${cfg.textColor}; --badge-bg: ${cfg.bgColor}; --badge-border: ${cfg.borderColor};">
     <span class="task-tracker-dialog-v3__badge-dot" style="--dot-color: ${cfg.dotColor};"></span>
     <span class="task-tracker-dialog-v3__badge-text">${cfg.label}</span>
@@ -107,10 +114,9 @@ function statusBadge(status: TaskStatus): string {
   </span>`;
 }
 
-function statusDropdown(current: TaskStatus): string {
-  const statuses: TaskStatus[] = ["todo", "doing", "waiting", "completed", "cancelled"];
-  return statuses.map((status) => {
-    const cfg = STATUS_BADGE_CONFIG[status];
+function statusDropdown(current: TaskStatus, settings: TaskSettings): string {
+  return getAllOrderedStatuses(settings).map((status) => {
+    const cfg = getStatusBadgeConfig(status, settings);
     const active = status === current;
     return `<button type="button" class="task-tracker-dialog-v3__menu-item ${active ? "is-active" : ""}" data-status-value="${status}">
       <span class="task-tracker-dialog-v3__menu-dot" style="--dot-color: ${cfg.dotColor};"></span>
@@ -280,6 +286,7 @@ export class TaskDialog {
   show(): void {
     const editingTask = this.options.task;
     const editMode = Boolean(editingTask);
+    const settings = this.options.service.store.getSettings();
     const editSource = editingTask
       ? {
         blockId: editingTask.sourceBlockId,
@@ -300,18 +307,18 @@ export class TaskDialog {
         || task.id === editingTask?.parentId
         || task.docId === this.options.parentId
         || task.docId === editingTask?.parentId
-        || (task.status !== "completed" && task.status !== "cancelled");
+        || (task.status !== COMPLETED_TASK_STATUS && task.status !== CANCELLED_TASK_STATUS);
     });
     const projects = this.options.service.store.getProjects();
     const defaultTitle = editingTask?.title || this.options.presetTitle || effectiveSource?.text || "";
-    const defaultProject = editingTask?.project || this.options.service.store.getSettings().defaultProject || "";
+    const defaultProject = editingTask?.project || settings.defaultProject || "";
     const defaultParentId = editingTask?.parentId || this.options.parentId || "";
     const defaultParentTask = defaultParentId
       ? tasks.find((task) => task.id === defaultParentId || task.docId === defaultParentId)
       : undefined;
     const selectedParentId = defaultParentTask?.id || defaultParentId;
     const selectedParentTitle = defaultParentTask?.title || "";
-    const defaultStatus: TaskStatus = editingTask?.status || "todo";
+    const defaultStatus: TaskStatus = editingTask?.status || defaultTaskStatus(settings);
     const defaultPriority: TaskPriority = editingTask?.priority || "medium";
     const defaultCreatedAt = editingTask ? formatDateKey(new Date(editingTask.createdAt)) : formatDateKey(new Date());
     const defaultPlanStart = editingTask?.planStart
@@ -354,9 +361,9 @@ export class TaskDialog {
       { value: "note", label: "笔记", icon: ICONS.doc },
     ], sourceMode);
 
-    const statusBadgeHtml = statusBadge(defaultStatus);
+    const statusBadgeHtml = statusBadge(defaultStatus, settings);
     const priorityBadgeHtml = priorityBadge(defaultPriority);
-    const statusDropdownHtml = statusDropdown(defaultStatus);
+    const statusDropdownHtml = statusDropdown(defaultStatus, settings);
     const priorityDropdownHtml = priorityDropdown(defaultPriority);
     const frontend = getFrontend();
     const isMobileFrontend = frontend === "mobile" || frontend === "browser-mobile";
@@ -1109,7 +1116,7 @@ export class TaskDialog {
           const hidden = dropdownRoot.querySelector<HTMLInputElement>("input[type='hidden']") as HTMLInputElement;
           hidden.value = value;
           const badgeBtn = dropdownRoot.querySelector<HTMLElement>("[data-dropdown-toggle]") as HTMLElement;
-          badgeBtn.innerHTML = statusBadge(value);
+          badgeBtn.innerHTML = statusBadge(value, settings);
         }
         closeAllDropdowns();
         return;
@@ -1264,7 +1271,7 @@ export class TaskDialog {
           sourceDocId: selectedSource?.docId,
           sourceText: selectedSource?.text,
           project: String(data.get("project") || "").trim() || undefined,
-          status: String(data.get("status") || "todo") as TaskStatus,
+          status: String(data.get("status") || defaultTaskStatus(settings)) as TaskStatus,
           priority: String(data.get("priority") || "medium") as TaskPriority,
           dueDate: String(data.get("dueDate") || "") || undefined,
           planStart: fromDatetimeLocal(String(data.get("planStart") || "")),
@@ -1273,6 +1280,10 @@ export class TaskDialog {
           description: String(data.get("description") || "").trim() || undefined,
           noteFolderPath: String(data.get("noteFolderPath") || "").trim() || undefined
         };
+        const validStatuses = new Set(getAllOrderedStatuses(settings));
+        if (!validStatuses.has(baseInput.status)) {
+          throw new Error("当前任务状态已失效，请重新选择一个有效状态。");
+        }
         if (!baseInput.title) {
           throw new Error("请填写任务标题");
         }
@@ -1303,9 +1314,9 @@ export class TaskDialog {
   }
 }
 
-export function statusOptions(current: TaskStatus): string {
-  return (Object.entries(TASK_STATUS_LABELS) as Array<[TaskStatus, string]>)
-    .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
+export function statusOptions(current: TaskStatus, settings: TaskSettings): string {
+  return getAllOrderedStatuses(settings)
+    .map((value) => `<option value="${value}" ${value === current ? "selected" : ""}>${escapeHtml(getStatusLabel(value, settings))}</option>`)
     .join("");
 }
 

@@ -36,7 +36,15 @@ import {
 } from "./progressRecords";
 import { TaskStore } from "./taskStore";
 import {
-  ACTIVE_TASK_STATUSES,
+  defaultTaskStatus,
+  getActiveTaskStatuses,
+  getStatusLabel,
+  isCompletedTaskStatus,
+  normalizeStatusOptions,
+  normalizeStoredTaskStatus
+} from "./statusConfig";
+import {
+  COMPLETED_TASK_STATUS,
   DEFAULT_TASK_TEMPLATE,
   ROOT_ATTRS,
   REPORT_ATTRS,
@@ -50,6 +58,7 @@ import {
   type SourceContext,
   type TaskCreateInput,
   type TaskItem,
+  type TaskStatus,
   type TaskSettings
 } from "./types";
 
@@ -131,7 +140,7 @@ export class TaskService {
       sourceText: input.sourceText,
       project: input.project?.trim() || undefined,
       priority: input.priority || "none",
-      status: input.status || "todo",
+      status: input.status || defaultTaskStatus(settings),
       dueDate: input.dueDate || undefined,
       planStart: input.planStart || undefined,
       planEnd: input.planEnd || undefined,
@@ -140,7 +149,7 @@ export class TaskService {
       noteFolderPath: input.noteFolderPath?.trim() || undefined,
       createdAt,
       updatedAt: now,
-      completedAt: input.status === "completed" ? now : undefined
+      completedAt: input.status === COMPLETED_TASK_STATUS ? now : undefined
     };
 
     const created = await createTaskDocWithTitle(
@@ -161,7 +170,7 @@ export class TaskService {
       await appendSourceTaskId(actualTask.sourceBlockId, actualTask.id);
     }
     await this.store.upsert(actualTask);
-    if (actualTask.status === "completed" && !actualTask.parentId) {
+    if (isCompletedTaskStatus(actualTask.status) && !actualTask.parentId) {
       actualTask = await this.archiveCompletedParentTask(actualTask);
     }
     await this.syncTaskDocument(actualTask.id);
@@ -199,12 +208,12 @@ export class TaskService {
     }
 
     const normalized = normalizeCompletion(current, title ? { ...normalizedPatch, title } : normalizedPatch);
-    if ((normalized.status ?? current.status) === "completed" && !normalized.completedAt) {
+    if (isCompletedTaskStatus(normalized.status ?? current.status) && !normalized.completedAt) {
       throw new Error("已完成任务必须填写完成时间");
     }
     let task = await this.store.update(id, normalized);
     const parentIdChanged = current.parentId !== task.parentId;
-    if (current.status !== "completed" && task.status === "completed" && !task.parentId) {
+    if (!isCompletedTaskStatus(current.status) && isCompletedTaskStatus(task.status) && !task.parentId) {
       task = await this.archiveCompletedParentTask(task);
     }
     if (parentIdChanged) {
@@ -233,14 +242,27 @@ export class TaskService {
 
   async completeTask(id: string): Promise<TaskItem> {
     return this.updateTask(id, {
-      status: "completed"
+      status: COMPLETED_TASK_STATUS
     });
   }
 
   async reopenTask(id: string): Promise<TaskItem> {
     return this.updateTask(id, {
-      status: "todo"
+      status: defaultTaskStatus(this.store.getSettings())
     });
+  }
+
+  async migrateTaskStatuses(fromStatus: TaskStatus, toStatus: TaskStatus): Promise<number> {
+    if (!fromStatus || !toStatus || fromStatus === toStatus) {
+      return 0;
+    }
+    const tasks = this.store.all().filter((task) => task.status === fromStatus);
+    let migrated = 0;
+    for (const task of tasks) {
+      await this.updateTask(task.id, { status: toStatus });
+      migrated += 1;
+    }
+    return migrated;
   }
 
   async removeTaskRecord(id: string, options: { cascade?: boolean } = {}): Promise<number> {
@@ -319,7 +341,8 @@ export class TaskService {
   }
 
   activeTasks(): TaskItem[] {
-    return this.store.all().filter((task) => ACTIVE_TASK_STATUSES.includes(task.status));
+    const activeStatuses = new Set(getActiveTaskStatuses(this.store.getSettings()));
+    return this.store.all().filter((task) => activeStatuses.has(task.status));
   }
 
   async waitForStartupSync(options: { maxWaitMs?: number; pollMs?: number } = {}): Promise<void> {
@@ -379,7 +402,7 @@ export class TaskService {
     }
 
     const tasks = this.store.all()
-      .filter((task) => task.status === "completed" && weekKey(task.completedAt || task.createdAt) === week)
+      .filter((task) => isCompletedTaskStatus(task.status) && weekKey(task.completedAt || task.createdAt) === week)
       .sort(compareWeeklyReportTaskOrder);
     const progressBody = renderWeeklyProgressBody(week, this.store.all());
     const weekLabel = formatCompletedWeekLabel(week);
@@ -429,9 +452,10 @@ export class TaskService {
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
     const children = this.store.all().filter((item) => item.parentId === task.id);
+    const settings = this.store.getSettings();
     let synced = false;
     if (metadataBlock.format === "table") {
-      const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children);
+      const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children, settings);
       const summaryHeading = await findHeadingBlock(task.docId, [TASK_SUMMARY_HEADING]);
       if (summaryHeading) {
         synced = await replaceManagedHeadingSectionBlocks(
@@ -439,7 +463,7 @@ export class TaskService {
           [TASK_SUMMARY_HEADING],
           buildManagedTaskSummaryBlocks(
             nextTableMarkdown,
-            buildTaskSummaryLabelLines(task, parent, children)
+            buildTaskSummaryLabelLines(task, parent, children, settings)
           ),
           { createIfMissing: false }
         );
@@ -448,7 +472,7 @@ export class TaskService {
         synced = true;
       }
     } else {
-      const nextMarkdown = renderTaskMetadataBlock(task, parent, children);
+      const nextMarkdown = renderTaskMetadataBlock(task, parent, children, settings);
       if (!sameMarkdownContent(metadataBlock.markdown, nextMarkdown)) {
         await updateBlock(metadataBlock.id, nextMarkdown);
         synced = true;
@@ -686,13 +710,13 @@ function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
 }
 
 function normalizeCompletion(current: TaskItem, patch: Partial<TaskItem>): Partial<TaskItem> {
-  if (patch.status === "completed") {
-    if (current.status !== "completed") {
+  if (patch.status === COMPLETED_TASK_STATUS) {
+    if (!isCompletedTaskStatus(current.status)) {
       return { ...patch, completedAt: patch.completedAt || nowIso() };
     }
     return { ...patch, completedAt: patch.completedAt ?? current.completedAt };
   }
-  if (current.status === "completed") {
+  if (isCompletedTaskStatus(current.status)) {
     if (patch.status) {
       return { ...patch, completedAt: undefined };
     }
@@ -952,17 +976,8 @@ function normalizeRecoveredTitle(doc: BlockRow, createdAt?: string): string {
   return stripTaskDocumentTitlePrefix(fromPath, createdAt) || fromPath;
 }
 
-function normalizeTaskStatus(value?: string): TaskItem["status"] {
-  switch (value) {
-    case "doing":
-    case "waiting":
-    case "completed":
-    case "cancelled":
-    case "todo":
-      return value;
-    default:
-      return "todo";
-  }
+function normalizeTaskStatus(value?: string, settings?: TaskSettings): TaskItem["status"] {
+  return normalizeStoredTaskStatus(value, settings);
 }
 
 function normalizeRecoveredTaskStatus(
@@ -971,12 +986,12 @@ function normalizeRecoveredTaskStatus(
   hpath: string | undefined,
   settings: TaskSettings
 ): TaskItem["status"] {
-  const normalized = normalizeTaskStatus(value);
+  const normalized = normalizeTaskStatus(value, settings);
   if (value === normalized && value !== undefined) {
     return normalized;
   }
   if (isArchivedTaskDoc(path, hpath, settings)) {
-    return "completed";
+    return COMPLETED_TASK_STATUS;
   }
   return normalized;
 }
@@ -1017,7 +1032,7 @@ function shouldIncludeTaskDocInRebuild(
   }
 
   if (isArchivedTaskDoc(doc.path, doc.hpath, settings)) {
-    return normalizeRecoveredTaskStatus(attrs[TASK_ATTRS.status], doc.path, doc.hpath, settings) === "completed"
+    return normalizeRecoveredTaskStatus(attrs[TASK_ATTRS.status], doc.path, doc.hpath, settings) === COMPLETED_TASK_STATUS
       && !isArchiveContainerDoc(doc.hpath, settings);
   }
 
@@ -1042,7 +1057,7 @@ async function recoverTaskFromDocument(doc: BlockRow, settings: TaskSettings): P
   }
 
   const markdown = await readDocMarkdown(doc.id).catch(() => "");
-  const summary = parseTaskSummaryFromMarkdown(markdown);
+  const summary = parseTaskSummaryFromMarkdown(markdown, settings);
   if (!summary) {
     return undefined;
   }
@@ -1059,7 +1074,7 @@ async function recoverTaskFromDocument(doc: BlockRow, settings: TaskSettings): P
     sourceText: summary.sourceText,
     project: summary.project,
     priority: summary.priority || "medium",
-    status: summary.status || "todo",
+    status: summary.status || defaultTaskStatus(settings),
     dueDate: summary.dueDate,
     planStart: summary.planStart,
     planEnd: summary.planEnd,
@@ -1070,19 +1085,19 @@ async function recoverTaskFromDocument(doc: BlockRow, settings: TaskSettings): P
   };
 }
 
-function parseTaskSummaryFromMarkdown(markdown: string): Partial<TaskItem> | undefined {
+function parseTaskSummaryFromMarkdown(markdown: string, settings: TaskSettings): Partial<TaskItem> | undefined {
   if (!markdown.trim()) {
     return undefined;
   }
 
-  const fromTable = parseTaskSummaryTableMarkdown(markdown);
+  const fromTable = parseTaskSummaryTableMarkdown(markdown, settings);
   if (fromTable) {
     return fromTable;
   }
-  return parseTaskSummaryQuoteMarkdown(markdown);
+  return parseTaskSummaryQuoteMarkdown(markdown, settings);
 }
 
-function parseTaskSummaryTableMarkdown(markdown: string): Partial<TaskItem> | undefined {
+function parseTaskSummaryTableMarkdown(markdown: string, settings: TaskSettings): Partial<TaskItem> | undefined {
   const lines = markdown.split(/\r?\n/);
   const headerIndex = lines.findIndex((line) => /^\|/.test(line) && line.includes("来源"));
   if (headerIndex === -1 || headerIndex + 2 >= lines.length) {
@@ -1103,7 +1118,7 @@ function parseTaskSummaryTableMarkdown(markdown: string): Partial<TaskItem> | un
   const source = parseTaskSourceValue(values.get("来源"));
   return {
     project: normalizeTaskFieldValue(values.get("项目")),
-    status: parseTaskStatusLabel(values.get("状态")),
+    status: parseTaskStatusLabel(values.get("状态"), settings),
     priority: parseTaskPriorityLabel(values.get("优先级")),
     createdAt: parseRenderedTaskDate(values.get("创建时间")),
     completedAt: parseRenderedTaskDate(values.get("完成时间")),
@@ -1114,7 +1129,7 @@ function parseTaskSummaryTableMarkdown(markdown: string): Partial<TaskItem> | un
   };
 }
 
-function parseTaskSummaryQuoteMarkdown(markdown: string): Partial<TaskItem> | undefined {
+function parseTaskSummaryQuoteMarkdown(markdown: string, settings: TaskSettings): Partial<TaskItem> | undefined {
   const lines = markdown.split(/\r?\n/);
   const values = new Map<string, string>();
   for (const line of lines) {
@@ -1131,7 +1146,7 @@ function parseTaskSummaryQuoteMarkdown(markdown: string): Partial<TaskItem> | un
   const source = parseTaskSourceValue(values.get("来源"));
   return {
     project: normalizeTaskFieldValue(values.get("项目")),
-    status: parseTaskStatusLabel(values.get("状态")),
+    status: parseTaskStatusLabel(values.get("状态"), settings),
     priority: parseTaskPriorityLabel(values.get("优先级")),
     description: normalizeTaskFieldValue(values.get(TASK_LATEST_LABEL) || values.get("任务描述")),
     createdAt: parseRenderedTaskDate(values.get("创建时间")),
@@ -1143,8 +1158,29 @@ function parseTaskSummaryQuoteMarkdown(markdown: string): Partial<TaskItem> | un
   };
 }
 
-function parseTaskStatusLabel(value?: string): TaskItem["status"] | undefined {
-  return (Object.entries(TASK_STATUS_LABELS).find(([, label]) => label === normalizeTaskFieldValue(value))?.[0] as TaskItem["status"] | undefined);
+function parseTaskStatusLabel(value: string | undefined, settings: TaskSettings): TaskItem["status"] | undefined {
+  const normalized = normalizeTaskFieldValue(value);
+  if (!normalized) {
+    return undefined;
+  }
+  return taskStatusFromLabel(normalized, settings);
+}
+
+function taskStatusFromLabel(label: string, settings: TaskSettings): TaskItem["status"] | undefined {
+  const normalized = label.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const matched = normalizeStatusOptions(settings).find((option) => option.label === normalized);
+  if (matched) {
+    return matched.id;
+  }
+  for (const [statusId, statusLabel] of Object.entries(TASK_STATUS_LABELS)) {
+    if (statusLabel === normalized) {
+      return statusId;
+    }
+  }
+  return undefined;
 }
 
 function parseTaskPriorityLabel(value?: string): TaskItem["priority"] | undefined {
@@ -1822,18 +1858,18 @@ function renderTaskMarkdown(
   detail?: string
 ): string {
   const template = settings.taskTemplate?.trim() || DEFAULT_TASK_TEMPLATE;
-  const markdown = renderTemplate(template, task, parent, children);
+  const markdown = renderTemplate(template, task, parent, children, settings);
   const withProgress = rewriteTaskProgressSection(markdown, task.progressRecords);
   return rewriteTaskDetail(withProgress, detail || "");
 }
 
-function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
+function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
   const replacements: Record<string, string> = {
     title: escapeMd(task.title),
     source: task.sourceBlockId ? blockRef(task.sourceBlockId, task.sourceText || "来源") : "手动创建",
     parent: parent ? blockRef(parent.docId, parent.title) : "无",
     project: task.project || "未设置",
-    status: TASK_STATUS_LABELS[task.status],
+    status: getStatusLabel(task.status, settings),
     priority: TASK_PRIORITY_LABELS[task.priority],
     dueDate: formatTaskDate(task.dueDate),
     planStart: formatTaskDate(task.planStart),
@@ -1848,14 +1884,14 @@ function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, chi
   return `${template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => replacements[key] ?? "")}\n`;
 }
 
-function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
+function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
   const sourceRef = task.sourceBlockId ? blockRef(task.sourceBlockId, task.sourceText || "来源") : "手动创建";
   const parentRef = parent ? blockRef(parent.docId, parent.title) : "无";
 
   return `> 来源：${sourceRef}
 > 父任务：${parentRef}
 > 项目：${task.project || "未设置"}
-> 状态：${TASK_STATUS_LABELS[task.status]}
+> 状态：${getStatusLabel(task.status, settings)}
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
 > ${TASK_LATEST_LABEL}：${task.description || "无"}
 > 创建时间：${formatTaskDate(task.createdAt)}
@@ -2214,12 +2250,12 @@ type TaskSummaryValueMap = {
   子任务: string;
 };
 
-function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): TaskSummaryValueMap {
+function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): TaskSummaryValueMap {
   const sourceRef = task.sourceBlockId ? blockRef(task.sourceBlockId, task.sourceText || "来源") : "手动创建";
   const parentRef = parent ? blockRef(parent.docId, parent.title) : "无";
   return {
     项目: task.project || "未设置",
-    状态: TASK_STATUS_LABELS[task.status],
+    状态: getStatusLabel(task.status, settings),
     来源: sourceRef,
     优先级: TASK_PRIORITY_LABELS[task.priority],
     任务近况: task.description || "无",
@@ -2232,8 +2268,8 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
   };
 }
 
-function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string[] {
-  const values = buildTaskSummaryValueMap(task, parent, children);
+function buildTaskSummaryLabelLines(task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string[] {
+  const values = buildTaskSummaryValueMap(task, parent, children, settings);
   return [
     `<strong>父任务</strong> ：${values["父任务"]}`,
     `<strong>子任务</strong> ：${values["子任务"]}`,
@@ -2413,7 +2449,7 @@ async function refreshTaskPaths(store: TaskStore, ids: string[]): Promise<Map<st
   return updated;
 }
 
-function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = []): string {
+function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
   const lines = markdown.split(/\r?\n/);
   const headerIndex = lines.findIndex((line) => /^\|/.test(line) && line.includes("来源"));
   if (headerIndex === -1 || headerIndex + 2 >= lines.length) {
@@ -2439,7 +2475,7 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
     if (alignCells.length >= insertAt) {
       alignCells = [...alignCells.slice(0, insertAt), "---", ...alignCells.slice(insertAt)];
     }
-    const values = buildTaskSummaryValueMap(task, parent, children);
+    const values = buildTaskSummaryValueMap(task, parent, children, settings);
     dataLines = dataLines.map((line) => {
       if (!/^\|/.test(line)) {
         return line;
@@ -2459,7 +2495,7 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
     }
   }
 
-  const values = buildTaskSummaryValueMap(task, parent, children);
+  const values = buildTaskSummaryValueMap(task, parent, children, settings);
   const nextRow = headerCells.map((cell) => values[cell as keyof TaskSummaryValueMap] ?? "");
   lines[dataStart] = `| ${nextRow.join(" | ")} |`;
 

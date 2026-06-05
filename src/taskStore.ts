@@ -1,6 +1,8 @@
 import type { Plugin } from "siyuan";
 import { normalizeProgressRecords } from "./progressRecords";
+import { normalizeStatusOptions, normalizeStoredTaskStatus } from "./statusConfig";
 import {
+  COMPLETED_TASK_STATUS,
   DEFAULT_DOCK_DISPLAY_OPTIONS,
   DEFAULT_SETTINGS,
   SETTINGS_DATA_FILE,
@@ -58,10 +60,10 @@ export class TaskStore {
     return [...this.tasks].sort((a, b) => {
       const aPlan = a.planStart || a.dueDate || "";
       const bPlan = b.planStart || b.dueDate || "";
-      if (a.status === "completed" && b.status !== "completed") {
+      if (a.status === COMPLETED_TASK_STATUS && b.status !== COMPLETED_TASK_STATUS) {
         return 1;
       }
-      if (b.status === "completed" && a.status !== "completed") {
+      if (b.status === COMPLETED_TASK_STATUS && a.status !== COMPLETED_TASK_STATUS) {
         return -1;
       }
       return aPlan.localeCompare(bPlan) || b.updatedAt.localeCompare(a.updatedAt);
@@ -157,6 +159,7 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
     ...task,
     noteFolderPath: typeof task.noteFolderPath === "string" ? task.noteFolderPath.trim() || undefined : undefined,
     progressRecords: normalizeProgressRecords(task.progressRecords, fallbackTimestamp),
+    status: normalizeStoredTaskStatus(task.status),
     title: normalizedTitle,
     createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };
@@ -166,6 +169,7 @@ function normalizeSettings(settings: TaskSettings): TaskSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
+    statusOptions: normalizeStatusOptions(settings),
     dockDisplayOptions: normalizeDockDisplayOptions(settings.dockDisplayOptions),
     pageConfigs: {
       ...settings.pageConfigs,

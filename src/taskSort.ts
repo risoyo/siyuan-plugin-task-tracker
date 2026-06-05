@@ -1,9 +1,10 @@
+import { SYSTEM_TASK_STATUS_IDS } from "./types";
 import { latestProgressRecordSummary } from "./progressRecords";
 import type { SidebarTaskSortField, TableSortColumn, TaskItem } from "./types";
 
 const TASK_TITLE_LOCALE = "zh-Hans-CN";
 
-export function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSortColumn): number {
+export function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSortColumn, statusOrder: string[] = [...SYSTEM_TASK_STATUS_IDS]): number {
   if (column === "task") {
     return compareTaskTitle(a, b);
   }
@@ -22,7 +23,7 @@ export function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSort
       || compareTaskTitle(a, b);
   }
   if (column === "status") {
-    return compareBusinessOrder(a.status, b.status, ["todo", "doing", "waiting", "completed", "cancelled"])
+    return compareBusinessOrder(a.status, b.status, statusOrder)
       || compareTaskTitle(a, b);
   }
   if (column === "priority") {
@@ -45,7 +46,7 @@ export function compareTasksByColumn(a: TaskItem, b: TaskItem, column: TableSort
     || compareTaskTitle(a, b);
 }
 
-export function compareTasksBySidebarSortField(a: TaskItem, b: TaskItem, field: SidebarTaskSortField): number {
+export function compareTasksBySidebarSortField(a: TaskItem, b: TaskItem, field: SidebarTaskSortField, statusOrder: string[] = [...SYSTEM_TASK_STATUS_IDS]): number {
   if (field === "default") {
     return compareOptionalDates(a.planStart || a.dueDate, b.planStart || b.dueDate, "asc")
       || compareOptionalDates(a.updatedAt, b.updatedAt, "desc")
@@ -64,7 +65,7 @@ export function compareTasksBySidebarSortField(a: TaskItem, b: TaskItem, field: 
       || compareTaskTitle(a, b);
   }
   if (field === "task" || field === "createdAt" || field === "priority" || field === "status") {
-    return compareTasksByColumn(a, b, field);
+    return compareTasksByColumn(a, b, field, statusOrder);
   }
   return compareTaskTitle(a, b);
 }

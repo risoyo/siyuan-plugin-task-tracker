@@ -1,4 +1,11 @@
-export type TaskStatus = "todo" | "doing" | "waiting" | "completed" | "cancelled";
+export const SYSTEM_TASK_STATUS_IDS = ["todo", "doing", "waiting", "completed", "cancelled"] as const;
+export type SystemTaskStatus = typeof SYSTEM_TASK_STATUS_IDS[number];
+export type TaskStatus = string;
+export type StatusColorPreset = "orange" | "blue" | "purple" | "green" | "slate" | "red";
+
+export const TODO_TASK_STATUS = "todo";
+export const COMPLETED_TASK_STATUS = "completed";
+export const CANCELLED_TASK_STATUS = "cancelled";
 
 export type TaskPriority = "none" | "low" | "medium" | "high";
 
@@ -11,7 +18,7 @@ export interface StatusBadgeConfig {
   dotColor: string;
 }
 
-export const STATUS_BADGE_CONFIG: Record<TaskStatus, StatusBadgeConfig> = {
+export const STATUS_BADGE_CONFIG: Record<SystemTaskStatus, StatusBadgeConfig> = {
   todo:       { label: "待处理", textColor: "#C2410C", bgColor: "#FFF7ED", borderColor: "#FED7AA", dotColor: "#F97316" },
   doing:      { label: "进行中", textColor: "#1D4ED8", bgColor: "#EFF6FF", borderColor: "#BFDBFE", dotColor: "#2563EB" },
   waiting:    { label: "等待中", textColor: "#6D28D9", bgColor: "#F5F3FF", borderColor: "#DDD6FE", dotColor: "#8B5CF6" },
@@ -36,7 +43,7 @@ export const PRIORITY_BADGE_CONFIG: Record<TaskPriority, PriorityBadgeConfig> = 
 };
 
 /** Kept for backward compat — maps status to textColor/bgColor for older views. */
-export const TASK_STATUS_COLORS: Record<TaskStatus, { label: string; textColor: string; bgColor: string }> = {
+export const TASK_STATUS_COLORS: Record<SystemTaskStatus, { label: string; textColor: string; bgColor: string }> = {
   todo:       { label: "待处理", textColor: STATUS_BADGE_CONFIG.todo.textColor, bgColor: STATUS_BADGE_CONFIG.todo.bgColor },
   doing:      { label: "进行中", textColor: STATUS_BADGE_CONFIG.doing.textColor, bgColor: STATUS_BADGE_CONFIG.doing.bgColor },
   waiting:    { label: "等待中", textColor: STATUS_BADGE_CONFIG.waiting.textColor, bgColor: STATUS_BADGE_CONFIG.waiting.bgColor },
@@ -87,6 +94,14 @@ export interface ProgressRecord {
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskStatusOption {
+  id: TaskStatus;
+  label: string;
+  color: StatusColorPreset;
+  order: number;
+  isSystemSemantic?: boolean;
 }
 
 export type TableColumnKey = "task" | "project" | "source" | "createdAt" | "status" | "priority" | "latest" | "progress" | "plan" | "due" | "actions" | "planStart" | "completedAt";
@@ -156,6 +171,7 @@ export interface TaskSettings {
     table?: TablePageConfig;
     completed?: CompletedPageConfig;
   };
+  statusOptions?: TaskStatusOption[];
   startupSyncGraceMs?: number;
 }
 
@@ -234,7 +250,7 @@ export const DEFAULT_TASK_TEMPLATE = `# {{title}}
 
 `;
 
-export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+export const TASK_STATUS_LABELS: Record<SystemTaskStatus, string> = {
   todo: "待处理",
   doing: "进行中",
   waiting: "等待中",
@@ -249,7 +265,7 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
   high: "高"
 };
 
-export const ACTIVE_TASK_STATUSES: TaskStatus[] = ["todo", "doing", "waiting"];
+export const ACTIVE_TASK_STATUSES: SystemTaskStatus[] = ["todo", "doing", "waiting"];
 
 export const TASK_ATTRS = {
   id: "custom-task-tracker-id",
