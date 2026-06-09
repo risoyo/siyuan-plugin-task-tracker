@@ -1,5 +1,12 @@
 import { showMessage } from "siyuan";
-import { formatSidebarDate, mergeDateInputWithExisting, toDateKey } from "../date";
+import {
+  formatDateKey,
+  formatSidebarDate,
+  formatWeekRangeCompact,
+  mergeDateInputWithExisting,
+  startOfWeek,
+  toDateKey
+} from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
 import {
@@ -16,13 +23,20 @@ import {
   type TaskStatus
 } from "../types";
 
-type DockFilter = "all" | "important" | "nextThreeDays";
+type DockFilter = "all" | "important" | "nextThreeDays" | "overdue";
+type MobileDockView = "tracking" | "week";
+type DockNewTaskOptions = {
+  parentId?: string;
+  presetPlanDate?: string;
+};
 
 type DockPopoverField = "status";
 type TaskDockMode = "desktop" | "mobile";
 type SidebarDisplayOptions = DockDisplayOptions;
 
 const SIDEBAR_DISPLAY_OPTIONS_STORAGE_KEY = "task-tracker-sidebar-display-options";
+const MOBILE_DOCK_VIEW_STORAGE_KEY = "task-tracker-mobile-dock-view";
+const MOBILE_WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"] as const;
 const SIDEBAR_SORT_FIELD_OPTIONS: Array<{ value: SidebarTaskSortField; label: string }> = [
   { value: "default", label: "默认顺序" },
   { value: "task", label: "任务名" },
@@ -50,12 +64,14 @@ export class TaskDock {
   private unsubscribe?: () => void;
   private readonly mode: TaskDockMode;
   private readonly isMobile: boolean;
+  private mobileView: MobileDockView;
+  private mobileWeekStart = startOfWeek(new Date());
 
   constructor(
     private container: HTMLElement,
     private service: TaskService,
     private actions: {
-      newTask: () => void;
+      newTask: (options?: DockNewTaskOptions) => void;
       createSubtask: (parentId: string) => void;
       editTask: (task: TaskItem) => void;
       openTask: (task: TaskItem) => void;
@@ -68,6 +84,7 @@ export class TaskDock {
   ) {
     this.mode = options.mode || "desktop";
     this.isMobile = this.mode === "mobile";
+    this.mobileView = this.isMobile ? readMobileDockView() : "tracking";
     this.displayOptions = readSidebarDisplayOptions(this.service.store.getSettings().dockDisplayOptions);
     void this.ensureDisplayOptionsPersisted();
     this.unsubscribe = this.service.onChange(() => this.render());
@@ -106,17 +123,18 @@ export class TaskDock {
   /* ── Header ──────────────────────────────────────────────── */
 
   private renderHeader(disableBulkParentToggle: boolean): string {
+    const showTrackingControls = !this.isMobile || this.mobileView === "tracking";
     return `<div class="task-tracker-dock__header">
   <svg class="task-tracker-dock__header-icon"><use xlink:href="#iconTaskTracker"></use></svg>
   <span class="task-tracker-dock__header-title">任务追踪</span>
   <span class="fn__flex-1 fn__space"></span>
-  ${this.renderDockBulkParentMenu(disableBulkParentToggle)}
-  <div class="task-tracker-dock__display-settings" data-display-settings>
+  ${showTrackingControls ? this.renderDockBulkParentMenu(disableBulkParentToggle) : ""}
+  ${showTrackingControls ? `<div class="task-tracker-dock__display-settings" data-display-settings>
     <button class="task-icon-btn task-icon-btn--settings task-tracker-display-btn ${this.displaySettingsOpen ? "is-active" : ""}" data-action="toggle-display-settings" title="显示设置" aria-label="显示设置" aria-expanded="${this.displaySettingsOpen}" type="button">
       ${renderControlsIcon()}
     </button>
     ${this.displaySettingsOpen ? this.renderDisplaySettingsPopover() : ""}
-  </div>
+  </div>` : ""}
   <button class="task-icon-btn task-tracker-dock__add-icon-btn" data-action="new" title="添加任务" aria-label="添加任务" type="button">+</button>
 </div>`;
   }
@@ -178,6 +196,17 @@ export class TaskDock {
   /* ── Content (tabs + list) ───────────────────────────────── */
 
   private renderContent(tree: TaskTreeNode[], counts: Record<DockFilter, number>): string {
+    if (this.isMobile) {
+      return `<div class="task-tracker-dock__body">
+  ${this.renderMobileViewSwitch()}
+  ${this.mobileView === "week"
+    ? this.renderMobileWeekView()
+    : `${this.renderTabs(counts)}
+  <div class="task-tracker-dock__list">
+    ${tree.length ? tree.map((node) => this.renderTaskCard(node, 0, node.children.length > 0)).join("") : this.renderEmptyState()}
+  </div>`}
+</div>`;
+    }
     return `<div class="task-tracker-dock__body">
   ${this.renderTabs(counts)}
   <div class="task-tracker-dock__list">
@@ -202,7 +231,8 @@ export class TaskDock {
     const tabs: Array<{ key: DockFilter; label: string }> = [
       { key: "all", label: "全部" },
       { key: "important", label: "重点" },
-      { key: "nextThreeDays", label: "未来三日" }
+      { key: "nextThreeDays", label: "未来三日" },
+      { key: "overdue", label: "已过期" }
     ];
     return `<div class="task-tracker-dock__tabs">
   ${tabs.map((tab) => {
@@ -213,6 +243,84 @@ export class TaskDock {
     </button>`;
   }).join("")}
 </div>`;
+  }
+
+  private renderMobileViewSwitch(): string {
+    return `<div class="task-mobile-view-switch" role="tablist" aria-label="手机版任务视图">
+  <button
+    class="task-mobile-view-switch__btn ${this.mobileView === "tracking" ? "is-active" : ""}"
+    data-action="switch-mobile-tracking"
+    role="tab"
+    aria-selected="${this.mobileView === "tracking"}"
+    type="button"
+  >任务追踪</button>
+  <button
+    class="task-mobile-view-switch__btn ${this.mobileView === "week" ? "is-active" : ""}"
+    data-action="switch-mobile-week"
+    role="tab"
+    aria-selected="${this.mobileView === "week"}"
+    type="button"
+  >周日历</button>
+</div>`;
+  }
+
+  private renderMobileWeekView(): string {
+    const weekLabel = formatWeekRangeCompact(formatDateKey(this.mobileWeekStart));
+    const tasksByDate = groupMobileWeekTasksByDate(this.mobileWeekTasks());
+    const weekDays = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(this.mobileWeekStart.getFullYear(), this.mobileWeekStart.getMonth(), this.mobileWeekStart.getDate() + index);
+      const dateKey = formatDateKey(date);
+      return {
+        label: MOBILE_WEEKDAY_LABELS[index],
+        date,
+        dateKey,
+        isToday: dateKey === formatDateKey(new Date())
+      };
+    });
+
+    return `<section class="task-mobile-week">
+  <div class="task-mobile-week-header">
+    <div class="task-mobile-week-nav">
+      <button class="task-mobile-week-nav__button task-mobile-week-nav__button--prev" data-action="prev-mobile-week" aria-label="上一周" title="上一周" type="button">${renderChevron(false)}</button>
+      <div class="task-mobile-week-nav__range">${escapeHtml(weekLabel)}</div>
+      <button class="task-mobile-week-nav__button task-mobile-week-nav__button--next" data-action="next-mobile-week" aria-label="下一周" title="下一周" type="button">${renderChevron(false)}</button>
+    </div>
+    <button class="task-mobile-week-nav__today" data-action="today-mobile-week" type="button">今</button>
+  </div>
+  <div class="task-mobile-week-list">
+    ${weekDays.map((day) => this.renderMobileWeekDay(day, tasksByDate.get(day.dateKey) || [])).join("")}
+  </div>
+</section>`;
+  }
+
+  private renderMobileWeekDay(
+    day: { label: string; date: Date; dateKey: string; isToday: boolean },
+    tasks: TaskItem[]
+  ): string {
+    return `<section class="task-mobile-week-day ${day.isToday ? "is-today" : ""}" data-mobile-week-date="${day.dateKey}">
+  <div class="task-mobile-week-day__date">
+    <span class="task-mobile-week-day__weekday">${day.label}</span>
+    <span class="task-mobile-week-day__daynum">${day.date.getMonth() + 1}/${day.date.getDate()}</span>
+    <span class="task-mobile-week-day__count">${tasks.length}</span>
+  </div>
+  <div class="task-mobile-week-day__content">
+    ${tasks.length
+      ? tasks.map((task) => this.renderMobileWeekTask(task)).join("")
+      : `<span class="task-mobile-week-day__empty">暂无日程</span>`}
+  </div>
+</section>`;
+  }
+
+  private renderMobileWeekTask(task: TaskItem): string {
+    const cfg = getStatusBadgeConfig(task.status, this.service.store.getSettings());
+    return `<button
+  class="task-mobile-week-task"
+  data-action="open"
+  data-task-id="${task.id}"
+  title="${escapeHtml(task.title)}"
+  type="button"
+  style="--task-mobile-week-dot: ${cfg.dotColor}; --task-mobile-week-bg: ${cfg.bgColor}; --task-mobile-week-border: ${cfg.borderColor};"
+>${escapeHtml(task.title)}</button>`;
   }
 
   /* ── Task Cards ──────────────────────────────────────────── */
@@ -311,6 +419,12 @@ export class TaskDock {
   <div class="task-tracker-dock__empty-title">未来三日暂无需要处理的任务</div>
   <div class="task-tracker-dock__empty-text">可切换到全部查看仍需跟踪的任务</div>
 </div>`;
+      case "overdue":
+        return `<div class="task-tracker-dock__empty">
+  <svg class="task-tracker-dock__empty-icon" viewBox="0 0 24 24" width="36" height="36"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.8 5.8 18.7 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+  <div class="task-tracker-dock__empty-title">暂无已过期任务</div>
+  <div class="task-tracker-dock__empty-text">设置了计划时间且已过期的未完成任务会显示在这里</div>
+</div>`;
       case "important":
         return `<div class="task-tracker-dock__empty">
   <svg class="task-tracker-dock__empty-icon" viewBox="0 0 24 24" width="36" height="36"><path d="M12 2l2.4 7.4h7.6l-6 4.6 2.4 7.4-6.4-4.6-6.4 4.6 2.4-7.4-6-4.6h7.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -375,6 +489,39 @@ export class TaskDock {
         this.toggleDisplaySettings();
         return;
       }
+      if (action === "switch-mobile-tracking") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.setMobileView("tracking");
+        return;
+      }
+      if (action === "switch-mobile-week") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.setMobileView("week");
+        return;
+      }
+      if (action === "prev-mobile-week") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.mobileWeekStart = new Date(this.mobileWeekStart.getFullYear(), this.mobileWeekStart.getMonth(), this.mobileWeekStart.getDate() - 7);
+        this.render();
+        return;
+      }
+      if (action === "next-mobile-week") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.mobileWeekStart = new Date(this.mobileWeekStart.getFullYear(), this.mobileWeekStart.getMonth(), this.mobileWeekStart.getDate() + 7);
+        this.render();
+        return;
+      }
+      if (action === "today-mobile-week") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.mobileWeekStart = startOfWeek(new Date());
+        this.render();
+        return;
+      }
       if (action === "new") {
         this.actions.newTask();
         return;
@@ -392,6 +539,7 @@ export class TaskDock {
         return;
       }
       if (action === "open") {
+        event.stopPropagation();
         const task = this.taskFromElement(actionButton);
         if (task) {
           this.actions.editTask(task);
@@ -453,6 +601,13 @@ export class TaskDock {
         } else {
           input.click();
         }
+      }
+    }
+
+    if (this.isMobile && this.mobileView === "week") {
+      const weekDay = target.closest<HTMLElement>("[data-mobile-week-date]");
+      if (weekDay?.dataset.mobileWeekDate) {
+        this.actions.newTask({ presetPlanDate: weekDay.dataset.mobileWeekDate });
       }
     }
   }
@@ -735,6 +890,8 @@ export class TaskDock {
     switch (this.filter) {
       case "nextThreeDays":
         return isTaskWithinDateRange(task, today, threeDaysLater);
+      case "overdue":
+        return isPlannedTaskOverdue(task, today);
       case "all":
         return true;
       case "important":
@@ -754,8 +911,9 @@ export class TaskDock {
     const allCount = activePool.length;
     const importantCount = activePool.filter((t) => isImportantTask(t)).length;
     const nextThreeDaysCount = activePool.filter((t) => isTaskWithinDateRange(t, today, threeDaysLater)).length;
+    const overdueCount = activePool.filter((t) => isPlannedTaskOverdue(t, today)).length;
 
-    return { all: allCount, important: importantCount, nextThreeDays: nextThreeDaysCount };
+    return { all: allCount, important: importantCount, nextThreeDays: nextThreeDaysCount, overdue: overdueCount };
   }
 
   private taskFromElement(element: Element): TaskItem | undefined {
@@ -804,6 +962,22 @@ export class TaskDock {
       console.warn("Task Tracker: failed to persist dock display options", error);
     }
   }
+
+  private setMobileView(view: MobileDockView): void {
+    if (!this.isMobile || this.mobileView === view) {
+      return;
+    }
+    this.mobileView = view;
+    this.closePopover();
+    this.closeDisplaySettings();
+    this.bulkParentMenuOpen = false;
+    writeMobileDockView(view);
+    this.render();
+  }
+
+  private mobileWeekTasks(): TaskItem[] {
+    return this.service.store.all().filter((task) => Boolean(toDateKey(task.planStart)));
+  }
 }
 
 /* ── Shared Helpers ──────────────────────────────────────────── */
@@ -845,6 +1019,14 @@ function isTaskWithinDateRange(task: TaskItem, startKey?: string, endKey?: strin
   return [task.planStart, task.planEnd, task.dueDate]
     .map((value) => toDateKey(value))
     .some((dateKey) => Boolean(dateKey && dateKey >= startKey && dateKey <= endKey));
+}
+
+function isPlannedTaskOverdue(task: TaskItem, today?: string): boolean {
+  if (!today) {
+    return false;
+  }
+  const planStartKey = toDateKey(task.planStart);
+  return Boolean(planStartKey && planStartKey < today);
 }
 
 function includeAncestors(tasks: TaskItem[], matched: Set<string>): Set<string> {
@@ -960,4 +1142,68 @@ function readSidebarDisplayOptionsFromLegacyStorage(): SidebarDisplayOptions | u
 
 function isSidebarSortField(value: unknown): value is SidebarTaskSortField {
   return typeof value === "string" && SIDEBAR_SORT_FIELD_OPTIONS.some((option) => option.value === value);
+}
+
+function readMobileDockView(): MobileDockView {
+  try {
+    return window.localStorage.getItem(MOBILE_DOCK_VIEW_STORAGE_KEY) === "week" ? "week" : "tracking";
+  } catch {
+    return "tracking";
+  }
+}
+
+function writeMobileDockView(view: MobileDockView): void {
+  try {
+    window.localStorage.setItem(MOBILE_DOCK_VIEW_STORAGE_KEY, view);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function groupMobileWeekTasksByDate(tasks: TaskItem[]): Map<string, TaskItem[]> {
+  const grouped = new Map<string, TaskItem[]>();
+  for (const task of tasks) {
+    const key = toDateKey(task.planStart);
+    if (!key) {
+      continue;
+    }
+    const list = grouped.get(key) || [];
+    list.push(task);
+    grouped.set(key, list);
+  }
+  for (const list of grouped.values()) {
+    list.sort(compareMobileWeekTasks);
+  }
+  return grouped;
+}
+
+function compareMobileWeekTasks(a: TaskItem, b: TaskItem): number {
+  const aHasTime = hasExplicitTime(a.planStart);
+  const bHasTime = hasExplicitTime(b.planStart);
+  if (aHasTime !== bHasTime) {
+    return aHasTime ? -1 : 1;
+  }
+  if (aHasTime && bHasTime) {
+    const byPlanStart = (a.planStart || "").localeCompare(b.planStart || "");
+    if (byPlanStart !== 0) {
+      return byPlanStart;
+    }
+  }
+  return (a.createdAt || "").localeCompare(b.createdAt || "")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
+}
+
+function hasExplicitTime(value?: string): boolean {
+  if (!value) {
+    return false;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return false;
+  }
+  const timeMatch = value.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!timeMatch) {
+    return false;
+  }
+  const [, hour, minute, second] = timeMatch;
+  return hour !== "00" || minute !== "00" || (second || "00") !== "00";
 }

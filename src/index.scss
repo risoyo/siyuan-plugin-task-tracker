@@ -2059,8 +2059,8 @@
   align-items: stretch;
   border-bottom: 1px solid var(--manager-border);
   display: flex;
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 88px;
   min-width: 0;
 }
 
@@ -2111,27 +2111,73 @@
 }
 
 .task-manager-calendar-week-row__tasks {
-  align-content: flex-start;
-  align-items: flex-start;
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
-  flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
+  justify-content: flex-start;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 8px 10px;
+}
+
+.task-manager-calendar-week-row__tasks.has-dual-groups {
+  justify-content: space-between;
 }
 
 .task-manager-calendar-week-row__empty {
   color: var(--manager-muted);
   font-size: 12px;
-  padding: 2px 0;
+  padding: 6px 0;
 }
 
-.task-manager-calendar-week-row__tasks .task-manager-calendar-pill {
-  font-size: 14px;
-  line-height: 1.3;
-  padding: 2px 6px 2px 14px;
+.task-manager-calendar-week-group {
+  align-items: flex-start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.task-manager-calendar-week-group__label {
+  color: var(--manager-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 26px;
+  text-align: left;
+}
+
+.task-manager-calendar-week-group__items {
+  align-content: flex-start;
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-manager-calendar-pill--week {
+  background: var(--task-status-bg, #FFFFFF);
+  border: 1px solid var(--task-status-border, var(--manager-border));
+  border-radius: 8px;
+  color: #1F2937;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  max-width: 100%;
+  padding: 4px 8px 4px 18px;
   position: relative;
+}
+
+.task-manager-calendar-pill--week::before {
+  background: var(--task-status-accent, var(--manager-accent));
+  border-radius: 999px;
+  content: "";
+  height: 6px;
+  left: 8px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
 }
 
 /* ── Page Config Dialog ────────────────────────────────────────── */
@@ -2651,7 +2697,7 @@
   display: grid;
   flex-shrink: 0;
   gap: 6px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 10px 12px 0;
 }
 
@@ -2663,7 +2709,7 @@
   color: #64748B;
   cursor: pointer;
   display: inline-flex;
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 500;
   gap: 4px;
   height: 30px;
@@ -2688,7 +2734,7 @@
 }
 
 .task-tracker-dock__tab-count {
-  font-size: 11px;
+  font-size: 9px;
   opacity: 0.65;
 }
 
@@ -3054,6 +3100,233 @@
 
 .task-tracker--mobile .task-tracker-dock__body {
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.task-mobile-view-switch {
+  display: grid;
+  flex-shrink: 0;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px 12px 0;
+}
+
+.task-mobile-view-switch__btn {
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #DCE6F3;
+  border-radius: 999px;
+  color: #64748B;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  height: 34px;
+  min-width: 0;
+  padding: 0 12px;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.task-mobile-view-switch__btn.is-active {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+  color: #2563EB;
+}
+
+.task-mobile-week {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding: 10px 12px 12px;
+}
+
+.task-mobile-week-header {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  justify-content: space-between;
+  padding-bottom: 10px;
+}
+
+.task-mobile-week-nav {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-mobile-week-nav__button,
+.task-mobile-week-nav__today {
+  align-items: center;
+  appearance: none;
+  background: #FFFFFF;
+  border: 1px solid #DCE6F3;
+  color: #2563EB;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 30px;
+  justify-content: center;
+}
+
+.task-mobile-week-nav__button {
+  border-radius: 10px;
+  width: 30px;
+}
+
+.task-mobile-week-nav__button .task-tree-chevron {
+  height: 6px;
+  width: 6px;
+}
+
+.task-mobile-week-nav__button--prev .task-tree-chevron {
+  transform: rotate(135deg) translateX(1px);
+}
+
+.task-mobile-week-nav__button--next .task-tree-chevron {
+  transform: rotate(-45deg);
+}
+
+.task-mobile-week-nav__range {
+  color: #1F2937;
+  flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 700;
+  min-width: 0;
+  text-align: center;
+}
+
+.task-mobile-week-nav__today {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 38px;
+  padding: 0 10px;
+}
+
+.task-mobile-week-list {
+  background: #FFFFFF;
+  border: 1px solid #E5EAF2;
+  border-radius: 14px;
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.task-mobile-week-day {
+  align-items: stretch;
+  cursor: pointer;
+  display: grid;
+  flex: 0 0 auto;
+  grid-auto-rows: minmax(84px, auto);
+  grid-template-columns: 74px minmax(0, 1fr);
+  height: auto;
+  min-height: 84px;
+  min-width: 0;
+}
+
+.task-mobile-week-day + .task-mobile-week-day {
+  border-top: 1px solid #E5EAF2;
+}
+
+.task-mobile-week-day.is-today {
+  background: #EFF6FF;
+}
+
+.task-mobile-week-day__date {
+  align-items: center;
+  border-right: 1px solid #E5EAF2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-width: 0;
+  padding: 10px 6px;
+}
+
+.task-mobile-week-day__weekday {
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.task-mobile-week-day.is-today .task-mobile-week-day__weekday,
+.task-mobile-week-day.is-today .task-mobile-week-day__daynum,
+.task-mobile-week-day.is-today .task-mobile-week-day__count {
+  color: #2563EB;
+}
+
+.task-mobile-week-day__daynum {
+  color: #1F2937;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.task-mobile-week-day__count {
+  color: #94A3B8;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.task-mobile-week-day__content {
+  align-content: flex-start;
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 84px;
+  min-width: 0;
+  padding: 12px 10px;
+}
+
+.task-mobile-week-day__empty {
+  color: #94A3B8;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+
+.task-mobile-week-task {
+  align-items: center;
+  appearance: none;
+  background: var(--task-mobile-week-bg, #FFFFFF);
+  border: 1px solid var(--task-mobile-week-border, #E5EAF2);
+  border-radius: 8px;
+  color: #1F2937;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 8px 4px 18px;
+  position: relative;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-mobile-week-task::before {
+  background: var(--task-mobile-week-dot, #F59E0B);
+  border-radius: 999px;
+  content: "";
+  height: 6px;
+  left: 8px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
 }
 
 .task-tracker--mobile .task-tracker-dock__task-row {

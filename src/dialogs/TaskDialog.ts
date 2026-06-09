@@ -557,8 +557,8 @@ export class TaskDialog {
     const progressRoot = root.querySelector<HTMLElement>("[data-progress-root]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
     const noteFolderCard = root.querySelector<HTMLElement>("[data-note-folder-card]");
-    titleInput?.focus();
-    titleInput?.select();
+    root.querySelector<HTMLElement>(".task-tracker-dialog-v3__btn-cancel")?.focus();
+    titleInput?.blur();
 
     let detailLoadedValue = "";
     let detailSaveTimer: number | undefined;

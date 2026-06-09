@@ -194,7 +194,7 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private viewActions() {
     return {
-      newTask: () => void this.showTaskDialog(),
+      newTask: (options?: { presetPlanDate?: string; parentId?: string }) => void this.showTaskDialog(options || {}),
       createSubtask: (parentId: string) => void this.showTaskDialog({ parentId }),
       editTask: (task: TaskItem) => void this.showTaskDialog({ task }),
       openTask: (task: TaskItem) => void this.openTask(task),

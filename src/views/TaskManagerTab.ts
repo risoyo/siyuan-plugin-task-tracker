@@ -114,6 +114,11 @@ interface StatusMigrationDraft {
   taskCount: number;
 }
 
+interface CalendarWeekTaskGroups {
+  morning: TaskItem[];
+  afternoon: TaskItem[];
+}
+
 interface SettingsDialogState {
   page: SettingsDialogPage;
   activeTab: SettingsDialogTab;
@@ -247,6 +252,8 @@ export class TaskManagerTab {
   private resizeCleanup?: () => void;
   private pendingTableScrollRestore?: { bodyTop: number; bodyLeft: number; wrapTop: number; wrapLeft: number };
   private pendingTableFocusTaskId?: string;
+  private weekRowHeightCleanup?: () => void;
+  private weekRowHeightRaf?: number;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
   private unsubscribe?: () => void;
@@ -279,6 +286,11 @@ export class TaskManagerTab {
   destroy(): void {
     this.unsubscribe?.();
     this.resizeCleanup?.();
+    this.weekRowHeightCleanup?.();
+    if (this.weekRowHeightRaf !== undefined) {
+      window.cancelAnimationFrame(this.weekRowHeightRaf);
+      this.weekRowHeightRaf = undefined;
+    }
     this.container.onclick = null;
     this.container.onchange = null;
     this.container.oninput = null;
@@ -307,6 +319,7 @@ export class TaskManagerTab {
 
     this.bind();
     this.restoreTableScrollPosition();
+    this.setupCalendarWeekRowHeightSync();
   }
 
   private captureTableScrollPosition(): void {
@@ -341,6 +354,58 @@ export class TaskManagerTab {
       this.pendingTableFocusTaskId = undefined;
     }
     this.pendingTableScrollRestore = undefined;
+  }
+
+  private setupCalendarWeekRowHeightSync(): void {
+    this.weekRowHeightCleanup?.();
+    this.weekRowHeightCleanup = undefined;
+    if (this.weekRowHeightRaf !== undefined) {
+      window.cancelAnimationFrame(this.weekRowHeightRaf);
+      this.weekRowHeightRaf = undefined;
+    }
+
+    if (this.view !== "calendar" || this.calendarMode !== "week") {
+      this.resetCalendarWeekRowHeights();
+      return;
+    }
+
+    const sync = () => this.syncCalendarWeekRowHeights();
+    sync();
+    window.addEventListener("resize", sync);
+    this.weekRowHeightCleanup = () => {
+      window.removeEventListener("resize", sync);
+    };
+  }
+
+  private syncCalendarWeekRowHeights(): void {
+    if (this.weekRowHeightRaf !== undefined) {
+      window.cancelAnimationFrame(this.weekRowHeightRaf);
+    }
+    this.weekRowHeightRaf = window.requestAnimationFrame(() => {
+      this.weekRowHeightRaf = undefined;
+      const rows = Array.from(this.container.querySelectorAll<HTMLElement>(".task-manager-calendar--week .task-manager-calendar-week-row"));
+      if (!rows.length) {
+        return;
+      }
+      rows.forEach((row) => {
+        row.style.minHeight = "";
+      });
+      const maxHeight = rows.reduce((max, row) => Math.max(max, row.getBoundingClientRect().height), 0);
+      const nextHeight = Math.ceil(maxHeight);
+      if (!nextHeight) {
+        return;
+      }
+      rows.forEach((row) => {
+        row.style.minHeight = `${nextHeight}px`;
+      });
+    });
+  }
+
+  private resetCalendarWeekRowHeights(): void {
+    const rows = Array.from(this.container.querySelectorAll<HTMLElement>(".task-manager-calendar-week-row"));
+    rows.forEach((row) => {
+      row.style.minHeight = "";
+    });
   }
 
   private renderToolbar(tasks: TaskItem[]): string {
@@ -1926,6 +1991,10 @@ export class TaskManagerTab {
   private renderCalendarWeekDay(day: { date: Date; label: string; dateKey: string; isToday: boolean }, tasks: TaskItem[]): string {
     const dayLabel = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
     const todayClass = day.isToday ? "is-today" : "";
+    const groupedTasks = groupCalendarWeekTasksByPeriod(tasks);
+    const taskAreaClass = groupedTasks.morning.length && groupedTasks.afternoon.length
+      ? "task-manager-calendar-week-row__tasks has-dual-groups"
+      : "task-manager-calendar-week-row__tasks";
 
     return `<div class="task-manager-calendar-week-row ${todayClass}" data-date="${day.dateKey}">
   <div class="task-manager-calendar-week-row__label">
@@ -1933,8 +2002,28 @@ export class TaskManagerTab {
     <span class="task-manager-calendar-week-row__date">${dayLabel}</span>
     ${tasks.length ? `<span class="task-manager-calendar-week-row__count">${tasks.length}</span>` : ""}
   </div>
-  <div class="task-manager-calendar-week-row__tasks">
-    ${tasks.length ? tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" style="${escapeAttr(this.buildStatusStyleVars(task.status))}">${escapeHtml(task.title)}</button>`).join("") : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
+  <div class="${taskAreaClass}">
+    ${tasks.length ? this.renderCalendarWeekTaskGroups(groupedTasks) : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
+  </div>
+</div>`;
+  }
+
+  private renderCalendarWeekTaskGroups(groups: CalendarWeekTaskGroups): string {
+    const sections: string[] = [];
+    if (groups.morning.length) {
+      sections.push(this.renderCalendarWeekTaskGroup("上午", groups.morning));
+    }
+    if (groups.afternoon.length) {
+      sections.push(this.renderCalendarWeekTaskGroup("下午", groups.afternoon));
+    }
+    return sections.join("");
+  }
+
+  private renderCalendarWeekTaskGroup(label: "上午" | "下午", tasks: TaskItem[]): string {
+    return `<div class="task-manager-calendar-week-group">
+  <span class="task-manager-calendar-week-group__label">${label}</span>
+  <div class="task-manager-calendar-week-group__items">
+    ${tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" style="${escapeAttr(this.buildStatusStyleVars(task.status))}">${escapeHtml(task.title)}</button>`).join("")}
   </div>
 </div>`;
   }
@@ -3189,6 +3278,51 @@ function groupTasksByDate(tasks: TaskItem[]): Record<string, TaskItem[]> {
     result[key].push(task);
   }
   return result;
+}
+
+function groupCalendarWeekTasksByPeriod(tasks: TaskItem[]): CalendarWeekTaskGroups {
+  const sorted = [...tasks].sort(compareCalendarWeekTasks);
+  const groups: CalendarWeekTaskGroups = {
+    morning: [],
+    afternoon: []
+  };
+  for (const task of sorted) {
+    if (calendarWeekTaskPeriod(task.planStart) === "afternoon") {
+      groups.afternoon.push(task);
+    } else {
+      groups.morning.push(task);
+    }
+  }
+  return groups;
+}
+
+function compareCalendarWeekTasks(a: TaskItem, b: TaskItem): number {
+  return compareOptionalDates(a.planStart, b.planStart, "asc")
+    || compareOptionalDates(a.createdAt, b.createdAt, "asc")
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
+}
+
+function calendarWeekTaskPeriod(value?: string): "morning" | "afternoon" {
+  const hour = extractHourFromDatetime(value);
+  if (hour === undefined) {
+    return "morning";
+  }
+  return hour < 12 ? "morning" : "afternoon";
+}
+
+function extractHourFromDatetime(value?: string): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.getHours();
+  }
+  const timeMatch = value.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!timeMatch) {
+    return undefined;
+  }
+  return Number.parseInt(timeMatch[1], 10);
 }
 
 function monthInputValue(date: Date): string {

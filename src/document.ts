@@ -410,7 +410,7 @@ export class TaskService {
     const reportRoot = await ensureWeeklyReportRoot(settings);
     const reportHPath = `${reportRoot.hpath === "/" ? "" : reportRoot.hpath}/${title}`;
     const existing = await getDocRefByHPath(settings.taskRootNotebookId, reportHPath);
-    const itemsBody = renderWeeklyReportItemsBody(week, tasks);
+    const itemsBody = await renderWeeklyReportItemsBody(this, week, tasks);
 
     if (!existing) {
       const markdown = buildWeeklyReportMarkdown(title, itemsBody, progressBody, "", "");
@@ -2097,7 +2097,7 @@ ${planHeading}
 ${normalizedPlan}${normalizedPlan ? "\n" : ""}`.trimEnd() + "\n";
 }
 
-function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
+async function renderWeeklyReportItemsBody(service: Pick<TaskService, "getTaskDetail">, week: string, tasks: TaskItem[]): Promise<string> {
   const weekStart = startOfWeek(new Date(`${week}T00:00:00`));
   const groups = new Map<string, TaskItem[]>();
   for (let offset = 0; offset < 7; offset += 1) {
@@ -2111,12 +2111,33 @@ function renderWeeklyReportItemsBody(week: string, tasks: TaskItem[]): string {
     }
     groups.get(key)?.push(task);
   }
+  const details = new Map<string, string>();
+  await Promise.all(tasks.map(async (task) => {
+    details.set(task.id, await service.getTaskDetail(task.docId).catch(() => ""));
+  }));
+
   return WEEKDAY_LABELS.map((label, index) => {
     const day = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + index);
     const key = toDateKey(day.toISOString());
-    const refs = (groups.get(key) || []).map((task) => `- ${blockRef(task.docId, task.title)}`).join("\n");
+    const refs = (groups.get(key) || [])
+      .map((task) => formatCompletedTaskForWeeklyReport(task, details.get(task.id) || ""))
+      .join("\n");
     return `### ${label}\n${refs}`.trimEnd();
   }).join("\n\n");
+}
+
+function formatCompletedTaskForWeeklyReport(task: TaskItem, detail: string): string {
+  const ref = `- #### ${blockRef(task.docId, task.title)}`;
+  const normalizedDetail = normalizeTaskDetailBody(detail);
+  if (!normalizedDetail) {
+    return ref;
+  }
+
+  const indentedDetail = normalizedDetail
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+  return `${ref}\n\n${indentedDetail}`;
 }
 
 function renderWeeklyProgressBody(week: string, tasks: TaskItem[]): string {
