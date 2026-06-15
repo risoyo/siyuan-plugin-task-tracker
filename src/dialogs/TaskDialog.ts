@@ -38,6 +38,7 @@ export interface TaskDialogOptions {
   task?: TaskItem;
   onSaved?: (task: TaskItem) => void;
   onOpenTask?: (task: TaskItem) => void;
+  onOpenSourceDoc?: (docId: string) => void;
 }
 
 type SourceMode = "manual" | "note";
@@ -356,11 +357,6 @@ export class TaskDialog {
       return html;
     })();
 
-    const sourceSegmentHtml = buildSegmentedControl("sourceMode", [
-      { value: "manual", label: "手动创建", icon: ICONS.edit },
-      { value: "note", label: "笔记", icon: ICONS.doc },
-    ], sourceMode);
-
     const statusBadgeHtml = statusBadge(defaultStatus, settings);
     const priorityBadgeHtml = priorityBadge(defaultPriority);
     const statusDropdownHtml = statusDropdown(defaultStatus, settings);
@@ -371,6 +367,7 @@ export class TaskDialog {
     const dialog = new Dialog({
       title: "",
       content: `<div class="task-tracker-dialog-v3">
+  <div class="task-tracker-dialog-v3__drag-strip" data-drag-handle aria-hidden="true"></div>
   <div class="task-tracker-dialog-v3__header">
     <div class="task-tracker-dialog-v3__header-left">
       <div class="task-tracker-dialog-v3__icon-block">
@@ -496,9 +493,8 @@ export class TaskDialog {
           <div class="task-tracker-dialog-v3__source-left">
             <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--compact">
               <span class="task-tracker-dialog-v3__label">来源</span>
-              <div class="task-tracker-dialog-v3__source-control">
-                ${sourceSegmentHtml}
-                <input class="task-tracker-dialog-v3__source-note-input" name="sourceDocId" placeholder="填写笔记ID" value="${escapeAttr(defaultSourceDocId)}" data-source-note style="${sourceMode === "note" ? "" : "display:none"}" />
+              <div class="task-note-folder" data-source-root>
+                <div data-source-card></div>
               </div>
             </label>
             <div class="task-note-folder" data-note-folder-root>
@@ -550,12 +546,14 @@ export class TaskDialog {
     }
 
     const form = root.querySelector("form") as HTMLFormElement;
+    const dragHandle = root.querySelector<HTMLElement>("[data-drag-handle]");
+    const dialogContainer = dialog.element.querySelector<HTMLElement>(".b3-dialog__container");
     const titleInput = root.querySelector<HTMLInputElement>("input[name='title']");
-    const sourceDocIdInput = root.querySelector<HTMLInputElement>("input[name='sourceDocId']");
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
     const progressRoot = root.querySelector<HTMLElement>("[data-progress-root]");
     const submitButton = root.querySelector<HTMLButtonElement>(".task-tracker-dialog-v3__btn-primary") as HTMLButtonElement;
+    const sourceCard = root.querySelector<HTMLElement>("[data-source-card]");
     const noteFolderCard = root.querySelector<HTMLElement>("[data-note-folder-card]");
     root.querySelector<HTMLElement>(".task-tracker-dialog-v3__btn-cancel")?.focus();
     titleInput?.blur();
@@ -565,6 +563,14 @@ export class TaskDialog {
     let detailSaving = false;
     let detailDirty = false;
     let destroyed = false;
+    let pendingAfterSaveAction: "open-source" | undefined;
+    let sourceEditing = false;
+    let sourceDraftMode: SourceMode = sourceMode;
+    let sourceDocIdDraft = defaultSourceDocId;
+    let sourceResolvedDocTitle = sourceMode === "note" && selectedSource?.blockId === selectedSource?.docId
+      ? (selectedSource?.text || "")
+      : "";
+    let cleanupDrag: (() => void) | undefined;
     let noteFolderPath = defaultNoteFolderPath;
     let noteFolderDraft = defaultNoteFolderPath;
     let noteFolderEditing = false;
@@ -726,21 +732,69 @@ export class TaskDialog {
       }
     };
 
-    const renderSourceMode = () => {
-      if (sourceDocIdInput) {
-        sourceDocIdInput.style.display = sourceMode === "note" ? "" : "none";
+    const renderSourceModeButtons = (mode: SourceMode): string => buildSegmentedControl("sourceMode", [
+      { value: "manual", label: "手动创建", icon: ICONS.edit },
+      { value: "note", label: "笔记", icon: ICONS.doc },
+    ], mode)
+      .replace(/data-segments="sourceMode"/g, 'data-source-mode-group="sourceMode"')
+      .replace(/data-segment-value=/g, "data-source-mode-value=");
+
+    const currentSourceDisplayText = (): string => {
+      if (sourceMode === "manual" || !selectedSource?.docId) {
+        return "手动创建";
       }
-      if (sourceMode === "manual") {
-        selectedSource = undefined;
-        if (sourceDocIdInput) sourceDocIdInput.value = "";
+      if (selectedSource.blockId && selectedSource.blockId !== selectedSource.docId) {
+        return selectedSource.text || sourceResolvedDocTitle || selectedSource.docId;
       }
-      root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
-        btn.classList.toggle("is-active", btn.dataset.segmentValue === sourceMode);
-      });
+      return sourceResolvedDocTitle || selectedSource.text || selectedSource.docId;
     };
 
-    const applyDocIdSource = async (): Promise<void> => {
-      const docId = sourceDocIdInput?.value.trim() || "";
+    const renderSource = () => {
+      if (!sourceCard) {
+        return;
+      }
+      const hasNoteSource = sourceMode === "note" && Boolean(selectedSource?.docId);
+      const displayText = currentSourceDisplayText();
+      const displayTitle = hasNoteSource && selectedSource?.docId
+        ? `笔记ID：${selectedSource.docId}`
+        : displayText;
+      sourceCard.innerHTML = sourceEditing
+        ? `<div class="task-note-folder__card task-note-folder__card--editing">
+            <div class="task-note-folder__edit">
+              <div class="task-tracker-dialog-v3__source-control">
+                ${renderSourceModeButtons(sourceDraftMode)}
+                ${sourceDraftMode === "note"
+                  ? `<input class="task-tracker-dialog-v3__source-note-input" name="sourceDocIdDraft" placeholder="填写笔记ID" value="${escapeAttr(sourceDocIdDraft)}" data-source-doc-input />`
+                  : ""}
+              </div>
+              <button type="button" class="task-note-folder__action task-note-folder__action--primary" data-source-action="save">${ICONS.save}<span>保存</span></button>
+              <button type="button" class="task-note-folder__action task-note-folder__action--neutral" data-source-action="cancel">取消</button>
+            </div>
+          </div>`
+        : `<div class="task-note-folder__card">
+            <div class="task-note-folder__summary">
+              <span class="task-note-folder__icon">${hasNoteSource ? ICONS.doc : ICONS.edit}</span>
+              <span class="task-note-folder__path" title="${escapeAttr(displayTitle)}">${escapeHtml(displayText)}</span>
+            </div>
+            <div class="task-note-folder__actions">
+              <button type="button" class="task-note-folder__action" data-source-action="edit">${ICONS.edit}<span>编辑</span></button>
+              <button type="button" class="task-note-folder__action" data-source-action="open" ${hasNoteSource ? "" : "disabled"}><span class="task-note-folder__icon-inline">${ICONS.folder}</span><span>打开</span></button>
+              <button type="button" class="task-note-folder__action task-note-folder__action--danger" data-source-action="clear" ${hasNoteSource ? "" : "disabled"}>${ICONS.trash}<span>清空</span></button>
+            </div>
+          </div>`;
+    };
+
+    const saveSourceDraft = async (): Promise<void> => {
+      if (sourceDraftMode === "manual") {
+        sourceMode = "manual";
+        sourceEditing = false;
+        sourceDocIdDraft = "";
+        sourceResolvedDocTitle = "";
+        selectedSource = undefined;
+        renderSource();
+        return;
+      }
+      const docId = sourceDocIdDraft.trim();
       if (!docId) {
         throw new Error("请先填写笔记 ID");
       }
@@ -748,16 +802,135 @@ export class TaskDialog {
       if (!doc) {
         throw new Error("填写的笔记 ID 无效，或它不是一篇文档");
       }
+      const title = doc.content || doc.hpath || doc.id;
+      sourceMode = "note";
+      sourceEditing = false;
+      sourceDocIdDraft = doc.id;
+      sourceResolvedDocTitle = title;
       selectedSource = {
         blockId: doc.id,
         docId: doc.id,
-        text: doc.content || doc.hpath || doc.id
+        text: title
       };
+      renderSource();
     };
 
-    renderSourceMode();
+    const cancelSourceEdit = () => {
+      sourceDraftMode = sourceMode;
+      sourceDocIdDraft = selectedSource?.docId || "";
+      sourceEditing = false;
+      renderSource();
+    };
+
+    const openSourceDoc = () => {
+      if (!selectedSource?.docId) {
+        return;
+      }
+      this.options.onOpenSourceDoc?.(selectedSource.docId);
+    };
+
+    const enableDialogDrag = (): (() => void) | undefined => {
+      if (isMobileFrontend || !dragHandle || !dialogContainer) {
+        return undefined;
+      }
+      let activePointerId: number | undefined;
+      let offsetX = 0;
+      let offsetY = 0;
+      let rafId = 0;
+      let nextLeft = 0;
+      let nextTop = 0;
+      let capturedPointerId: number | undefined;
+      let teardownPointerListeners: (() => void) | undefined;
+
+      const stopDragging = () => {
+        document.body.classList.remove("task-tracker-dialog-dragging");
+        if (rafId) {
+          window.cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+        teardownPointerListeners?.();
+        teardownPointerListeners = undefined;
+        activePointerId = undefined;
+        capturedPointerId = undefined;
+      };
+
+      const applyPosition = () => {
+        rafId = 0;
+        dialogContainer.style.left = `${nextLeft}px`;
+        dialogContainer.style.top = `${nextTop}px`;
+      };
+
+      const schedulePosition = () => {
+        if (!rafId) {
+          rafId = window.requestAnimationFrame(applyPosition);
+        }
+      };
+
+      const handlePointerMove = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) {
+          return;
+        }
+        const width = dialogContainer.offsetWidth;
+        const height = dialogContainer.offsetHeight;
+        const visibleX = Math.min(Math.max(Math.round(width * 0.18), 120), 240);
+        const visibleY = 36;
+        const minLeft = visibleX - width;
+        const maxLeft = window.innerWidth - visibleX;
+        const minTop = 8;
+        const maxTop = window.innerHeight - visibleY;
+        nextLeft = Math.max(minLeft, Math.min(event.clientX - offsetX, maxLeft));
+        nextTop = Math.max(minTop, Math.min(event.clientY - offsetY, maxTop));
+        schedulePosition();
+      };
+
+      const handlePointerUp = (event: PointerEvent) => {
+        if (activePointerId !== event.pointerId) {
+          return;
+        }
+        stopDragging();
+      };
+
+      dragHandle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) {
+          return;
+        }
+        event.preventDefault();
+        const rect = dialogContainer.getBoundingClientRect();
+        dialogContainer.style.position = "fixed";
+        dialogContainer.style.left = `${rect.left}px`;
+        dialogContainer.style.top = `${rect.top}px`;
+        dialogContainer.style.margin = "0";
+        dialogContainer.style.transform = "none";
+        offsetX = event.clientX - rect.left;
+        offsetY = event.clientY - rect.top;
+        nextLeft = rect.left;
+        nextTop = rect.top;
+        activePointerId = event.pointerId;
+        capturedPointerId = event.pointerId;
+        document.body.classList.add("task-tracker-dialog-dragging");
+        dragHandle.setPointerCapture(event.pointerId);
+        const moveListener = (moveEvent: PointerEvent) => handlePointerMove(moveEvent);
+        const upListener = (upEvent: PointerEvent) => handlePointerUp(upEvent);
+        const cancelListener = (cancelEvent: PointerEvent) => handlePointerUp(cancelEvent);
+        dragHandle.addEventListener("pointermove", moveListener);
+        dragHandle.addEventListener("pointerup", upListener);
+        dragHandle.addEventListener("pointercancel", cancelListener);
+        teardownPointerListeners = () => {
+          dragHandle.removeEventListener("pointermove", moveListener);
+          dragHandle.removeEventListener("pointerup", upListener);
+          dragHandle.removeEventListener("pointercancel", cancelListener);
+          if (capturedPointerId !== undefined && dragHandle.hasPointerCapture(capturedPointerId)) {
+            dragHandle.releasePointerCapture(capturedPointerId);
+          }
+        };
+      });
+      return stopDragging;
+    };
+
+    renderSource();
     renderNoteFolder();
     renderProgressSection();
+    cleanupDrag = enableDialogDrag();
 
     const openMenu = (menu: HTMLElement, trigger: HTMLElement) => {
       menu.style.display = "";
@@ -1097,6 +1270,69 @@ export class TaskDialog {
         }
       }
 
+      const sourceAction = target.closest<HTMLElement>("[data-source-action]");
+      if (sourceAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const action = sourceAction.dataset.sourceAction;
+        if (action === "edit") {
+          sourceDraftMode = sourceMode;
+          sourceDocIdDraft = selectedSource?.docId || "";
+          sourceEditing = true;
+          renderSource();
+          root.querySelector<HTMLInputElement>("[data-source-doc-input]")?.focus();
+          return;
+        }
+        if (action === "save") {
+          const sourceInput = root.querySelector<HTMLInputElement>("[data-source-doc-input]");
+          sourceDocIdDraft = sourceInput?.value || sourceDocIdDraft;
+          void saveSourceDraft()
+            .then(() => {
+              root.querySelector<HTMLInputElement>("input[name='title']")?.focus();
+            })
+            .catch((error) => {
+              showMessage(error instanceof Error ? error.message : "保存来源失败", 5000, "error");
+            });
+          return;
+        }
+        if (action === "cancel") {
+          cancelSourceEdit();
+          return;
+        }
+        if (action === "open") {
+          pendingAfterSaveAction = "open-source";
+          form.requestSubmit();
+          return;
+        }
+        if (action === "clear") {
+          sourceDraftMode = "manual";
+          sourceDocIdDraft = "";
+          void saveSourceDraft().catch((error) => {
+            showMessage(error instanceof Error ? error.message : "清空来源失败", 5000, "error");
+          });
+          return;
+        }
+      }
+
+      const sourceModeButton = target.closest<HTMLElement>("[data-source-mode-value]");
+      if (sourceModeButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const value = sourceModeButton.dataset.sourceModeValue as SourceMode | undefined;
+        if (!value) {
+          return;
+        }
+        sourceDraftMode = value;
+        if (value === "manual") {
+          sourceDocIdDraft = "";
+        }
+        renderSource();
+        if (value === "note") {
+          root.querySelector<HTMLInputElement>("[data-source-doc-input]")?.focus();
+        }
+        return;
+      }
+
       const dropdownToggle = target.closest<HTMLElement>("[data-dropdown-toggle]");
       if (dropdownToggle) {
         event.stopPropagation();
@@ -1147,6 +1383,9 @@ export class TaskDialog {
       const noteFolderInput = event.target instanceof HTMLInputElement && event.target.matches("[data-note-folder-input]")
         ? event.target
         : undefined;
+      const sourceDocInput = event.target instanceof HTMLInputElement && event.target.matches("[data-source-doc-input]")
+        ? event.target
+        : undefined;
       if (noteFolderInput) {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -1157,6 +1396,21 @@ export class TaskDialog {
         if (event.key === "Escape") {
           event.preventDefault();
           cancelNoteFolderEdit();
+          return;
+        }
+      }
+      if (sourceDocInput) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          sourceDocIdDraft = sourceDocInput.value;
+          void saveSourceDraft().catch((error) => {
+            showMessage(error instanceof Error ? error.message : "保存来源失败", 5000, "error");
+          });
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelSourceEdit();
           return;
         }
       }
@@ -1208,6 +1462,7 @@ export class TaskDialog {
       destroyed = true;
       window.clearTimeout(detailSaveTimer);
       document.removeEventListener("click", handleOutsideClick);
+      cleanupDrag?.();
       dialog.destroy();
     };
 
@@ -1230,16 +1485,6 @@ export class TaskDialog {
       void handleOpenTask();
     });
 
-    root.querySelectorAll<HTMLElement>("[data-segment-value]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const val = btn.dataset.segmentValue as SourceMode;
-        if (val) {
-          sourceMode = val;
-          renderSourceMode();
-        }
-      });
-    });
-
     submitButton?.addEventListener("click", () => form.requestSubmit());
 
     form.addEventListener("submit", async (event) => {
@@ -1248,6 +1493,11 @@ export class TaskDialog {
       submitButton.textContent = submittingLabel;
 
       try {
+        if (sourceEditing) {
+          const sourceInput = root.querySelector<HTMLInputElement>("[data-source-doc-input]");
+          sourceDocIdDraft = sourceInput?.value || sourceDocIdDraft;
+          await saveSourceDraft();
+        }
         if (noteFolderEditing) {
           const noteFolderInput = root.querySelector<HTMLInputElement>("[data-note-folder-input]");
           noteFolderDraft = noteFolderInput?.value || noteFolderDraft;
@@ -1259,9 +1509,7 @@ export class TaskDialog {
           throw new Error("请先完成推进记录编辑。");
         }
         const data = new FormData(form);
-        if (sourceMode === "note") {
-          await applyDocIdSource();
-        } else {
+        if (sourceMode === "manual") {
           selectedSource = undefined;
         }
         const baseInput = {
@@ -1302,10 +1550,20 @@ export class TaskDialog {
             progressRecords: normalizedProgressRecords,
             detail: detailValue
           });
+        const sourceDocIdToOpen = pendingAfterSaveAction === "open-source"
+          ? selectedSource?.docId
+          : undefined;
+        pendingAfterSaveAction = undefined;
         showMessage(editMode ? "任务已更新" : "任务文档已创建");
         this.options.onSaved?.(task);
+        if (sourceDocIdToOpen) {
+          cleanupDialog();
+          this.options.onOpenSourceDoc?.(sourceDocIdToOpen);
+          return;
+        }
         cleanupDialog();
       } catch (error) {
+        pendingAfterSaveAction = undefined;
         showMessage(error instanceof Error ? error.message : (editMode ? "更新任务失败" : "创建任务失败"), 5000, "error");
         submitButton.disabled = false;
         submitButton.textContent = submitLabel;

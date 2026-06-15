@@ -4020,6 +4020,12 @@
   overflow: hidden;
 }
 
+.task-tracker-dialog-v3__drag-strip {
+  cursor: move;
+  flex-shrink: 0;
+  height: 24px;
+}
+
 /* Header */
 .task-tracker-dialog-v3__header {
   align-items: center;
@@ -4028,7 +4034,7 @@
   flex-shrink: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
   min-height: 56px;
-  padding: 10px 20px;
+  padding: 0 20px 10px;
 }
 
 .task-tracker-dialog-v3__header-left {
@@ -4837,6 +4843,10 @@
   flex-shrink: 0;
 }
 
+.task-note-folder__icon-inline {
+  display: inline-flex;
+}
+
 .task-note-folder__path {
   color: #475569;
   flex: 1;
@@ -4998,6 +5008,11 @@
 
 .task-tracker-dialog-v3__source-note-input::placeholder {
   color: #94A3B8;
+}
+
+.task-note-folder__edit .task-tracker-dialog-v3__source-control {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .task-tracker-dialog-v3__source-right {
@@ -5559,6 +5574,11 @@ body > [data-name="dialog"] .b3-dialog__container {
 
 body > [data-name="dialog"] .b3-dialog__close {
   display: none;
+}
+
+body.task-tracker-dialog-dragging {
+  cursor: move;
+  user-select: none;
 }
 
 /* ── Responsive ────────────────────────────────────────────────── */
