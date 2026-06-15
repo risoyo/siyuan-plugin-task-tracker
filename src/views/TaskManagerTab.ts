@@ -237,7 +237,7 @@ export class TaskManagerTab {
   private activePopover: { taskId: string; field: "status" | "priority" } | null = null;
   private activePopoverCleanup?: () => void;
   private month = monthStart(new Date());
-  private calendarMode: "month" | "week" = "month";
+  private calendarMode: "month" | "week" = "week";
   private weekStart = startOfWeek(new Date());
   private collapsedTaskIds = new Set<string>();
   private expandedCompletedGroups = new Set<string>();
