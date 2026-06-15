@@ -29,6 +29,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private startupRetryTimers = new Set<number>();
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
+  private contentMenuHandler = this.handleContentMenu.bind(this);
   private wsMainHandler = this.handleWsMain.bind(this);
 
   onload(): void {
@@ -89,6 +90,7 @@ export default class TaskTrackerPlugin extends Plugin {
     }
     this.eventBus.off("click-editortitleicon", this.docMenuHandler);
     this.eventBus.off("click-blockicon", this.blockMenuHandler);
+    this.eventBus.off("open-menu-content", this.contentMenuHandler);
     this.eventBus.off("ws-main", this.wsMainHandler);
   }
 
@@ -179,6 +181,7 @@ export default class TaskTrackerPlugin extends Plugin {
   private registerContextMenus(): void {
     this.eventBus.on("click-editortitleicon", this.docMenuHandler);
     this.eventBus.on("click-blockicon", this.blockMenuHandler);
+    this.eventBus.on("open-menu-content", this.contentMenuHandler);
     this.eventBus.on("ws-main", this.wsMainHandler);
   }
 
@@ -232,6 +235,31 @@ export default class TaskTrackerPlugin extends Plugin {
       icon: "iconAdd",
       label: blockElements.length > 1 ? "从第一个选中块创建任务" : "从当前块创建任务",
       click: () => void this.createTaskFromBlock(firstBlockId)
+    });
+  }
+
+  private handleContentMenu({ detail }: any): void {
+    const menu = detail?.menu;
+    const range = detail?.range as Range | undefined;
+    if (!menu || !range || range.collapsed) {
+      return;
+    }
+
+    const selectedText = this.normalizeSelectedText(range.toString());
+    if (!selectedText) {
+      return;
+    }
+
+    const startBlockId = this.findBlockIdFromNode(range.startContainer, detail?.element);
+    const endBlockId = this.findBlockIdFromNode(range.endContainer, detail?.element);
+    if (!startBlockId || !endBlockId || startBlockId !== endBlockId) {
+      return;
+    }
+
+    menu.addItem({
+      icon: "iconAdd",
+      label: "以选中文本创建任务",
+      click: () => void this.createTaskFromSelection(startBlockId, selectedText)
     });
   }
 
@@ -335,6 +363,22 @@ export default class TaskTrackerPlugin extends Plugin {
     }
   }
 
+  private async createTaskFromSelection(blockId: string, selectedText: string): Promise<void> {
+    await this.ready;
+    try {
+      const source = await sourceFromBlock(blockId);
+      await this.showTaskDialog({
+        source: {
+          ...source,
+          text: selectedText
+        },
+        presetTitle: selectedText
+      });
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : "读取选中内容失败", 5000, "error");
+    }
+  }
+
   private async openTaskManager(): Promise<void> {
     if (this.isMobileFrontend()) {
       showMessage("移动端请从插件侧栏入口打开任务追踪页面", 4000, "info");
@@ -406,6 +450,17 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private getCurrentProtyle(): any {
     return (this as any).getEditor?.()?.protyle;
+  }
+
+  private normalizeSelectedText(value: string): string {
+    return value.replace(/\s+/g, " ").trim();
+  }
+
+  private findBlockIdFromNode(node: Node | null | undefined, fallbackElement?: Element | null): string | undefined {
+    const startElement = node instanceof Element
+      ? node
+      : node?.parentElement || fallbackElement || undefined;
+    return startElement?.closest?.("[data-node-id]")?.getAttribute("data-node-id") || undefined;
   }
 
   private isMobileFrontend(): boolean {
