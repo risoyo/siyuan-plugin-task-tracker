@@ -32,7 +32,8 @@ import {
   parseProgressRecords,
   renderProgressRecordsMarkdown,
   serializeProgressRecords,
-  TASK_PROGRESS_HEADING
+  TASK_PROGRESS_HEADING,
+  type WeeklyProgressEntry
 } from "./progressRecords";
 import { TaskStore } from "./taskStore";
 import {
@@ -404,7 +405,7 @@ export class TaskService {
     const tasks = this.store.all()
       .filter((task) => isCompletedTaskStatus(task.status) && weekKey(task.completedAt || task.createdAt) === week)
       .sort(compareWeeklyReportTaskOrder);
-    const progressBody = renderWeeklyProgressBody(week, this.store.all());
+    const progressBody = await renderWeeklyProgressBody(this, week, this.store.all());
     const weekLabel = formatCompletedWeekLabel(week);
     const title = `${weekLabel}工作`;
     const reportRoot = await ensureWeeklyReportRoot(settings);
@@ -2140,19 +2141,67 @@ function formatCompletedTaskForWeeklyReport(task: TaskItem, detail: string): str
   return `${ref}\n\n${indentedDetail}`;
 }
 
-function renderWeeklyProgressBody(week: string, tasks: TaskItem[]): string {
+async function renderWeeklyProgressBody(service: Pick<TaskService, "getTaskDetail">, week: string, tasks: TaskItem[]): Promise<string> {
   const groups = groupWeeklyProgressRecords(tasks, week);
   if (!groups.length) {
     return "";
   }
 
+  const taskIds = Array.from(new Set(groups.flatMap((group) => group.entries.map(({ task }) => task.id))));
+  const taskDetailMap = new Map<string, string>();
+  await Promise.all(taskIds.map(async (taskId) => {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return;
+    }
+    taskDetailMap.set(taskId, await service.getTaskDetail(task.docId).catch(() => ""));
+  }));
+
   return groups.map(({ groupTask, entries }) => {
-    const lines = entries.map(({ task, record }) => {
-      const taskPrefix = task.id !== groupTask.id ? `【${task.title}】` : "";
-      return `- ${record.date.slice(5)}${taskPrefix}：${normalizeWeeklyProgressLine(record.content)}`;
-    }).join("\n");
-    return `### ${groupTask.title}\n${lines}`;
+    const taskSections = groupWeeklyProgressEntriesByTask(entries).map(({ task, records }) => {
+      const detail = taskDetailMap.get(task.id) || "";
+      return formatWeeklyProgressTaskSection(task, records, detail);
+    }).join("\n\n");
+    return `### ${groupTask.title}\n${taskSections}`;
   }).join("\n\n");
+}
+
+function formatWeeklyProgressTaskSection(task: TaskItem, records: ProgressRecord[], detail: string): string {
+  const recordLines = records
+    .map((record) => `${record.date.slice(5)}：${normalizeWeeklyProgressLine(record.content)}`)
+    .join("\n");
+  const bodyParts = [
+    "##### 推进记录",
+    recordLines
+  ];
+
+  const normalizedDetail = normalizeTaskDetailBody(detail);
+  if (normalizedDetail) {
+    bodyParts.push("##### 任务详情");
+    bodyParts.push(normalizedDetail);
+  }
+
+  return `- #### ${blockRef(task.docId, task.title)}\n\n${indentWeeklyProgressTaskBody(bodyParts.join("\n\n"))}`;
+}
+
+function indentWeeklyProgressTaskBody(value: string): string {
+  return value
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+}
+
+function groupWeeklyProgressEntriesByTask(entries: WeeklyProgressEntry[]): Array<{ task: TaskItem; records: ProgressRecord[] }> {
+  const grouped = new Map<string, { task: TaskItem; records: ProgressRecord[] }>();
+  for (const entry of entries) {
+    const current = grouped.get(entry.task.id) || {
+      task: entry.task,
+      records: []
+    };
+    current.records.push(entry.record);
+    grouped.set(entry.task.id, current);
+  }
+  return Array.from(grouped.values());
 }
 
 function rewriteWeeklyReportMarkdown(markdown: string, title: string, itemsBody: string, progressBody: string): string {
