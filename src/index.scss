@@ -1872,6 +1872,14 @@
   position: relative;
 }
 
+.task-manager-calendar__week-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
 .task-manager-calendar__main {
   display: flex;
   flex: 1 1 auto;
@@ -1879,6 +1887,60 @@
   min-height: 0;
   min-width: 0;
   overflow: auto;
+}
+
+.task-manager-calendar__legend {
+  align-self: flex-end;
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-left: auto;
+  padding: 10px 0 0;
+}
+
+.task-manager-calendar-legend__item {
+  align-items: center;
+  background: #FFFFFF;
+  border: 1px solid var(--manager-border);
+  border-radius: 999px;
+  color: var(--manager-text-secondary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  line-height: 1;
+  padding: 6px 12px;
+}
+
+.task-manager-calendar-legend__item::before {
+  border-radius: 999px;
+  content: "";
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 8px;
+  width: 8px;
+}
+
+.task-manager-calendar-legend__item--schedule {
+  border-color: #FED7AA;
+  color: #C2410C;
+}
+
+.task-manager-calendar-legend__item--schedule::before {
+  background: #F97316;
+}
+
+.task-manager-calendar-legend__item--progress {
+  border-color: #60A5FA;
+  border-style: dashed;
+  color: #2563EB;
+}
+
+.task-manager-calendar-legend__item--progress::before {
+  background: #2563EB;
 }
 
 .task-manager-calendar__weekdays,
@@ -2178,6 +2240,21 @@
   top: 50%;
   transform: translateY(-50%);
   width: 6px;
+}
+
+.task-manager-calendar-pill--progress {
+  background: #FFFFFF;
+  border: 1px dashed #60A5FA;
+  color: #2563EB;
+}
+
+.task-manager-calendar-pill--progress::before {
+  background: #2563EB;
+}
+
+.task-manager-calendar-pill--progress:hover {
+  background: #EFF6FF;
+  border-color: #3B82F6;
 }
 
 /* ── Page Config Dialog ────────────────────────────────────────── */
@@ -5133,7 +5210,7 @@
 .task-progress-editor__grid {
   display: grid;
   gap: 14px 0;
-  grid-template-columns: 160px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
 }
 
 .task-progress-editor__field {
@@ -5149,7 +5226,7 @@
   font-weight: 600;
 }
 
-.task-progress-editor__field--date {
+.task-progress-editor__field--datetime {
   padding-right: 20px;
 }
 
@@ -5544,7 +5621,7 @@
     grid-template-columns: 1fr;
   }
 
-  .task-progress-editor__field--date {
+  .task-progress-editor__field--datetime {
     padding-right: 0;
   }
 

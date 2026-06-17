@@ -19,7 +19,7 @@ import {
 } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
-import { latestProgressRecordSummary } from "../progressRecords";
+import { latestProgressRecordSummary, resolveProgressRecordTime } from "../progressRecords";
 import {
   getActiveTaskStatuses,
   getAllOrderedStatuses,
@@ -114,9 +114,25 @@ interface StatusMigrationDraft {
   taskCount: number;
 }
 
+type CalendarWeekTaskPeriod = "morning" | "afternoon";
+type CalendarWeekTaskKind = "schedule" | "progress";
+
+interface CalendarWeekRenderTask {
+  task: TaskItem;
+  kind: CalendarWeekTaskKind;
+  sortKey: string;
+}
+
+interface CalendarWeekProgressTask {
+  task: TaskItem;
+  period: CalendarWeekTaskPeriod;
+  sortKey: string;
+}
+
 interface CalendarWeekTaskGroups {
-  morning: TaskItem[];
-  afternoon: TaskItem[];
+  morning: CalendarWeekRenderTask[];
+  afternoon: CalendarWeekRenderTask[];
+  total: number;
 }
 
 interface SettingsDialogState {
@@ -252,8 +268,6 @@ export class TaskManagerTab {
   private resizeCleanup?: () => void;
   private pendingTableScrollRestore?: { bodyTop: number; bodyLeft: number; wrapTop: number; wrapLeft: number };
   private pendingTableFocusTaskId?: string;
-  private weekRowHeightCleanup?: () => void;
-  private weekRowHeightRaf?: number;
   private readonly compositionStartListener = (event: CompositionEvent) => this.handleCompositionStart(event);
   private readonly compositionEndListener = (event: CompositionEvent) => this.handleCompositionEnd(event);
   private unsubscribe?: () => void;
@@ -286,11 +300,6 @@ export class TaskManagerTab {
   destroy(): void {
     this.unsubscribe?.();
     this.resizeCleanup?.();
-    this.weekRowHeightCleanup?.();
-    if (this.weekRowHeightRaf !== undefined) {
-      window.cancelAnimationFrame(this.weekRowHeightRaf);
-      this.weekRowHeightRaf = undefined;
-    }
     this.container.onclick = null;
     this.container.onchange = null;
     this.container.oninput = null;
@@ -319,7 +328,6 @@ export class TaskManagerTab {
 
     this.bind();
     this.restoreTableScrollPosition();
-    this.setupCalendarWeekRowHeightSync();
   }
 
   private captureTableScrollPosition(): void {
@@ -354,58 +362,6 @@ export class TaskManagerTab {
       this.pendingTableFocusTaskId = undefined;
     }
     this.pendingTableScrollRestore = undefined;
-  }
-
-  private setupCalendarWeekRowHeightSync(): void {
-    this.weekRowHeightCleanup?.();
-    this.weekRowHeightCleanup = undefined;
-    if (this.weekRowHeightRaf !== undefined) {
-      window.cancelAnimationFrame(this.weekRowHeightRaf);
-      this.weekRowHeightRaf = undefined;
-    }
-
-    if (this.view !== "calendar" || this.calendarMode !== "week") {
-      this.resetCalendarWeekRowHeights();
-      return;
-    }
-
-    const sync = () => this.syncCalendarWeekRowHeights();
-    sync();
-    window.addEventListener("resize", sync);
-    this.weekRowHeightCleanup = () => {
-      window.removeEventListener("resize", sync);
-    };
-  }
-
-  private syncCalendarWeekRowHeights(): void {
-    if (this.weekRowHeightRaf !== undefined) {
-      window.cancelAnimationFrame(this.weekRowHeightRaf);
-    }
-    this.weekRowHeightRaf = window.requestAnimationFrame(() => {
-      this.weekRowHeightRaf = undefined;
-      const rows = Array.from(this.container.querySelectorAll<HTMLElement>(".task-manager-calendar--week .task-manager-calendar-week-row"));
-      if (!rows.length) {
-        return;
-      }
-      rows.forEach((row) => {
-        row.style.minHeight = "";
-      });
-      const maxHeight = rows.reduce((max, row) => Math.max(max, row.getBoundingClientRect().height), 0);
-      const nextHeight = Math.ceil(maxHeight);
-      if (!nextHeight) {
-        return;
-      }
-      rows.forEach((row) => {
-        row.style.minHeight = `${nextHeight}px`;
-      });
-    });
-  }
-
-  private resetCalendarWeekRowHeights(): void {
-    const rows = Array.from(this.container.querySelectorAll<HTMLElement>(".task-manager-calendar-week-row"));
-    rows.forEach((row) => {
-      row.style.minHeight = "";
-    });
   }
 
   private renderToolbar(tasks: TaskItem[]): string {
@@ -1945,7 +1901,7 @@ export class TaskManagerTab {
 
   private renderCalendarWeekView(tasks: TaskItem[]): string {
     const weekLabel = `${formatWeekRangeCompact(formatDateKey(this.weekStart))}`;
-    const tasksByDate = groupTasksByDate(tasks);
+    const scheduledTasksByDate = groupTasksByDate(tasks);
     const unplanned = tasks.filter((task) => !isCompletedTaskStatus(task.status) && !task.planStart);
     const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
     const weekDays: Array<{ date: Date; label: string; dateKey: string; isToday: boolean }> = [];
@@ -1959,6 +1915,7 @@ export class TaskManagerTab {
         isToday: dateKey === formatDateKey(new Date())
       });
     }
+    const progressTasksByDate = groupCalendarWeekProgressTasksByDate(tasks, new Set(weekDays.map((day) => day.dateKey)));
 
     return `<div class="task-manager-calendar task-manager-calendar--week">
   <div class="task-manager-calendar__toolbar">
@@ -1973,11 +1930,17 @@ export class TaskManagerTab {
     <button class="b3-button b3-button--text task-manager-calendar__unplanned-toggle ${this.calendarUnplannedVisible ? "is-active" : ""}" data-action="toggle-unplanned" aria-label="未安排任务" aria-pressed="${this.calendarUnplannedVisible}" title="未安排任务">未安排任务</button>
   </div>
   <div class="task-manager-calendar__layout">
-    <section class="task-manager-calendar__main">
-      <div class="task-manager-calendar__week">
-        ${weekDays.map((day) => this.renderCalendarWeekDay(day, tasksByDate[day.dateKey] || [])).join("")}
+    <div class="task-manager-calendar__week-panel">
+      <section class="task-manager-calendar__main">
+        <div class="task-manager-calendar__week">
+          ${weekDays.map((day) => this.renderCalendarWeekDay(day, scheduledTasksByDate[day.dateKey] || [], progressTasksByDate[day.dateKey] || [])).join("")}
+        </div>
+      </section>
+      <div class="task-manager-calendar__legend">
+        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--schedule">日程任务（已安排）</span>
+        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--progress">推进任务（当天有记录）</span>
       </div>
-    </section>
+    </div>
     ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
       <div class="task-manager-calendar__aside-title">未安排任务</div>
       <div class="task-manager-calendar__unplanned">
@@ -1988,10 +1951,14 @@ export class TaskManagerTab {
 </div>`;
   }
 
-  private renderCalendarWeekDay(day: { date: Date; label: string; dateKey: string; isToday: boolean }, tasks: TaskItem[]): string {
+  private renderCalendarWeekDay(
+    day: { date: Date; label: string; dateKey: string; isToday: boolean },
+    scheduledTasks: TaskItem[],
+    progressTasks: CalendarWeekProgressTask[]
+  ): string {
     const dayLabel = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
     const todayClass = day.isToday ? "is-today" : "";
-    const groupedTasks = groupCalendarWeekTasksByPeriod(tasks);
+    const groupedTasks = groupCalendarWeekTasksByPeriod(scheduledTasks, progressTasks);
     const taskAreaClass = groupedTasks.morning.length && groupedTasks.afternoon.length
       ? "task-manager-calendar-week-row__tasks has-dual-groups"
       : "task-manager-calendar-week-row__tasks";
@@ -2000,10 +1967,10 @@ export class TaskManagerTab {
   <div class="task-manager-calendar-week-row__label">
     <span class="task-manager-calendar-week-row__day">${day.label}</span>
     <span class="task-manager-calendar-week-row__date">${dayLabel}</span>
-    ${tasks.length ? `<span class="task-manager-calendar-week-row__count">${tasks.length}</span>` : ""}
+    ${groupedTasks.total ? `<span class="task-manager-calendar-week-row__count">${groupedTasks.total}</span>` : ""}
   </div>
   <div class="${taskAreaClass}">
-    ${tasks.length ? this.renderCalendarWeekTaskGroups(groupedTasks) : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
+    ${groupedTasks.total ? this.renderCalendarWeekTaskGroups(groupedTasks) : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
   </div>
 </div>`;
   }
@@ -2019,11 +1986,13 @@ export class TaskManagerTab {
     return sections.join("");
   }
 
-  private renderCalendarWeekTaskGroup(label: "上午" | "下午", tasks: TaskItem[]): string {
+  private renderCalendarWeekTaskGroup(label: "上午" | "下午", tasks: CalendarWeekRenderTask[]): string {
     return `<div class="task-manager-calendar-week-group">
   <span class="task-manager-calendar-week-group__label">${label}</span>
   <div class="task-manager-calendar-week-group__items">
-    ${tasks.map((task) => `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-status-${task.status}" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" style="${escapeAttr(this.buildStatusStyleVars(task.status))}">${escapeHtml(task.title)}</button>`).join("")}
+    ${tasks.map((item) => item.kind === "progress"
+      ? `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-calendar-pill--progress" type="button" data-task-id="${item.task.id}" data-task-action="open" title="${escapeAttr(item.task.title)}">${escapeHtml(item.task.title)}</button>`
+      : `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-status-${item.task.status}" type="button" data-task-id="${item.task.id}" data-task-action="open" title="${escapeAttr(item.task.title)}" style="${escapeAttr(this.buildStatusStyleVars(item.task.status))}">${escapeHtml(item.task.title)}</button>`).join("")}
   </div>
 </div>`;
   }
@@ -3280,19 +3249,73 @@ function groupTasksByDate(tasks: TaskItem[]): Record<string, TaskItem[]> {
   return result;
 }
 
-function groupCalendarWeekTasksByPeriod(tasks: TaskItem[]): CalendarWeekTaskGroups {
-  const sorted = [...tasks].sort(compareCalendarWeekTasks);
-  const groups: CalendarWeekTaskGroups = {
-    morning: [],
-    afternoon: []
-  };
-  for (const task of sorted) {
-    if (calendarWeekTaskPeriod(task.planStart) === "afternoon") {
-      groups.afternoon.push(task);
-    } else {
-      groups.morning.push(task);
+function groupCalendarWeekProgressTasksByDate(tasks: TaskItem[], dateKeys: Set<string>): Record<string, CalendarWeekProgressTask[]> {
+  const result: Record<string, CalendarWeekProgressTask[]> = {};
+
+  for (const task of tasks) {
+    const byDateAndPeriod = new Map<string, CalendarWeekProgressTask>();
+    for (const record of task.progressRecords || []) {
+      const dateKey = toDateKey(record.date);
+      if (!dateKey || !dateKeys.has(dateKey)) {
+        continue;
+      }
+      const period = calendarWeekProgressRecordPeriod(record);
+      const sortKey = buildCalendarWeekProgressSortKey(record);
+      const bucketKey = `${dateKey}:${period}`;
+      const existing = byDateAndPeriod.get(bucketKey);
+      if (!existing || sortKey.localeCompare(existing.sortKey) < 0) {
+        byDateAndPeriod.set(bucketKey, { task, period, sortKey });
+      }
+    }
+
+    for (const [bucketKey, entry] of byDateAndPeriod.entries()) {
+      const dateKey = bucketKey.slice(0, 10);
+      result[dateKey] ||= [];
+      result[dateKey].push(entry);
     }
   }
+
+  for (const dateKey of Object.keys(result)) {
+    result[dateKey].sort(compareCalendarWeekProgressTasks);
+  }
+
+  return result;
+}
+
+function groupCalendarWeekTasksByPeriod(scheduledTasks: TaskItem[], progressTasks: CalendarWeekProgressTask[]): CalendarWeekTaskGroups {
+  const sorted = [...scheduledTasks].sort(compareCalendarWeekTasks);
+  const groups: CalendarWeekTaskGroups = {
+    morning: [],
+    afternoon: [],
+    total: 0
+  };
+  const scheduledTaskIds = {
+    morning: new Set<string>(),
+    afternoon: new Set<string>()
+  } as const;
+
+  for (const task of sorted) {
+    const period = calendarWeekTaskPeriod(task.planStart);
+    groups[period].push({
+      task,
+      kind: "schedule",
+      sortKey: task.planStart || task.createdAt || task.title
+    });
+    scheduledTaskIds[period].add(task.id);
+  }
+
+  for (const progressTask of [...progressTasks].sort(compareCalendarWeekProgressTasks)) {
+    if (scheduledTaskIds[progressTask.period].has(progressTask.task.id)) {
+      continue;
+    }
+    groups[progressTask.period].push({
+      task: progressTask.task,
+      kind: "progress",
+      sortKey: progressTask.sortKey
+    });
+  }
+
+  groups.total = groups.morning.length + groups.afternoon.length;
   return groups;
 }
 
@@ -3310,19 +3333,67 @@ function calendarWeekTaskPeriod(value?: string): "morning" | "afternoon" {
   return hour < 12 ? "morning" : "afternoon";
 }
 
+function compareCalendarWeekProgressTasks(a: CalendarWeekProgressTask, b: CalendarWeekProgressTask): number {
+  return a.sortKey.localeCompare(b.sortKey)
+    || a.task.createdAt.localeCompare(b.task.createdAt)
+    || a.task.title.localeCompare(b.task.title, "zh-Hans-CN");
+}
+
+function calendarWeekProgressRecordPeriod(record: { createdAt?: string; date?: string; time?: string }): CalendarWeekTaskPeriod {
+  const timeValue = readCalendarWeekProgressTimeValue(record);
+  const hour = extractHourFromTimeValue(timeValue);
+  if (hour === undefined) {
+    return "morning";
+  }
+  return hour < 12 ? "morning" : "afternoon";
+}
+
+function buildCalendarWeekProgressSortKey(record: { createdAt?: string; date?: string; time?: string }): string {
+  const dateKey = toDateKey(record.date) || "9999-12-31";
+  const timeValue = readCalendarWeekProgressTimeValue(record);
+  const timeParts = extractClockParts(timeValue);
+  if (!timeParts) {
+    return `${dateKey}T00:00:00`;
+  }
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  return `${dateKey}T${pad(timeParts.hour)}:${pad(timeParts.minute)}:${pad(timeParts.second)}`;
+}
+
+function readCalendarWeekProgressTimeValue(record: { createdAt?: string; time?: string }): string | undefined {
+  return resolveProgressRecordTime(record) || record.createdAt;
+}
+
 function extractHourFromDatetime(value?: string): number | undefined {
+  const parts = extractClockParts(value);
+  return parts?.hour;
+}
+
+function extractHourFromTimeValue(value?: string): number | undefined {
+  const parts = extractClockParts(value);
+  return parts?.hour;
+}
+
+function extractClockParts(value?: string): { hour: number; minute: number; second: number } | undefined {
   if (!value) {
     return undefined;
   }
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) {
-    return parsed.getHours();
+    return {
+      hour: parsed.getHours(),
+      minute: parsed.getMinutes(),
+      second: parsed.getSeconds()
+    };
   }
-  const timeMatch = value.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  const timeMatch = value.match(/(?:^|[T\s])(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (!timeMatch) {
     return undefined;
   }
-  return Number.parseInt(timeMatch[1], 10);
+  return {
+    hour: Number.parseInt(timeMatch[1], 10),
+    minute: Number.parseInt(timeMatch[2], 10),
+    second: Number.parseInt(timeMatch[3] || "0", 10)
+  };
 }
 
 function monthInputValue(date: Date): string {

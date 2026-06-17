@@ -2,6 +2,8 @@ import { Dialog, getFrontend, showMessage } from "siyuan";
 import { formatDateKey, fromDatetimeLocal, nowIso, toDatetimeLocal } from "../date";
 import {
   createProgressRecord,
+  normalizeProgressRecordTime,
+  resolveProgressRecordTime,
   formatProgressRecordWeekday,
   normalizeProgressRecordDate,
   normalizeProgressRecords
@@ -168,7 +170,7 @@ function sectionTitle(title: string): string {
 interface ProgressEditorState {
   mode: "create" | "edit";
   recordId?: string;
-  date: string;
+  datetime: string;
   content: string;
 }
 
@@ -192,9 +194,12 @@ function renderProgressEditor(editor: ProgressEditorState): string {
   const submitLabel = editor.mode === "edit" ? "保存" : "保存记录";
   return `<div class="task-progress-editor">
     <div class="task-progress-editor__grid">
-      <label class="task-progress-editor__field task-progress-editor__field--date">
-        <span class="task-progress-editor__label">记录日期</span>
-        <input class="task-tracker-dialog-v3__input task-progress-editor__input" type="date" value="${escapeAttr(editor.date)}" data-progress-input="date" />
+      <label class="task-progress-editor__field task-progress-editor__field--datetime task-time-field">
+        <span class="task-progress-editor__label">记录时间</span>
+        <div class="task-tracker-dialog-v3__date-wrap date-input-wrapper">
+          <span class="task-tracker-dialog-v3__date-icon">${ICONS.clock}</span>
+          <input class="task-tracker-dialog-v3__input task-tracker-dialog-v3__input--date task-progress-editor__input" type="datetime-local" value="${escapeAttr(editor.datetime)}" data-progress-input="datetime" />
+        </div>
       </label>
       <label class="task-progress-editor__field task-progress-editor__field--content">
         <span class="task-progress-editor__label">推进内容</span>
@@ -216,13 +221,15 @@ function renderProgressList(records: ProgressRecord[]): string {
 
 function renderProgressListItem(record: ProgressRecord): string {
   const weekday = formatProgressRecordWeekday(record.date);
+  const timeLabel = resolveProgressRecordTime(record);
+  const metaLabel = [weekday, timeLabel].filter(Boolean).join(" ");
   const content = escapeHtml(record.content).replace(/\r?\n/g, "<br>");
   return `<div class="task-progress-item" data-progress-record="${escapeAttr(record.id)}">
     <div class="task-progress-item__date">
       <div class="task-progress-item__date-icon">${ICONS.calendar}</div>
       <div class="task-progress-item__date-text">
         <div class="task-progress-item__date-main">${escapeHtml(record.date)}</div>
-        <div class="task-progress-item__date-sub">${escapeHtml(weekday)}</div>
+        <div class="task-progress-item__date-sub">${escapeHtml(metaLabel || weekday)}</div>
       </div>
     </div>
     <div class="task-progress-item__marker" aria-hidden="true">
@@ -245,6 +252,32 @@ function renderProgressEmpty(): string {
     <div class="task-progress-empty__title">暂无推进记录</div>
     <div class="task-progress-empty__description">添加阶段性进展后，这里会按日期展示，并在保存任务时同步写入任务笔记。</div>
   </div>`;
+}
+
+function currentTimeInputValue(): string {
+  const now = new Date();
+  return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+}
+
+function currentProgressRecordDatetimeValue(): string {
+  return `${formatDateKey(new Date())}T${currentTimeInputValue()}`;
+}
+
+function progressRecordToDatetimeLocal(record: ProgressRecord): string {
+  const time = resolveProgressRecordTime(record) || "09:00";
+  const value = `${record.date}T${time}`;
+  return toDatetimeLocal(value) || value;
+}
+
+function splitProgressRecordDatetime(value: string): { date?: string; time?: string } {
+  if (!value) {
+    return {};
+  }
+  const [datePart = "", timePart = ""] = value.split("T");
+  return {
+    date: normalizeProgressRecordDate(datePart),
+    time: normalizeProgressRecordTime(timePart)
+  };
 }
 
 function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
@@ -593,11 +626,11 @@ export class TaskDialog {
     const startCreateProgressRecord = () => {
       progressEditor = {
         mode: "create",
-        date: formatDateKey(new Date()),
+        datetime: currentProgressRecordDatetimeValue(),
         content: ""
       };
       renderProgressSection();
-      progressRoot?.querySelector<HTMLInputElement>("[data-progress-input='date']")?.focus();
+      progressRoot?.querySelector<HTMLInputElement>("[data-progress-input='datetime']")?.focus();
     };
 
     const startEditProgressRecord = (recordId: string) => {
@@ -608,7 +641,7 @@ export class TaskDialog {
       progressEditor = {
         mode: "edit",
         recordId: record.id,
-        date: record.date,
+        datetime: progressRecordToDatetimeLocal(record),
         content: record.content
       };
       renderProgressSection();
@@ -619,9 +652,9 @@ export class TaskDialog {
       if (!progressEditor) {
         return true;
       }
-      const date = normalizeProgressRecordDate(progressEditor.date);
+      const { date, time } = splitProgressRecordDatetime(progressEditor.datetime);
       if (!date) {
-        showMessage("请选择记录日期。", 5000, "error");
+        showMessage("请选择记录时间。", 5000, "error");
         return false;
       }
       const content = progressEditor.content.trim();
@@ -640,6 +673,7 @@ export class TaskDialog {
           return {
             ...record,
             date,
+            time,
             content,
             updatedAt: timestamp
           };
@@ -648,6 +682,7 @@ export class TaskDialog {
         progressRecordsDraft = normalizeProgressRecords([
           createProgressRecord({
             date,
+            time,
             content
           }),
           ...progressRecordsDraft
@@ -1414,7 +1449,7 @@ export class TaskDialog {
           return;
         }
       }
-      if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.matches("[data-progress-input='date']")) {
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.matches("[data-progress-input='datetime']")) {
         event.preventDefault();
         saveProgressEditor();
         return;
@@ -1436,10 +1471,10 @@ export class TaskDialog {
         return;
       }
       const inputName = target.dataset.progressInput;
-      if (inputName === "date") {
+      if (inputName === "datetime") {
         progressEditor = {
           ...progressEditor,
-          date: target.value
+          datetime: target.value
         };
       }
       if (inputName === "content") {

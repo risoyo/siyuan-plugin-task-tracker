@@ -91,6 +91,7 @@ export interface TaskItem {
 export interface ProgressRecord {
   id: string;
   date: string;
+  time?: string;
   content: string;
   createdAt: string;
   updatedAt: string;

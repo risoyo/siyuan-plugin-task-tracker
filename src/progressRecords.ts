@@ -21,8 +21,46 @@ export function normalizeProgressRecordDate(value?: string): string | undefined 
   return key || undefined;
 }
 
+export function normalizeProgressRecordTime(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) {
+    return undefined;
+  }
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return undefined;
+  }
+  return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
+}
+
+export function resolveProgressRecordTime(record: { time?: string; createdAt?: string }): string | undefined {
+  const explicit = normalizeProgressRecordTime(record.time);
+  if (explicit) {
+    return explicit;
+  }
+  const createdAt = record.createdAt?.trim();
+  if (!createdAt) {
+    return undefined;
+  }
+  const parsed = new Date(createdAt);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getHours().toString().padStart(2, "0")}:${parsed.getMinutes().toString().padStart(2, "0")}`;
+  }
+  const timeMatch = createdAt.match(/(?:^|[T\s])(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!timeMatch) {
+    return undefined;
+  }
+  return normalizeProgressRecordTime(`${timeMatch[1]}:${timeMatch[2]}`);
+}
+
 export function compareProgressRecordsDesc(a: ProgressRecord, b: ProgressRecord): number {
   return b.date.localeCompare(a.date)
+    || (resolveProgressRecordTime(b) || "").localeCompare(resolveProgressRecordTime(a) || "")
     || (b.createdAt || "").localeCompare(a.createdAt || "")
     || (b.updatedAt || "").localeCompare(a.updatedAt || "")
     || b.id.localeCompare(a.id);
@@ -30,6 +68,7 @@ export function compareProgressRecordsDesc(a: ProgressRecord, b: ProgressRecord)
 
 export function compareProgressRecordsAsc(a: ProgressRecord, b: ProgressRecord): number {
   return a.date.localeCompare(b.date)
+    || (resolveProgressRecordTime(a) || "").localeCompare(resolveProgressRecordTime(b) || "")
     || (a.createdAt || "").localeCompare(b.createdAt || "")
     || (a.updatedAt || "").localeCompare(b.updatedAt || "")
     || a.id.localeCompare(b.id);
@@ -50,6 +89,7 @@ export function normalizeProgressRecords(records: unknown, fallbackTimestamp?: s
 export function createProgressRecord(input: Partial<ProgressRecord>): ProgressRecord {
   const timestamp = nowIso();
   const date = normalizeProgressRecordDate(input.date);
+  const time = normalizeProgressRecordTime(input.time);
   const content = typeof input.content === "string" ? input.content.trim() : "";
   if (!date) {
     throw new Error("请选择记录日期。");
@@ -61,6 +101,7 @@ export function createProgressRecord(input: Partial<ProgressRecord>): ProgressRe
   return {
     id: input.id?.trim() || newSiyuanId(),
     date,
+    time,
     content,
     createdAt: input.createdAt?.trim() || timestamp,
     updatedAt: input.updatedAt?.trim() || timestamp
@@ -160,6 +201,7 @@ function normalizeProgressRecord(record: unknown, fallbackTimestamp?: string): P
 
   const candidate = record as Partial<ProgressRecord>;
   const date = normalizeProgressRecordDate(candidate.date);
+  const time = normalizeProgressRecordTime(candidate.time);
   const content = typeof candidate.content === "string" ? candidate.content.trim() : "";
   if (!date || !content) {
     return undefined;
@@ -172,6 +214,7 @@ function normalizeProgressRecord(record: unknown, fallbackTimestamp?: string): P
   return {
     id: candidate.id?.trim() || newSiyuanId(),
     date,
+    time,
     content,
     createdAt: createdAt || nowIso(),
     updatedAt: updatedAt || createdAt || nowIso()
