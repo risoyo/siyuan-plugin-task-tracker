@@ -18,21 +18,47 @@ import { TaskManagerTab } from "./views/TaskManagerTab";
 
 const DOCK_TYPE = "task_tracker_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
+const RUNTIME_STATE_KEY = "__taskTrackerPluginRuntimeState";
+const TOP_BAR_OWNER_ATTR = "data-task-tracker-topbar-owner";
+
+type TaskTrackerRuntimeState = {
+  activeLifecycleToken?: string;
+};
+
+function getRuntimeState(): TaskTrackerRuntimeState {
+  const globalState = globalThis as typeof globalThis & Record<string, unknown>;
+  const current = globalState[RUNTIME_STATE_KEY];
+  if (current && typeof current === "object") {
+    return current as TaskTrackerRuntimeState;
+  }
+  const state: TaskTrackerRuntimeState = {};
+  globalState[RUNTIME_STATE_KEY] = state;
+  return state;
+}
 
 export default class TaskTrackerPlugin extends Plugin {
   private store: TaskStore;
   private service: TaskService;
   private ready: Promise<void>;
   private taskDock?: TaskDock;
+  private topBarElement?: HTMLElement;
+  private topBarObserver?: MutationObserver;
   private frontend = getFrontend();
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
   private startupRetryTimers = new Set<number>();
+  private topBarRecoveryTimers = new Set<number>();
+  private readonly lifecycleToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  private dockRegistered = false;
+  private managerTabRegistered = false;
+  private commandsRegistered = false;
+  private contextMenusRegistered = false;
   private docMenuHandler = this.handleDocumentMenu.bind(this);
   private blockMenuHandler = this.handleBlockMenu.bind(this);
   private contentMenuHandler = this.handleContentMenu.bind(this);
   private wsMainHandler = this.handleWsMain.bind(this);
 
   onload(): void {
+    this.markAsActiveInstance();
     this.addIcons(`<symbol id="iconTaskTracker" viewBox="0 0 32 32">
 <path d="M8 4h16c1.47 0 2.667 1.197 2.667 2.667v18.667c0 1.47-1.197 2.667-2.667 2.667h-16c-1.47 0-2.667-1.197-2.667-2.667v-18.667c0-1.47 1.197-2.667 2.667-2.667zM8 6.667v18.667h16v-18.667h-16zM12 11.333h8v2.667h-8v-2.667zM12 17.333h8v2.667h-8v-2.667zM20.92 10.2l1.88 1.88-4.547 4.547-2.387-2.387 1.88-1.88.507.507 2.667-2.667z"></path>
 </symbol>
@@ -64,19 +90,16 @@ export default class TaskTrackerPlugin extends Plugin {
     this.registerManagerTab();
     this.registerCommands();
     this.registerContextMenus();
+    this.installTopBarRecovery();
   }
 
   onLayoutReady(): void {
-    if (this.isMobileFrontend()) {
+    if (this.isMobileFrontend() || !this.isActiveInstance()) {
       return;
     }
 
-    this.addTopBar({
-      icon: "iconTaskTracker",
-      title: "任务追踪",
-      position: "right",
-      callback: () => void this.openTaskManager()
-    });
+    this.installTopBarRecovery();
+    this.ensureTopBar();
   }
 
   onunload(): void {
@@ -84,17 +107,33 @@ export default class TaskTrackerPlugin extends Plugin {
       window.clearTimeout(timer);
     }
     this.startupRetryTimers.clear();
+    for (const timer of this.topBarRecoveryTimers) {
+      window.clearTimeout(timer);
+    }
+    this.topBarRecoveryTimers.clear();
+    this.topBarObserver?.disconnect();
+    this.topBarObserver = undefined;
+    this.removeTopBar();
     this.taskDock?.destroy();
+    this.taskDock = undefined;
     for (const view of this.managerViews.values()) {
       view.destroy();
     }
-    this.eventBus.off("click-editortitleicon", this.docMenuHandler);
-    this.eventBus.off("click-blockicon", this.blockMenuHandler);
-    this.eventBus.off("open-menu-content", this.contentMenuHandler);
-    this.eventBus.off("ws-main", this.wsMainHandler);
+    this.managerViews.clear();
+    this.unregisterContextMenus();
+    if (this.isActiveInstance()) {
+      const state = getRuntimeState();
+      if (state.activeLifecycleToken === this.lifecycleToken) {
+        delete state.activeLifecycleToken;
+      }
+    }
   }
 
   private registerDock(): void {
+    if (this.dockRegistered) {
+      return;
+    }
+    this.dockRegistered = true;
     this.addDock({
       type: DOCK_TYPE,
       config: {
@@ -107,8 +146,14 @@ export default class TaskTrackerPlugin extends Plugin {
       },
       data: {},
       init: (dock) => {
+        if (!this.isActiveInstance()) {
+          return;
+        }
         dock.element.innerHTML = `<div class="task-tracker task-tracker-empty">任务追踪加载中...</div>`;
         void this.ready.then(() => {
+          if (!this.isActiveInstance()) {
+            return;
+          }
           this.taskDock?.destroy();
           this.taskDock = new TaskDock(dock.element as HTMLElement, this.service, this.viewActions(), {
             mode: this.isMobileFrontend() ? "mobile" : "desktop"
@@ -119,7 +164,9 @@ export default class TaskTrackerPlugin extends Plugin {
         });
       },
       update: () => {
-        this.taskDock?.render();
+        if (this.isActiveInstance()) {
+          this.taskDock?.render();
+        }
       },
       destroy: () => {
         this.taskDock?.destroy();
@@ -129,13 +176,24 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private registerManagerTab(): void {
+    if (this.managerTabRegistered) {
+      return;
+    }
+    this.managerTabRegistered = true;
     const plugin = this;
     this.addTab({
       type: MANAGER_TAB_TYPE,
       init() {
+        if (!plugin.isActiveInstance()) {
+          return;
+        }
         const tab = this as any;
         tab.element.innerHTML = `<div class="task-manager task-manager-empty">任务控制面板加载中...</div>`;
         void plugin.ready.then(() => {
+          if (!plugin.isActiveInstance()) {
+            return;
+          }
+          plugin.managerViews.get(tab.element)?.destroy();
           const view = new TaskManagerTab(tab.element, plugin.service, {
             newTask: (options) => void plugin.showTaskDialog({ ...(options || {}), preserveManagerScroll: true }),
             createSubtask: (parentId: string) => void plugin.showTaskDialog({ parentId, preserveManagerScroll: true }),
@@ -160,6 +218,10 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private registerCommands(): void {
+    if (this.commandsRegistered) {
+      return;
+    }
+    this.commandsRegistered = true;
     this.addCommand({
       langKey: "newTask",
       hotkey: "",
@@ -179,10 +241,15 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private registerContextMenus(): void {
+    if (this.contextMenusRegistered) {
+      return;
+    }
+    this.unregisterContextMenus();
     this.eventBus.on("click-editortitleicon", this.docMenuHandler);
     this.eventBus.on("click-blockicon", this.blockMenuHandler);
     this.eventBus.on("open-menu-content", this.contentMenuHandler);
     this.eventBus.on("ws-main", this.wsMainHandler);
+    this.contextMenusRegistered = true;
   }
 
   private createSettingPanel(): Setting {
@@ -207,6 +274,9 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleDocumentMenu({ detail }: any): void {
+    if (!this.isActiveInstance()) {
+      return;
+    }
     const docId = detail?.protyle?.block?.rootID;
     if (!detail?.menu || !docId) {
       return;
@@ -225,6 +295,9 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleBlockMenu({ detail }: any): void {
+    if (!this.isActiveInstance()) {
+      return;
+    }
     const blockElements = Array.isArray(detail?.blockElements) ? detail.blockElements : [];
     const firstBlockId = blockElements[0]?.getAttribute?.("data-node-id");
     if (!detail?.menu || !firstBlockId) {
@@ -239,6 +312,9 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleContentMenu({ detail }: any): void {
+    if (!this.isActiveInstance()) {
+      return;
+    }
     const menu = detail?.menu;
     const range = detail?.range as Range | undefined;
     if (!menu || !range || range.collapsed) {
@@ -264,6 +340,9 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private handleWsMain({ detail }: any): void {
+    if (!this.isActiveInstance()) {
+      return;
+    }
     if (detail?.cmd === "removeDoc") {
       void this.ready
         .then(() => this.service.syncDeletedDocs())
@@ -272,6 +351,7 @@ export default class TaskTrackerPlugin extends Plugin {
     }
 
     if (detail?.cmd === "sync-end" || detail?.cmd === "syncFinish" || detail?.cmd === "sync-finish") {
+      this.queueTopBarRecovery([0, 600, 1500]);
       void this.ready
         .then(() => this.service.startupSync({ skipDeletedCleanup: true }))
         .catch((error) => console.warn("Task Tracker: failed to refresh after sync", error));
@@ -434,6 +514,9 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private scheduleStartupRecoveryRetries(): void {
+    if (!this.isActiveInstance()) {
+      return;
+    }
     if (!this.store.getSettings().taskRootDocId) {
       return;
     }
@@ -442,11 +525,141 @@ export default class TaskTrackerPlugin extends Plugin {
     for (const delayMs of delays) {
       const timer = window.setTimeout(() => {
         this.startupRetryTimers.delete(timer);
+        if (!this.isActiveInstance()) {
+          return;
+        }
         void this.service.startupSync({ skipDeletedCleanup: true })
           .catch((error) => console.warn("Task Tracker: deferred startup recovery failed", error));
       }, delayMs);
       this.startupRetryTimers.add(timer);
     }
+  }
+
+  private markAsActiveInstance(): void {
+    getRuntimeState().activeLifecycleToken = this.lifecycleToken;
+  }
+
+  private isActiveInstance(): boolean {
+    return getRuntimeState().activeLifecycleToken === this.lifecycleToken;
+  }
+
+  private ensureTopBar(): void {
+    if (!this.isActiveInstance() || this.isMobileFrontend()) {
+      return;
+    }
+    const anchor = this.getTopBarAnchor();
+    if (!anchor) {
+      this.queueTopBarRecovery([400, 1200, 3000]);
+      return;
+    }
+    if (this.topBarElement instanceof HTMLElement && document.contains(this.topBarElement)) {
+      this.markTopBarOwner(this.topBarElement);
+      this.topBarElement.classList.remove("fn__none");
+      this.removeDuplicateTopBarElements();
+      return;
+    }
+    if (this.topBarElement instanceof HTMLElement) {
+      this.removeTopBarIconReference(this.topBarElement);
+      this.topBarElement = undefined;
+    }
+    const nextTopBarElement = this.addTopBar({
+      icon: "iconTaskTracker",
+      title: "任务追踪",
+      position: "right",
+      callback: () => {
+        if (!this.isActiveInstance()) {
+          return;
+        }
+        void this.openTaskManager();
+      }
+    });
+    if (!(nextTopBarElement instanceof HTMLElement)) {
+      return;
+    }
+    this.topBarElement = nextTopBarElement;
+    this.markTopBarOwner(this.topBarElement);
+    this.topBarElement.classList.remove("fn__none");
+    this.removeDuplicateTopBarElements();
+  }
+
+  private removeTopBar(): void {
+    if (!(this.topBarElement instanceof HTMLElement)) {
+      return;
+    }
+    this.removeTopBarIconReference(this.topBarElement);
+    this.topBarElement.remove();
+    this.topBarElement = undefined;
+  }
+
+  private removeDuplicateTopBarElements(): void {
+    if (!(this.topBarElement instanceof HTMLElement) || !document.contains(this.topBarElement)) {
+      return;
+    }
+    const selector = `[id^="plugin_${this.name}_"]`;
+    document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+      if (element === this.topBarElement) {
+        return;
+      }
+      this.removeTopBarIconReference(element);
+      element.remove();
+    });
+  }
+
+  private markTopBarOwner(element: HTMLElement): void {
+    element.setAttribute(TOP_BAR_OWNER_ATTR, this.lifecycleToken);
+  }
+
+  private removeTopBarIconReference(element: HTMLElement): void {
+    const topBarIcons = (this as any).topBarIcons as HTMLElement[] | undefined;
+    const index = topBarIcons?.indexOf(element) ?? -1;
+    if (index >= 0) {
+      topBarIcons?.splice(index, 1);
+    }
+  }
+
+  private installTopBarRecovery(): void {
+    if (this.isMobileFrontend() || !this.isActiveInstance()) {
+      return;
+    }
+    this.queueTopBarRecovery([0, 600, 1800, 4000]);
+    if (this.topBarObserver) {
+      return;
+    }
+    this.topBarObserver = new MutationObserver(() => {
+      this.queueTopBarRecovery([0]);
+    });
+    this.topBarObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  private queueTopBarRecovery(delays: number[]): void {
+    if (this.isMobileFrontend() || !this.isActiveInstance()) {
+      return;
+    }
+    for (const delayMs of delays) {
+      const timer = window.setTimeout(() => {
+        this.topBarRecoveryTimers.delete(timer);
+        if (!this.isActiveInstance()) {
+          return;
+        }
+        this.ensureTopBar();
+      }, delayMs);
+      this.topBarRecoveryTimers.add(timer);
+    }
+  }
+
+  private getTopBarAnchor(): Element | null {
+    return document.querySelector("#barPlugins") || document.querySelector("#drag");
+  }
+
+  private unregisterContextMenus(): void {
+    this.eventBus.off("click-editortitleicon", this.docMenuHandler);
+    this.eventBus.off("click-blockicon", this.blockMenuHandler);
+    this.eventBus.off("open-menu-content", this.contentMenuHandler);
+    this.eventBus.off("ws-main", this.wsMainHandler);
+    this.contextMenusRegistered = false;
   }
 
   private getCurrentProtyle(): any {
