@@ -1937,8 +1937,8 @@ export class TaskManagerTab {
         </div>
       </section>
       <div class="task-manager-calendar__legend">
-        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--schedule">日程任务（已安排）</span>
-        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--progress">推进任务（当天有记录）</span>
+        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--schedule">日程任务</span>
+        <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--progress">推进任务</span>
       </div>
     </div>
     ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
