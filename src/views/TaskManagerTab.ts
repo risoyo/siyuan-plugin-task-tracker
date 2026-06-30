@@ -93,6 +93,7 @@ interface TableConfigDialogState {
     column: TableSortColumn;
     direction: SortDirection;
   };
+  customTaskOrder: string[];
 }
 
 interface CompletedConfigDialogState {
@@ -201,8 +202,9 @@ const TABLE_COLUMNS: TableColumnDef[] = [
 ];
 
 const TABLE_PAGE_COLUMNS: TablePageColumnKey[] = ["task", "project", "status", "priority", "latest", "progress", "createdAt", "plan", "due", "source"];
-const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default"; label: string }> = [
+const TABLE_SORT_OPTIONS: Array<{ value: TableSortColumn | "default" | "custom"; label: string }> = [
   { value: "default", label: "默认" },
+  { value: "custom", label: "自定义" },
   { value: "task", label: "任务" },
   { value: "project", label: "项目" },
   { value: "status", label: "状态" },
@@ -796,7 +798,8 @@ export class TaskManagerTab {
       currentSort: config.currentSort || { column: "default" },
       defaultSort: config.defaultSort
         ? { ...config.defaultSort }
-        : undefined
+        : undefined,
+      customTaskOrder: this.getTableCustomSortTasks(config.customTaskOrder).map((task) => task.id)
     };
   }
 
@@ -873,11 +876,11 @@ export class TaskManagerTab {
       }
       if (target === sortColumn) {
         state.currentSort = {
-          column: (sortColumn?.value || "default") as TableSortColumn | "default",
+          column: (sortColumn?.value || "default") as TableSortColumn | "default" | "custom",
           direction: sortDirection?.value as SortDirection | undefined
         };
       }
-      if (target === sortDirection && state.currentSort.column !== "default") {
+      if (target === sortDirection && state.currentSort.column !== "default" && state.currentSort.column !== "custom") {
         state.currentSort = {
           column: state.currentSort.column,
           direction: (sortDirection?.value || "asc") as SortDirection
@@ -904,7 +907,7 @@ export class TaskManagerTab {
       }
       const action = target.closest<HTMLElement>("[data-config-action]")?.dataset.configAction;
       if (action === "save-default") {
-        if (state.currentSort.column === "default") {
+        if (state.currentSort.column === "default" || state.currentSort.column === "custom") {
           state.defaultSort = undefined;
         } else {
           state.defaultSort = {
@@ -926,8 +929,11 @@ export class TaskManagerTab {
             columnOrder: state.columnOrder,
             currentSort: state.currentSort.column === "default"
               ? { column: "default" }
+              : state.currentSort.column === "custom"
+                ? { column: "custom" }
               : { column: state.currentSort.column, direction: state.currentSort.direction || "asc" },
-            defaultSort: state.defaultSort
+            defaultSort: state.defaultSort,
+            customTaskOrder: state.customTaskOrder
           });
           dialog.destroy();
           this.render();
@@ -1012,6 +1018,7 @@ export class TaskManagerTab {
 
     let dragFieldKey: string | null = null;
     let dragStatusId: string | null = null;
+    let dragCustomTaskId: string | null = null;
     const rerender = () => {
       const current = dialog.element.querySelector<HTMLElement>(".task-manager-settings");
       if (current) {
@@ -1078,6 +1085,10 @@ export class TaskManagerTab {
       }
       if (action === "save-default-sort") {
         const pageState = getPageState();
+        if (state.page === "table" && pageState.currentSort.column === "custom") {
+          showMessage("自定义排序会随当前页面设置一起保存，无需单独保存为默认排序");
+          return;
+        }
         if (pageState.currentSort.column === "default") {
           pageState.defaultSort = undefined as any;
         } else {
@@ -1183,7 +1194,8 @@ export class TaskManagerTab {
               visibleColumns: state.table.visibleColumns,
               columnOrder: state.table.columnOrder,
               currentSort: state.table.currentSort,
-              defaultSort: state.table.defaultSort
+              defaultSort: state.table.defaultSort,
+              customTaskOrder: this.normalizeCustomTaskOrder(state.table.customTaskOrder)
             });
           } else {
             await this.updateCompletedPageConfig({
@@ -1243,16 +1255,18 @@ export class TaskManagerTab {
       }
       if (target instanceof HTMLSelectElement && target.dataset.settingsSortField) {
         const pageState = getPageState();
-        const nextColumn = target.value as TableSortColumn | CompletedSortColumn | "default";
+        const nextColumn = target.value as TableSortColumn | CompletedSortColumn | "default" | "custom";
         pageState.currentSort = nextColumn === "default"
           ? { column: "default" }
+          : nextColumn === "custom"
+            ? { column: "custom" }
           : { column: nextColumn as any, direction: pageState.currentSort.direction || "asc" };
         rerender();
         return;
       }
       if (target instanceof HTMLSelectElement && target.dataset.settingsSortDirection) {
         const pageState = getPageState();
-        if (pageState.currentSort.column !== "default") {
+        if (pageState.currentSort.column !== "default" && pageState.currentSort.column !== "custom") {
           pageState.currentSort = {
             column: pageState.currentSort.column,
             direction: target.value as SortDirection
@@ -1274,12 +1288,18 @@ export class TaskManagerTab {
       if (statusItem?.dataset.draggableStatus) {
         dragStatusId = statusItem.dataset.draggableStatus;
         event.dataTransfer?.setData("text/plain", dragStatusId);
+        return;
+      }
+      const customTaskItem = target.closest<HTMLElement>("[data-draggable-custom-task]");
+      if (customTaskItem?.dataset.draggableCustomTask) {
+        dragCustomTaskId = customTaskItem.dataset.draggableCustomTask;
+        event.dataTransfer?.setData("text/plain", dragCustomTaskId);
       }
     });
 
     dialog.element.addEventListener("dragover", (event) => {
       const target = event.target as HTMLElement;
-      if (target.closest("[data-draggable-column]") || target.closest("[data-draggable-status]")) {
+      if (target.closest("[data-draggable-column]") || target.closest("[data-draggable-status]") || target.closest("[data-draggable-custom-task]")) {
         event.preventDefault();
       }
     });
@@ -1294,6 +1314,17 @@ export class TaskManagerTab {
         setPageState({ columnOrder: next } as any);
         rerender();
         dragFieldKey = null;
+        return;
+      }
+      const customTaskTarget = target.closest<HTMLElement>("[data-draggable-custom-task]");
+      if (customTaskTarget?.dataset.draggableCustomTask && dragCustomTaskId) {
+        event.preventDefault();
+        const targetId = customTaskTarget.dataset.draggableCustomTask;
+        if (state.page === "table" && targetId) {
+          state.table.customTaskOrder = reorderStringList(state.table.customTaskOrder, dragCustomTaskId, targetId);
+          rerender();
+        }
+        dragCustomTaskId = null;
         return;
       }
       const statusTarget = target.closest<HTMLElement>("[data-draggable-status]");
@@ -1316,6 +1347,16 @@ export class TaskManagerTab {
   private renderSettingsDialog(state: SettingsDialogState): string {
     const pageState = state.page === "table" ? state.table : state.completed;
     const currentOptions = state.page === "table" ? TABLE_SORT_OPTIONS : COMPLETED_SORT_OPTIONS;
+    const customSortRows = state.page === "table" && pageState.currentSort.column === "custom"
+      ? this.getTableCustomSortTasks(state.table.customTaskOrder).map((task) => {
+        return `<div class="task-manager-settings__list-row task-manager-settings__list-row--task" draggable="true" data-draggable-custom-task="${escapeAttr(task.id)}">
+  <div class="task-manager-settings__task-row-main">
+    <span class="task-manager-settings__task-row-title" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</span>
+  </div>
+  <button type="button" class="task-manager-settings__drag-handle" title="拖拽调整顺序">≡</button>
+</div>`;
+      }).join("")
+      : "";
     const fieldRows = pageState.columnOrder.map((column) => {
       const visible = pageState.visibleColumns.includes(column as never);
       const label = currentOptions.find((option) => option.value === column)?.label || String(column);
@@ -1359,14 +1400,16 @@ export class TaskManagerTab {
           </label>
           <label class="task-manager-settings__field">
             <span>排序方向</span>
-            <select class="b3-select fn__block" data-settings-sort-direction="current" ${pageState.currentSort.column === "default" ? "disabled" : ""}>
+            <select class="b3-select fn__block" data-settings-sort-direction="current" ${pageState.currentSort.column === "default" || pageState.currentSort.column === "custom" ? "disabled" : ""}>
               ${SORT_DIRECTIONS.map((option) => `<option value="${option.value}" ${((pageState.currentSort.direction || "asc") === option.value) ? "selected" : ""}>${option.label}</option>`).join("")}
             </select>
           </label>
         </div>
+        ${state.page === "table" && pageState.currentSort.column === "custom" ? `<div class="task-manager-settings__panel-hint">拖拽调整表格页任务顺序。新增任务会默认显示在最上方，直到你下次保存自定义顺序。</div>
+        <div class="task-manager-settings__list">${customSortRows || `<div class="task-manager-settings__list-row"><span>当前没有可排序的任务。</span></div>`}</div>` : ""}
         <div class="task-manager-settings__status-note">${escapeHtml(defaultSortSummary)}</div>
         <div class="task-manager-settings__inline-actions">
-          <button type="button" class="b3-button b3-button--outline" data-settings-action="save-default-sort">保存为默认排序</button>
+          <button type="button" class="b3-button b3-button--outline" data-settings-action="save-default-sort" ${state.page === "table" && pageState.currentSort.column === "custom" ? "disabled" : ""}>保存为默认排序</button>
         </div>
       </div>` : ""}
       ${state.activeTab === "status" ? `<div class="task-manager-settings__panel">
@@ -1694,6 +1737,10 @@ export class TaskManagerTab {
   }
 
   private tableComparator(): ((a: TaskItem, b: TaskItem) => number) | undefined {
+    const config = this.getTablePageConfig();
+    if (config.currentSort?.column === "custom") {
+      return this.customTableComparator(config.customTaskOrder);
+    }
     const sort = this.getEffectiveTableSort();
     if (!sort) {
       return undefined;
@@ -1706,7 +1753,7 @@ export class TaskManagerTab {
   private getEffectiveTableSort(): { column: TableSortColumn; direction: SortDirection } | undefined {
     const config = this.getTablePageConfig();
     const currentSort = config.currentSort;
-    if (!currentSort || currentSort.column === "default") {
+    if (!currentSort || currentSort.column === "default" || currentSort.column === "custom") {
       return config.defaultSort;
     }
     return {
@@ -1717,6 +1764,59 @@ export class TaskManagerTab {
 
   private sortTasksForTable(tasks: TaskItem[]): TaskItem[] {
     return [...tasks];
+  }
+
+  private customTableComparator(customTaskOrder?: string[]): ((a: TaskItem, b: TaskItem) => number) | undefined {
+    const normalizedOrder = this.normalizeCustomTaskOrder(customTaskOrder);
+    if (!normalizedOrder.length) {
+      return (a, b) => {
+        if (a.parentId || b.parentId) {
+          return 0;
+        }
+        return compareNewCustomTasks(a, b);
+      };
+    }
+    const rankById = new Map(normalizedOrder.map((id, index) => [id, index]));
+    return (a, b) => {
+      if (a.parentId || b.parentId) {
+        return 0;
+      }
+      const leftRank = rankById.get(a.id);
+      const rightRank = rankById.get(b.id);
+      const leftMissing = leftRank === undefined;
+      const rightMissing = rightRank === undefined;
+      if (leftMissing || rightMissing) {
+        if (leftMissing && rightMissing) {
+          return compareNewCustomTasks(a, b);
+        }
+        return leftMissing ? -1 : 1;
+      }
+      return leftRank - rightRank;
+    };
+  }
+
+  private getTableCustomSortTasks(customTaskOrder?: string[]): TaskItem[] {
+    const activeStatuses = new Set(getActiveTaskStatuses(this.service.store.getSettings()));
+    const topLevelTasks = this.service.store.all().filter((task) => activeStatuses.has(task.status) && !task.parentId);
+    const topLevelTaskIds = new Set(topLevelTasks.map((task) => task.id));
+    const normalizedOrder = this.normalizeCustomTaskOrder(customTaskOrder).filter((id) => topLevelTaskIds.has(id));
+    const orderedIds = [
+      ...topLevelTasks
+        .filter((task) => !normalizedOrder.includes(task.id))
+        .sort(compareNewCustomTasks)
+        .map((task) => task.id),
+      ...normalizedOrder
+    ];
+    return orderedIds
+      .map((id) => topLevelTasks.find((task) => task.id === id))
+      .filter((task): task is TaskItem => Boolean(task));
+  }
+
+  private normalizeCustomTaskOrder(taskIds?: string[]): string[] {
+    if (!Array.isArray(taskIds)) {
+      return [];
+    }
+    return Array.from(new Set(taskIds.map((id) => typeof id === "string" ? id.trim() : "").filter(Boolean)));
   }
 
   private renderListView(tasks: TaskItem[]): string {
@@ -3220,6 +3320,12 @@ function reorderStringList(values: string[], dragged: string, target: string): s
   next.splice(fromIndex, 1);
   next.splice(toIndex, 0, dragged);
   return next;
+}
+
+function compareNewCustomTasks(a: TaskItem, b: TaskItem): number {
+  return b.createdAt.localeCompare(a.createdAt)
+    || b.updatedAt.localeCompare(a.updatedAt)
+    || a.title.localeCompare(b.title, "zh-Hans-CN");
 }
 
 function resolveMigrationTarget(target: string, migrations: StatusMigrationDraft[]): string {

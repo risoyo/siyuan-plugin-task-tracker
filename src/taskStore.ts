@@ -186,7 +186,8 @@ function normalizeTablePageConfig(raw?: TablePageConfig): TablePageConfig {
     visibleColumns,
     columnOrder,
     currentSort: normalizeSortSpec(raw?.currentSort) || { ...DEFAULT_TABLE_SORT },
-    defaultSort: normalizeDefaultSort(raw?.defaultSort)
+    defaultSort: normalizeDefaultSort(raw?.defaultSort),
+    customTaskOrder: normalizeCustomTaskOrder(raw?.customTaskOrder)
   };
 }
 
@@ -239,6 +240,9 @@ function normalizeSortSpec(raw?: TableSortSpec): TableSortSpec | undefined {
   if (raw.column === "default") {
     return { column: "default" };
   }
+  if (raw.column === "custom") {
+    return { column: "custom" };
+  }
   if (!isTableSortColumn(raw.column)) {
     return undefined;
   }
@@ -260,6 +264,13 @@ function normalizeDefaultSort(raw?: { column: TableSortColumn; direction: SortDi
 
 function normalizeSortDirection(direction?: SortDirection): SortDirection | undefined {
   return direction === "asc" || direction === "desc" ? direction : undefined;
+}
+
+function normalizeCustomTaskOrder(raw?: string[]): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return Array.from(new Set(raw.map((id) => typeof id === "string" ? id.trim() : "").filter(Boolean)));
 }
 
 function normalizeDockDisplayOptions(raw?: DockDisplayOptions): DockDisplayOptions {

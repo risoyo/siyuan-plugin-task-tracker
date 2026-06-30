@@ -2440,6 +2440,37 @@
   gap: 12px;
 }
 
+.task-manager-settings__list-row--task {
+  align-items: center;
+}
+
+.task-manager-settings__task-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-manager-settings__task-row-title {
+  color: #0F172A;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-manager-settings__task-row-meta {
+  color: var(--manager-muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .task-manager-settings__drag-handle,
 .task-manager-settings__icon-button,
 .task-manager-settings__primary-button {

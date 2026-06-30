@@ -127,7 +127,7 @@ export type TableSortColumn = TablePageColumnKey;
 export type CompletedSortColumn = CompletedPageColumnKey;
 
 export interface TableSortSpec {
-  column: TableSortColumn | "default";
+  column: TableSortColumn | "default" | "custom";
   direction?: SortDirection;
 }
 
@@ -144,6 +144,7 @@ export interface TablePageConfig {
     column: TableSortColumn;
     direction: SortDirection;
   };
+  customTaskOrder?: string[];
 }
 
 export interface CompletedPageConfig {

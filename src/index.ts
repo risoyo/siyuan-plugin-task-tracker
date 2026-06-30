@@ -12,7 +12,7 @@ import { sourceFromBlock, TaskService } from "./document";
 import { TaskDialog } from "./dialogs/TaskDialog";
 import { createTaskSettings } from "./settings";
 import { TaskStore } from "./taskStore";
-import type { SourceContext, TaskItem } from "./types";
+import { CANCELLED_TASK_STATUS, COMPLETED_TASK_STATUS, type SourceContext, type TaskItem } from "./types";
 import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
 
@@ -283,6 +283,11 @@ export default class TaskTrackerPlugin extends Plugin {
     }
 
     detail.menu.addItem({
+      icon: "iconTaskTracker",
+      label: "打开任务",
+      click: () => void this.openTaskFromContext({ docId })
+    });
+    detail.menu.addItem({
       icon: "iconAdd",
       label: "从当前文档创建任务",
       click: () => void this.createTaskFromCurrentDocument(detail.protyle)
@@ -300,10 +305,16 @@ export default class TaskTrackerPlugin extends Plugin {
     }
     const blockElements = Array.isArray(detail?.blockElements) ? detail.blockElements : [];
     const firstBlockId = blockElements[0]?.getAttribute?.("data-node-id");
+    const docId = detail?.protyle?.block?.rootID;
     if (!detail?.menu || !firstBlockId) {
       return;
     }
 
+    detail.menu.addItem({
+      icon: "iconTaskTracker",
+      label: "打开任务",
+      click: () => void this.openTaskFromContext({ blockId: firstBlockId, docId })
+    });
     detail.menu.addItem({
       icon: "iconAdd",
       label: blockElements.length > 1 ? "从第一个选中块创建任务" : "从当前块创建任务",
@@ -668,6 +679,40 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private normalizeSelectedText(value: string): string {
     return value.replace(/\s+/g, " ").trim();
+  }
+
+  private resolveTaskForSourceBlock(blockId: string): TaskItem | undefined {
+    const linkedTasks = this.store.all().filter((task) => task.sourceBlockId === blockId);
+    if (!linkedTasks.length) {
+      return undefined;
+    }
+    return [...linkedTasks].sort((left, right) => {
+      const leftActive = left.status !== COMPLETED_TASK_STATUS && left.status !== CANCELLED_TASK_STATUS;
+      const rightActive = right.status !== COMPLETED_TASK_STATUS && right.status !== CANCELLED_TASK_STATUS;
+      if (leftActive !== rightActive) {
+        return leftActive ? -1 : 1;
+      }
+      return right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt);
+    })[0];
+  }
+
+  private resolveTaskForDoc(docId: string): TaskItem | undefined {
+    const matchedTasks = this.store.all().filter((task) => task.docId === docId || task.id === docId);
+    if (!matchedTasks.length) {
+      return undefined;
+    }
+    return [...matchedTasks].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt))[0];
+  }
+
+  private async openTaskFromContext(context: { blockId?: string; docId?: string }): Promise<void> {
+    await this.ready;
+    const linkedTask = (context.docId ? this.resolveTaskForDoc(context.docId) : undefined)
+      || (context.blockId ? this.resolveTaskForSourceBlock(context.blockId) : undefined);
+    if (!linkedTask) {
+      showMessage("当前笔记未关联任务", 3000, "info");
+      return;
+    }
+    await this.showTaskDialog({ task: linkedTask });
   }
 
   private findBlockIdFromNode(node: Node | null | undefined, fallbackElement?: Element | null): string | undefined {
