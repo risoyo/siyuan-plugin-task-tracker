@@ -1547,6 +1547,7 @@ export class TaskDialog {
         if (sourceMode === "manual") {
           selectedSource = undefined;
         }
+        const completedAt = fromDatetimeLocal(String(data.get("completedAt") || ""));
         const baseInput = {
           title: String(data.get("title") || "").trim(),
           parentId: String(data.get("parentId") || "") || undefined,
@@ -1554,12 +1555,14 @@ export class TaskDialog {
           sourceDocId: selectedSource?.docId,
           sourceText: selectedSource?.text,
           project: String(data.get("project") || "").trim() || undefined,
-          status: String(data.get("status") || defaultTaskStatus(settings)) as TaskStatus,
+          status: (completedAt
+            ? COMPLETED_TASK_STATUS
+            : String(data.get("status") || defaultTaskStatus(settings))) as TaskStatus,
           priority: String(data.get("priority") || "medium") as TaskPriority,
           dueDate: String(data.get("dueDate") || "") || undefined,
           planStart: fromDatetimeLocal(String(data.get("planStart") || "")),
           planEnd: fromDatetimeLocal(String(data.get("planEnd") || "")),
-          completedAt: fromDatetimeLocal(String(data.get("completedAt") || "")),
+          completedAt,
           description: String(data.get("description") || "").trim() || undefined,
           noteFolderPath: String(data.get("noteFolderPath") || "").trim() || undefined
         };
