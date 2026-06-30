@@ -2006,7 +2006,7 @@ async function insertManagedHeadingSectionBlock(
     ? await findHeadingBlock(docId, options.beforeHeadings)
     : undefined;
   if (beforeHeading?.id) {
-    await insertBlock(nextSection, { nextID: beforeHeading.id, parentID: docId });
+    await insertBlock(nextSection, { nextID: beforeHeading.id });
     return;
   }
 
@@ -2016,10 +2016,10 @@ async function insertManagedHeadingSectionBlock(
   if (afterHeading?.id) {
     const nextSiblingId = await findNextSiblingBlockId(docId, afterHeading.id);
     if (nextSiblingId) {
-      await insertBlock(nextSection, { nextID: nextSiblingId, parentID: docId });
+      await insertBlock(nextSection, { nextID: nextSiblingId });
       return;
     }
-    await insertBlock(nextSection, { previousID: afterHeading.id, parentID: docId });
+    await insertBlock(nextSection, { previousID: afterHeading.id });
     return;
   }
 
@@ -2376,6 +2376,12 @@ type RootTaskBlock = {
   content?: string;
 };
 
+type ManagedHeadingSectionRange = {
+  heading: RootTaskBlock;
+  bodyBlocks: RootTaskBlock[];
+  nextHeadingId?: string;
+};
+
 async function healCorruptedTaskDocument(task: TaskItem, currentSynced = false): Promise<boolean> {
   const expectedTitles = [task.title, taskDocumentTitle(task)];
   const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
@@ -2646,8 +2652,8 @@ async function replaceManagedHeadingSectionBlocks(
     .map((block) => normalizeManagedSectionBody(block))
     .filter(Boolean);
   const normalizedBody = normalizedBlocks.join("\n\n");
-  const heading = await findHeadingBlock(docId, headings);
-  if (!heading) {
+  const sectionRange = await findManagedHeadingSectionRange(docId, headings);
+  if (!sectionRange) {
     if (!options.createIfMissing || !normalizedBlocks.length) {
       return false;
     }
@@ -2667,16 +2673,13 @@ async function replaceManagedHeadingSectionBlocks(
     return false;
   }
 
-  const children = await getChildBlocks(heading.id).catch(() => []);
-  for (const child of [...children].reverse()) {
-    await deleteBlock(child.id).catch(() => undefined);
+  for (const block of [...sectionRange.bodyBlocks].reverse()) {
+    await deleteBlockTree(block.id).catch(() => undefined);
   }
   if (!normalizedBlocks.length) {
-    return children.length > 0;
+    return sectionRange.bodyBlocks.length > 0;
   }
-  for (const block of normalizedBlocks) {
-    await appendBlock(heading.id, block);
-  }
+  await insertManagedHeadingSectionBodyBlocks(sectionRange.heading.id, sectionRange.nextHeadingId, normalizedBlocks);
   return true;
 }
 
@@ -2692,8 +2695,8 @@ async function replaceManagedHeadingSection(
   } = {}
 ): Promise<boolean> {
   const normalizedBody = normalizeManagedSectionBody(bodyMarkdown);
-  const heading = await findHeadingBlock(docId, headings);
-  if (!heading) {
+  const sectionRange = await findManagedHeadingSectionRange(docId, headings);
+  if (!sectionRange) {
     if (!options.createIfMissing) {
       return false;
     }
@@ -2716,14 +2719,13 @@ async function replaceManagedHeadingSection(
     return false;
   }
 
-  const children = await getChildBlocks(heading.id).catch(() => []);
-  for (const child of [...children].reverse()) {
-    await deleteBlock(child.id).catch(() => undefined);
+  for (const block of [...sectionRange.bodyBlocks].reverse()) {
+    await deleteBlockTree(block.id).catch(() => undefined);
   }
   if (!normalizedBody) {
-    return children.length > 0;
+    return sectionRange.bodyBlocks.length > 0;
   }
-  await appendBlock(heading.id, normalizedBody);
+  await insertManagedHeadingSectionBodyBlocks(sectionRange.heading.id, sectionRange.nextHeadingId, [normalizedBody]);
   return true;
 }
 
@@ -2739,10 +2741,56 @@ async function findHeadingBlock(docId: string, headings: string[]): Promise<{ id
     .join(" or ");
   const rows = await sql<Array<{ id: string; content?: string }>[number]>(`select id, content from blocks
 where root_id = '${sqlText(docId)}'
+  and parent_id = '${sqlText(docId)}'
   and type = 'h'
   and (${conditions})
 order by sort asc`);
   return rows[0];
+}
+
+async function findManagedHeadingSectionRange(docId: string, headings: string[]): Promise<ManagedHeadingSectionRange | undefined> {
+  const normalizedHeadings = headings
+    .map((heading) => heading.trim())
+    .filter(Boolean);
+  if (!normalizedHeadings.length) {
+    return undefined;
+  }
+
+  const rootBlocks = await listRootTaskBlocks(docId).catch(() => []);
+  const headingIndex = rootBlocks.findIndex((block) => block.type === "h" && normalizedHeadings.includes(block.content?.trim() || ""));
+  if (headingIndex === -1) {
+    return undefined;
+  }
+
+  const nextHeadingIndex = rootBlocks.findIndex((block, index) => index > headingIndex && block.type === "h");
+  return {
+    heading: rootBlocks[headingIndex],
+    bodyBlocks: nextHeadingIndex === -1
+      ? rootBlocks.slice(headingIndex + 1)
+      : rootBlocks.slice(headingIndex + 1, nextHeadingIndex),
+    nextHeadingId: nextHeadingIndex === -1 ? undefined : rootBlocks[nextHeadingIndex]?.id
+  };
+}
+
+async function insertManagedHeadingSectionBodyBlocks(
+  headingId: string,
+  nextHeadingId: string | undefined,
+  markdownBlocks: string[]
+): Promise<void> {
+  if (!markdownBlocks.length) {
+    return;
+  }
+
+  if (nextHeadingId) {
+    for (const block of markdownBlocks) {
+      await insertBlock(block, { nextID: nextHeadingId });
+    }
+    return;
+  }
+
+  for (const block of [...markdownBlocks].reverse()) {
+    await insertBlock(block, { previousID: headingId });
+  }
 }
 
 function extractHeadingSectionBody(markdown: string, headings: string[]): string | undefined {
