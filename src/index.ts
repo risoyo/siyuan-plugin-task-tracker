@@ -8,6 +8,7 @@ import {
 } from "siyuan";
 import pluginManifest from "../plugin.json";
 import "./index.scss";
+import { getBlockById } from "./api";
 import { sourceFromBlock, TaskService } from "./document";
 import { TaskDialog } from "./dialogs/TaskDialog";
 import { createTaskSettings } from "./settings";
@@ -23,6 +24,19 @@ const TOP_BAR_OWNER_ATTR = "data-task-tracker-topbar-owner";
 
 type TaskTrackerRuntimeState = {
   activeLifecycleToken?: string;
+};
+
+type TaskTrackerAgentAction = {
+  name: string;
+  description: string;
+  handler: () => Promise<string> | string;
+};
+
+type TaskTrackerAgentContext = {
+  protyle?: any;
+  docId?: string;
+  blockId?: string;
+  selectedText?: string;
 };
 
 function getRuntimeState(): TaskTrackerRuntimeState {
@@ -89,6 +103,7 @@ export default class TaskTrackerPlugin extends Plugin {
     this.registerDock();
     this.registerManagerTab();
     this.registerCommands();
+    this.registerAgentActions();
     this.registerContextMenus();
     this.installTopBarRecovery();
   }
@@ -240,6 +255,163 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
+  private registerAgentActions(): void {
+    const addAgentAction = (this as unknown as {
+      addAgentAction?: (action: TaskTrackerAgentAction) => string;
+    }).addAgentAction;
+    if (typeof addAgentAction !== "function") {
+      return;
+    }
+
+    const actions: TaskTrackerAgentAction[] = [
+      {
+        name: "open-task-manager",
+        description: "Open the Task Tracker manager tab.",
+        handler: async () => {
+          await this.openTaskManager();
+          return this.isMobileFrontend()
+            ? "移动端请从插件侧栏入口打开任务追踪页面。"
+            : "已打开任务控制面板。";
+        }
+      },
+      {
+        name: "open-current-linked-task",
+        description: "Open the task linked to the current document or block in the Task Tracker dialog.",
+        handler: async () => {
+          const context = await this.requireAgentContext("未识别到当前文档或块。请先聚焦到相关内容。");
+          const linkedTask = this.findLinkedTaskFromContext(context);
+          if (!linkedTask) {
+            throw new Error("当前笔记未关联任务。");
+          }
+          await this.showTaskDialog({ task: linkedTask });
+          return "已打开当前上下文关联的任务。";
+        }
+      },
+      {
+        name: "create-task-from-current-document",
+        description: "Create a new task using the current document as the source context.",
+        handler: async () => {
+          const context = await this.requireAgentContext("未识别到当前文档。请先打开一个文档。");
+          if (!context.docId) {
+            throw new Error("未识别到当前文档。请先打开一个文档。");
+          }
+          const source = await sourceFromBlock(context.docId);
+          await this.showTaskDialog({
+            source,
+            presetTitle: source.text || "新任务"
+          });
+          return "已打开基于当前文档的新任务对话框。";
+        }
+      },
+      {
+        name: "create-task-from-current-block-or-selection",
+        description: "Create a new task from the current block, or use the current single-block selection as the task title when available.",
+        handler: async () => {
+          const context = await this.requireAgentContext("未识别到当前块或文档。请先聚焦到相关内容。");
+          if (context.blockId && context.selectedText) {
+            const source = await sourceFromBlock(context.blockId);
+            await this.showTaskDialog({
+              source: {
+                ...source,
+                text: context.selectedText
+              },
+              presetTitle: context.selectedText
+            });
+            return "已打开基于当前选中文本的新任务对话框。";
+          }
+          if (context.blockId) {
+            const source = await sourceFromBlock(context.blockId);
+            await this.showTaskDialog({
+              source,
+              presetTitle: source.text || "新任务"
+            });
+            return "已打开基于当前块的新任务对话框。";
+          }
+          if (!context.docId) {
+            throw new Error("未识别到当前文档。请先打开一个文档。");
+          }
+          const source = await sourceFromBlock(context.docId);
+          await this.showTaskDialog({
+            source,
+            presetTitle: source.text || "新任务"
+          });
+          return "已打开基于当前文档的新任务对话框。";
+        }
+      },
+      {
+        name: "complete-current-linked-task",
+        description: "Mark the task linked to the current document or block as completed.",
+        handler: async () => {
+          const task = await this.requireLinkedTaskForAgent();
+          if (task.status === COMPLETED_TASK_STATUS) {
+            return "当前关联任务已是完成状态。";
+          }
+          await this.service.completeTask(task.id);
+          return `已完成任务：${task.title}`;
+        }
+      },
+      {
+        name: "reopen-current-linked-task",
+        description: "Reopen the completed task linked to the current document or block.",
+        handler: async () => {
+          const task = await this.requireLinkedTaskForAgent();
+          if (task.status !== COMPLETED_TASK_STATUS) {
+            return "当前关联任务不是已完成状态，无需重新打开。";
+          }
+          await this.service.reopenTask(task.id);
+          return `已重新打开任务：${task.title}`;
+        }
+      },
+      {
+        name: "sync-deleted-tasks",
+        description: "Clean up task records whose task documents have been deleted.",
+        handler: async () => {
+          const count = await this.syncDeletedTasks();
+          return count > 0
+            ? `已清理 ${count} 个已删除任务记录。`
+            : "没有需要清理的任务记录。";
+        }
+      },
+      {
+        name: "rebuild-task-index",
+        description: "Rebuild the task index from task documents under the current task library.",
+        handler: async () => {
+          const count = await this.rebuildTaskIndex();
+          return count > 0
+            ? `已重建 ${count} 个任务索引。`
+            : "事项库中没有可重建的任务文档。";
+        }
+      },
+      {
+        name: "set-current-document-as-task-root",
+        description: "Set the current document as the Task Tracker library root.",
+        handler: async () => {
+          const context = await this.requireAgentContext("未识别到当前文档。请先打开一个文档。");
+          if (!context.docId) {
+            throw new Error("未识别到当前文档。请先打开一个文档。");
+          }
+          const title = await this.assignTaskRootDoc(context.docId);
+          return `已将 ${title || "当前文档"} 设为事项库。`;
+        }
+      }
+    ];
+
+    for (const action of actions) {
+      addAgentAction.call(this, {
+        ...action,
+        handler: async () => {
+          try {
+            return await action.handler();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "任务追踪动作执行失败";
+            showMessage(message, 5000, "error");
+            throw error;
+          }
+        }
+      });
+    }
+  }
+
   private registerContextMenus(): void {
     if (this.contextMenusRegistered) {
       return;
@@ -256,8 +428,12 @@ export default class TaskTrackerPlugin extends Plugin {
     return createTaskSettings(this.service, {
       setCurrentDocAsRoot: () => this.setCurrentDocAsRoot(),
       setRootDocId: (docId: string) => this.setRootDocId(docId),
-      syncDeletedTasks: () => this.syncDeletedTasks(),
-      rebuildTaskIndex: () => this.rebuildTaskIndex(),
+      syncDeletedTasks: async () => {
+        await this.syncDeletedTasks();
+      },
+      rebuildTaskIndex: async () => {
+        await this.rebuildTaskIndex();
+      },
       refreshViews: () => this.refreshViews()
     }, pluginManifest.version);
   }
@@ -354,7 +530,8 @@ export default class TaskTrackerPlugin extends Plugin {
     if (!this.isActiveInstance()) {
       return;
     }
-    if (detail?.cmd === "removeDoc") {
+    const cmd = typeof detail?.cmd === "string" ? detail.cmd : "";
+    if (/^removeDocs?$/iu.test(cmd) || /removeDoc/iu.test(cmd)) {
       void this.ready
         .then(() => this.service.syncDeletedDocs())
         .catch((error) => console.warn("Task Tracker: failed to sync deleted docs", error));
@@ -414,10 +591,8 @@ export default class TaskTrackerPlugin extends Plugin {
       return;
     }
     try {
-      const settings = await this.service.setRootFromDoc(normalizedDocId);
-      this.setting = this.createSettingPanel();
-      this.refreshViews();
-      showMessage(`已将 ${settings.taskRootTitle || "当前文档"} 设为事项库`);
+      const title = await this.assignTaskRootDoc(normalizedDocId);
+      showMessage(`已将 ${title || "当前文档"} 设为事项库`);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "设置事项库失败", 5000, "error");
     }
@@ -489,6 +664,18 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private async openTask(task: TaskItem): Promise<void> {
+    const doc = await getBlockById(task.docId).catch(() => undefined);
+    if (!doc) {
+      const removed = await this.service.syncDeletedDocs().catch(() => 0);
+      showMessage(
+        removed > 0
+          ? `任务“${task.title}”对应的笔记已不存在，已从列表中清理`
+          : `任务“${task.title}”对应的笔记不存在`,
+        5000,
+        "error"
+      );
+      return;
+    }
     this.openDocById(task.docId);
   }
 
@@ -505,16 +692,18 @@ export default class TaskTrackerPlugin extends Plugin {
     });
   }
 
-  private async syncDeletedTasks(): Promise<void> {
+  private async syncDeletedTasks(): Promise<number> {
     await this.ready;
     const count = await this.service.syncDeletedDocs();
     showMessage(count > 0 ? `已清理 ${count} 个已删除任务记录` : "没有需要清理的任务记录");
+    return count;
   }
 
-  private async rebuildTaskIndex(): Promise<void> {
+  private async rebuildTaskIndex(): Promise<number> {
     await this.ready;
     const count = await this.service.rebuildTaskIndex();
     showMessage(count > 0 ? `已重建 ${count} 个任务索引` : "事项库中没有可重建的任务文档");
+    return count;
   }
 
   private refreshViews(preserveManagerScroll = false): void {
@@ -706,13 +895,80 @@ export default class TaskTrackerPlugin extends Plugin {
 
   private async openTaskFromContext(context: { blockId?: string; docId?: string }): Promise<void> {
     await this.ready;
-    const linkedTask = (context.docId ? this.resolveTaskForDoc(context.docId) : undefined)
-      || (context.blockId ? this.resolveTaskForSourceBlock(context.blockId) : undefined);
+    const linkedTask = this.findLinkedTaskFromContext(context);
     if (!linkedTask) {
       showMessage("当前笔记未关联任务", 3000, "info");
       return;
     }
     await this.showTaskDialog({ task: linkedTask });
+  }
+
+  private async requireLinkedTaskForAgent(): Promise<TaskItem> {
+    const context = await this.requireAgentContext("未识别到当前文档或块。请先聚焦到相关内容。");
+    const linkedTask = this.findLinkedTaskFromContext(context);
+    if (!linkedTask) {
+      throw new Error("当前笔记未关联任务。");
+    }
+    return linkedTask;
+  }
+
+  private findLinkedTaskFromContext(context: { blockId?: string; docId?: string }): TaskItem | undefined {
+    return (context.docId ? this.resolveTaskForDoc(context.docId) : undefined)
+      || (context.blockId ? this.resolveTaskForSourceBlock(context.blockId) : undefined);
+  }
+
+  private async assignTaskRootDoc(docId: string): Promise<string | undefined> {
+    const settings = await this.service.setRootFromDoc(docId);
+    this.setting = this.createSettingPanel();
+    this.refreshViews();
+    return settings.taskRootTitle;
+  }
+
+  private async requireAgentContext(errorMessage: string): Promise<TaskTrackerAgentContext> {
+    await this.ready;
+    const context = this.resolveAgentContext();
+    if (!context.docId && !context.blockId) {
+      throw new Error(errorMessage);
+    }
+    return context;
+  }
+
+  private resolveAgentContext(): TaskTrackerAgentContext {
+    const protyle = this.getCurrentProtyle();
+    const docId = protyle?.block?.rootID;
+    const rootElement = protyle?.wysiwyg?.element as HTMLElement | undefined;
+    const selection = globalThis.getSelection?.();
+
+    let blockId: string | undefined;
+    let selectedText: string | undefined;
+    if (selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      const selectionInsideCurrentProtyle = !rootElement
+        || (rootElement.contains(range.startContainer) && rootElement.contains(range.endContainer));
+      if (selectionInsideCurrentProtyle) {
+        const normalizedSelection = this.normalizeSelectedText(range.toString());
+        const startBlockId = this.findBlockIdFromNode(range.startContainer);
+        const endBlockId = this.findBlockIdFromNode(range.endContainer);
+        if (startBlockId && startBlockId === endBlockId) {
+          blockId = startBlockId;
+          selectedText = normalizedSelection || undefined;
+        }
+      }
+    }
+
+    if (!blockId) {
+      const activeElement = document.activeElement instanceof Element ? document.activeElement : undefined;
+      if (activeElement && (!rootElement || rootElement.contains(activeElement))) {
+        blockId = this.findBlockIdFromNode(activeElement);
+      }
+    }
+
+    return {
+      protyle,
+      docId,
+      blockId,
+      selectedText
+    };
   }
 
   private findBlockIdFromNode(node: Node | null | undefined, fallbackElement?: Element | null): string | undefined {

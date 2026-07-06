@@ -165,7 +165,6 @@ export interface TaskSettings {
   taskRootTitle?: string;
   taskRootSource?: "manual" | "auto";
   defaultProject?: string;
-  taskTemplate?: string;
   dockDisplayOptions?: DockDisplayOptions;
   tableColumnWidths?: Partial<Record<TableColumnKey, number>>;
   completedTableColumnWidths?: Partial<Record<TableColumnKey, number>>;
@@ -227,30 +226,6 @@ export const DEFAULT_DOCK_DISPLAY_OPTIONS: DockDisplayOptions = {
   sortField: "default",
   sortDirection: "asc"
 };
-
-export const DEFAULT_TASK_TEMPLATE = `# {{title}}
-
-## 任务概要
-
-| 项目 | 状态 | 来源 | 优先级 | 创建时间 | 截止时间 | 计划时间 |
-| --- | --- | --- | --- | --- | --- | --- |
-| {{project}} | {{status}} | {{source}} | {{priority}} | {{createdAt}} | {{dueDate}} | {{planStart}} |
-
-**父任务** ：{{parent}}
-**子任务** ：{{childTasks}}
-**任务近况** ：{{description}}
-
----
-
-## 推进记录
-
-暂无推进记录
-
----
-
-## 任务详情
-
-`;
 
 export const TASK_STATUS_LABELS: Record<SystemTaskStatus, string> = {
   todo: "待处理",

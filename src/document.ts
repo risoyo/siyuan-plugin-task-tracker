@@ -46,7 +46,6 @@ import {
 } from "./statusConfig";
 import {
   COMPLETED_TASK_STATUS,
-  DEFAULT_TASK_TEMPLATE,
   ROOT_ATTRS,
   REPORT_ATTRS,
   SOURCE_TASK_IDS_ATTR,
@@ -74,6 +73,7 @@ type ChangeListener = () => void;
 
 export class TaskService {
   private listeners = new Set<ChangeListener>();
+  private recentCreatedTaskIds = new Map<string, number>();
 
   constructor(public readonly store: TaskStore) {}
 
@@ -115,14 +115,14 @@ export class TaskService {
     }
 
     const parent = input.parentId ? this.store.get(input.parentId) : undefined;
-    const parentCreatePath = await resolveParentCreatePath(settings, parent);
+    const parentCreateHPath = await resolveParentHPath(settings, parent);
     console.info("Task Tracker: creating task with root", {
       rootDocId: settings.taskRootDocId,
       rootNotebookId: settings.taskRootNotebookId,
       rootPath: settings.taskRootPath,
       rootHPath: settings.taskRootHPath,
       rootSource: settings.taskRootSource,
-      parentCreatePath
+      parentCreateHPath
     });
     const docId = newSiyuanId();
     const title = input.title.trim();
@@ -155,7 +155,7 @@ export class TaskService {
 
     const created = await createTaskDocWithTitle(
       notebookId,
-      parentCreatePath,
+      parentCreateHPath,
       taskDocumentTitle(draftTask),
       renderTaskMarkdown(draftTask, parent, [], settings, input.detail)
     );
@@ -171,10 +171,10 @@ export class TaskService {
       await appendSourceTaskId(actualTask.sourceBlockId, actualTask.id);
     }
     await this.store.upsert(actualTask);
+    this.markTaskRecentlyCreated(actualTask.id);
     if (isCompletedTaskStatus(actualTask.status) && !actualTask.parentId) {
       actualTask = await this.archiveCompletedParentTask(actualTask);
     }
-    await this.syncTaskDocument(actualTask.id);
     if (actualTask.parentId) {
       await this.syncTaskDocument(actualTask.parentId);
     }
@@ -369,12 +369,14 @@ export class TaskService {
     let removed = 0;
     const indexedTasks = this.store.all();
     const discoveredTasks = await this.collectTasksFromRoot();
-    if (discoveredTasks.length > 0) {
-      if (!sameTaskCollections(indexedTasks, discoveredTasks)) {
-        await this.store.replaceAll(discoveredTasks);
+    const mergedDiscoveredTasks = this.mergeRecentlyCreatedIndexedTasks(indexedTasks, discoveredTasks);
+    if (mergedDiscoveredTasks.length > 0) {
+      if (!sameTaskCollections(indexedTasks, mergedDiscoveredTasks)) {
+        await this.store.replaceAll(mergedDiscoveredTasks);
         console.info("Task Tracker: refreshed task index from task documents", {
           indexedCount: indexedTasks.length,
-          discoveredCount: discoveredTasks.length
+          discoveredCount: discoveredTasks.length,
+          mergedCount: mergedDiscoveredTasks.length
         });
         this.emit();
       }
@@ -443,17 +445,17 @@ export class TaskService {
       return false;
     }
 
+    const parent = task.parentId ? this.store.get(task.parentId) : undefined;
+    const children = this.store.all().filter((item) => item.parentId === task.id);
+    const settings = this.store.getSettings();
     const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
       let synced = await syncManagedTaskProgressSection(task, false);
       synced = await syncManagedTaskDescriptionSection(task, synced);
-      synced = await healCorruptedTaskDocument(task, synced);
+      synced = await healCorruptedTaskDocument(task, parent, children, settings, synced);
       return synced;
     }
 
-    const parent = task.parentId ? this.store.get(task.parentId) : undefined;
-    const children = this.store.all().filter((item) => item.parentId === task.id);
-    const settings = this.store.getSettings();
     let synced = false;
     if (metadataBlock.format === "table") {
       const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children, settings);
@@ -481,7 +483,7 @@ export class TaskService {
     }
     synced = await syncManagedTaskProgressSection(task, synced);
     synced = await syncManagedTaskDescriptionSection(task, synced);
-    synced = await healCorruptedTaskDocument(task, synced);
+    synced = await healCorruptedTaskDocument(task, parent, children, settings, synced);
     return synced;
   }
 
@@ -620,6 +622,36 @@ export class TaskService {
     for (const listener of this.listeners) {
       listener();
     }
+  }
+
+  private markTaskRecentlyCreated(taskId: string): void {
+    this.cleanupRecentCreatedTasks();
+    this.recentCreatedTaskIds.set(taskId, Date.now() + 20_000);
+  }
+
+  private cleanupRecentCreatedTasks(now = Date.now()): void {
+    for (const [taskId, expiresAt] of this.recentCreatedTaskIds.entries()) {
+      if (expiresAt <= now) {
+        this.recentCreatedTaskIds.delete(taskId);
+      }
+    }
+  }
+
+  private mergeRecentlyCreatedIndexedTasks(indexedTasks: TaskItem[], discoveredTasks: TaskItem[]): TaskItem[] {
+    this.cleanupRecentCreatedTasks();
+    if (!this.recentCreatedTaskIds.size) {
+      return discoveredTasks;
+    }
+
+    const discoveredIds = new Set(discoveredTasks.map((task) => task.id));
+    const merged = [...discoveredTasks];
+    for (const task of indexedTasks) {
+      if (!this.recentCreatedTaskIds.has(task.id) || discoveredIds.has(task.id)) {
+        continue;
+      }
+      merged.push(task);
+    }
+    return merged.sort((a, b) => a.path.localeCompare(b.path, "zh-Hans-CN"));
   }
 
   private async reconcileTaskRootSettings(): Promise<void> {
@@ -1527,55 +1559,36 @@ async function resolveParentHPath(settings: TaskSettings, parent?: TaskItem): Pr
   return normalizeHPath(settings.taskRootHPath || settings.taskRootTitle || stripDocSuffix(settings.taskRootPath || "/"));
 }
 
-async function resolveParentCreatePath(settings: TaskSettings, parent?: TaskItem): Promise<string> {
-  if (parent?.docId) {
-    const parentPath = await getTaskPath(parent.docId).catch(() => undefined);
-    if (parentPath) {
-      return parentPath;
-    }
-  }
-
-  if (parent?.path) {
-    return parent.path;
-  }
-
-  if (settings.taskRootPath) {
-    return settings.taskRootPath;
-  }
-
-  if (settings.taskRootDocId) {
-    const rootPath = await getTaskPath(settings.taskRootDocId).catch(() => undefined);
-    if (rootPath) {
-      return rootPath;
-    }
-  }
-
-  return await resolveParentHPath(settings, parent);
-}
-
 async function createTaskDocWithTitle(
   notebookId: string,
-  parentPath: string,
+  parentHPath: string,
   title: string,
   markdown: string
 ): Promise<{ docId: string; path?: string }> {
-  const finalParentPath = normalizeCreatePath(parentPath);
-  const tempName = `__task-tracker-tmp-${newSiyuanId()}`;
-  const tempHPath = `/${tempName}.sy`;
-  const created = await resolveCreatedDocRef(
-    notebookId,
-    await createDocWithMd(notebookId, tempHPath, markdown),
-    tempHPath
-  );
-  const createdPath = created.path || tempHPath;
+  const normalizedParentHPath = normalizeHPath(parentHPath || "/");
+  let lastError: unknown;
 
-  if (finalParentPath !== "/") {
-    await moveDocs([createdPath], notebookId, finalParentPath);
+  for (let index = 0; index < 50; index += 1) {
+    const name = index === 0 ? sanitizeDocName(title) : `${sanitizeDocName(title)} (${index + 1})`;
+    const docHPath = joinChildDocHPath(normalizedParentHPath, name);
+    try {
+      const created = await resolveCreatedDocRef(
+        notebookId,
+        await createDocWithMd(notebookId, `${docHPath}.sy`, markdown),
+        docHPath
+      );
+      const finalPath = await waitForTaskPath(created.docId);
+      return { docId: created.docId, path: finalPath || created.path };
+    } catch (error) {
+      if (isDuplicateDocNameError(error)) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
   }
 
-  await renameDocWithUniqueTitle(created.docId, title);
-  const finalPath = await getTaskPath(created.docId);
-  return { docId: created.docId, path: finalPath || createdPath };
+  throw lastError instanceof Error ? lastError : new Error("创建任务文档失败");
 }
 
 function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string {
@@ -1584,34 +1597,16 @@ function taskDocumentTitle(task: Pick<TaskItem, "createdAt" | "title">): string 
   return `${prefix}-${task.title}`;
 }
 
-function normalizeCreatePath(path: string): string {
-  const normalized = (path || "").replace(/\\/g, "/").trim();
-  if (!normalized || normalized === "/") {
-    return "/";
-  }
-  return `/${normalized.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+function joinChildDocHPath(parentHPath: string, name: string): string {
+  const normalizedParent = normalizeHPath(parentHPath || "/");
+  return normalizedParent === "/"
+    ? normalizeHPath(name)
+    : normalizeHPath(`${normalizedParent}/${name}`);
 }
 
-async function renameDocWithUniqueTitle(docId: string, title: string): Promise<void> {
-  const baseName = sanitizeDocName(title);
-  let lastError: unknown;
-
-  for (let index = 0; index < 50; index += 1) {
-    const name = index === 0 ? baseName : `${baseName} (${index + 1})`;
-    try {
-      await renameDocById(docId, name);
-      return;
-    } catch (error) {
-      lastError = error;
-      const message = String(error instanceof Error ? error.message : error).toLowerCase();
-      if (message.includes("exist") || message.includes("已存在") || message.includes("duplicate")) {
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("重命名任务文档失败");
+function isDuplicateDocNameError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  return message.includes("exist") || message.includes("已存在") || message.includes("duplicate");
 }
 
 async function getTaskPath(docId: string): Promise<string | undefined> {
@@ -1619,25 +1614,65 @@ async function getTaskPath(docId: string): Promise<string | undefined> {
   return block?.path;
 }
 
+async function waitForTaskPath(
+  docId: string,
+  matcher?: (path: string | undefined) => boolean,
+  attempts = 16
+): Promise<string | undefined> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const path = await getTaskPath(docId).catch(() => undefined);
+    if (path && (!matcher || matcher(path))) {
+      return path;
+    }
+    if (attempt < attempts - 1) {
+      await delay(attempt < 4 ? 120 : 240);
+    }
+  }
+  return undefined;
+}
+
+function matchesTaskParentPath(path: string | undefined, parentPath: string): boolean {
+  if (!path) {
+    return false;
+  }
+  const parentKey = taskPathKey(parentPath);
+  const pathKey = taskPathKey(path);
+  if (!parentKey) {
+    return Boolean(pathKey);
+  }
+  return pathKey === parentKey || pathKey.startsWith(`${parentKey}/`);
+}
+
 async function resolveCreatedDocRef(
   notebookId: string,
   createResult: string,
   requestedHPath: string
 ): Promise<{ docId: string; path?: string }> {
-  const directPath = await getTaskPath(createResult).catch(() => undefined);
-  if (directPath) {
-    return {
-      docId: createResult,
-      path: directPath
-    };
-  }
+  const requestedDocHPath = stripDocSuffix(requestedHPath);
+  const candidateHPaths = Array.from(new Set([requestedDocHPath, normalizeHPath(requestedHPath)]));
 
-  const docRef = await getDocRefByHPath(notebookId, requestedHPath).catch(() => undefined);
-  if (docRef) {
-    return {
-      docId: docRef.id,
-      path: docRef.path
-    };
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const directPath = await getTaskPath(createResult).catch(() => undefined);
+    if (directPath) {
+      return {
+        docId: createResult,
+        path: directPath
+      };
+    }
+
+    for (const hpath of candidateHPaths) {
+      const docRef = await getDocRefByHPath(notebookId, hpath).catch(() => undefined);
+      if (docRef) {
+        return {
+          docId: docRef.id,
+          path: docRef.path
+        };
+      }
+    }
+
+    if (attempt < 15) {
+      await delay(attempt < 4 ? 120 : 240);
+    }
   }
 
   throw new Error("创建任务文档后无法定位真实文档路径");
@@ -1858,10 +1893,25 @@ function renderTaskMarkdown(
   settings: TaskSettings = {},
   detail?: string
 ): string {
-  const template = settings.taskTemplate?.trim() || DEFAULT_TASK_TEMPLATE;
-  const markdown = renderTemplate(template, task, parent, children, settings);
-  const withProgress = rewriteTaskProgressSection(markdown, task.progressRecords);
-  return rewriteTaskDetail(withProgress, detail || "");
+  const summarySection = buildManagedHeadingSectionMarkdown(
+    TASK_SUMMARY_HEADING,
+    renderManagedTaskSummarySectionBody(
+      renderTaskSummaryTable(
+        buildDefaultTaskSummaryTable(task, parent, children, settings),
+        task,
+        parent,
+        children,
+        settings
+      ),
+      buildTaskSummaryLabelLines(task, parent, children, settings)
+    ).replace(/\s+$/u, "")
+  );
+  const sections = [
+    summarySection,
+    buildTaskProgressSection(task.progressRecords).replace(/\s+$/u, ""),
+    buildTaskDetailSection(detail || "").replace(/\s+$/u, "")
+  ];
+  return `${sections.join("\n\n").trimStart()}\n`;
 }
 
 function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
@@ -1879,6 +1929,7 @@ function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, chi
     childTaskList: renderChildRefs(children, "list"),
     description: task.description || "无",
     createdAt: formatTaskDate(task.createdAt),
+    completedAt: formatTaskDate(task.completedAt),
     updatedAt: formatTaskDate(task.updatedAt)
   };
 
@@ -1930,6 +1981,57 @@ function formatTaskDate(value?: string): string {
 function buildTaskProgressSection(records?: ProgressRecord[]): string {
   const body = renderManagedTaskProgressSectionBody(records);
   return `## ${TASK_PROGRESS_HEADING}\n\n${body}\n`;
+}
+
+function rewriteTaskSummarySection(
+  markdown: string,
+  task: TaskItem,
+  parent?: TaskItem,
+  children: TaskItem[] = [],
+  settings: TaskSettings = {}
+): string {
+  const normalizedMarkdown = markdown.replace(/\s+$/u, "");
+  const summarySection = findTaskSummarySection(normalizedMarkdown);
+  const currentSummaryBody = summarySection
+    ? normalizeManagedSectionBody(normalizedMarkdown.slice(summarySection.bodyStart, summarySection.nextHeadingStart))
+    : "";
+  const currentTable = extractTaskSummaryTableMarkdown(currentSummaryBody);
+  const nextTableMarkdown = renderTaskSummaryTable(
+    currentTable || buildDefaultTaskSummaryTable(task, parent, children, settings),
+    task,
+    parent,
+    children,
+    settings
+  );
+  const nextSection = buildManagedHeadingSectionMarkdown(
+    TASK_SUMMARY_HEADING,
+    renderManagedTaskSummarySectionBody(
+      nextTableMarkdown,
+      buildTaskSummaryLabelLines(task, parent, children, settings)
+    ).replace(/\s+$/u, "")
+  );
+
+  if (summarySection) {
+    const before = normalizedMarkdown.slice(0, summarySection.headingStart).replace(/\s+$/u, "");
+    const after = normalizedMarkdown.slice(summarySection.nextHeadingStart).replace(/^\s*/u, "");
+    return `${before}\n\n${nextSection}${after ? `\n\n${after}` : ""}`.trimStart() + "\n";
+  }
+
+  const progressSection = findTaskProgressSection(normalizedMarkdown);
+  if (progressSection) {
+    const before = normalizedMarkdown.slice(0, progressSection.headingStart).replace(/\s+$/u, "");
+    const after = normalizedMarkdown.slice(progressSection.headingStart).replace(/^\s*/u, "");
+    return `${before}\n\n${nextSection}\n\n${after}`.trimStart() + "\n";
+  }
+
+  const detailSection = findTaskDetailSection(normalizedMarkdown);
+  if (detailSection) {
+    const before = normalizedMarkdown.slice(0, detailSection.headingStart).replace(/\s+$/u, "");
+    const after = normalizedMarkdown.slice(detailSection.headingStart).replace(/^\s*/u, "");
+    return `${before}\n\n${nextSection}\n\n${after}`.trimStart() + "\n";
+  }
+
+  return `${normalizedMarkdown}\n\n${nextSection}`.trimStart() + "\n";
 }
 
 function rewriteTaskProgressSection(markdown: string, records?: ProgressRecord[]): string {
@@ -2040,6 +2142,10 @@ order by sort asc`);
 
 function findTaskDetailSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
   return findSectionBoundsByHeadings(markdown, [TASK_DETAIL_HEADING]);
+}
+
+function findTaskSummarySection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
+  return findSectionBoundsByHeadings(markdown, [TASK_SUMMARY_HEADING]);
 }
 
 function findTaskProgressSection(markdown: string): { headingStart: number; bodyStart: number; nextHeadingStart: number } | undefined {
@@ -2361,6 +2467,134 @@ function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: strin
   return buildManagedTaskSummaryBlocks(tableMarkdown, lines).join("\n\n");
 }
 
+function buildDefaultTaskSummaryTable(task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
+  const headers: Array<keyof TaskSummaryValueMap> = ["项目", "状态", "来源", "优先级", "创建时间", "完成时间", "截止时间", "计划时间"];
+  const values = buildTaskSummaryValueMap(task, parent, children, settings);
+  return `| ${headers.join(" | ")} |
+| ${headers.map(() => "---").join(" | ")} |
+| ${headers.map((header) => values[header]).join(" | ")} |`;
+}
+
+function extractTaskSummaryTableMarkdown(bodyMarkdown: string): string | undefined {
+  const lines = normalizeManagedSectionBody(bodyMarkdown).split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => /^\|/.test(line.trim()));
+  if (startIndex === -1) {
+    return undefined;
+  }
+
+  let endIndex = startIndex;
+  while (endIndex + 1 < lines.length && /^\|/.test(lines[endIndex + 1].trim())) {
+    endIndex += 1;
+  }
+
+  const tableLines = lines.slice(startIndex, endIndex + 1).map((line) => line.trimEnd()).filter(Boolean);
+  return tableLines.length >= 2 ? tableLines.join("\n") : undefined;
+}
+
+function stripManagedTaskSections(markdown: string): string {
+  const ranges = findManagedTaskSectionBounds(markdown);
+  if (!ranges.length) {
+    return normalizeUnmanagedTaskTemplateBody(markdown);
+  }
+
+  let cursor = 0;
+  let output = "";
+  for (const range of ranges) {
+    output += markdown.slice(cursor, range.headingStart);
+    cursor = range.nextHeadingStart;
+  }
+  output += markdown.slice(cursor);
+  return normalizeUnmanagedTaskTemplateBody(output);
+}
+
+function findManagedTaskSectionBounds(markdown: string): Array<{ headingStart: number; nextHeadingStart: number }> {
+  const regex = /^#{1,6}\s+(任务概要|推进记录|任务详情)\s*$/gm;
+  const ranges: Array<{ headingStart: number; nextHeadingStart: number }> = [];
+  for (const match of markdown.matchAll(regex)) {
+    const headingStart = match.index || 0;
+    const headingEnd = headingStart + match[0].length;
+    const bodyStart = headingEnd < markdown.length && markdown[headingEnd] === "\n" ? headingEnd + 1 : headingEnd;
+    const nextHeadingRegex = /^#{1,6}\s+/gm;
+    nextHeadingRegex.lastIndex = bodyStart;
+    const nextHeading = nextHeadingRegex.exec(markdown);
+    ranges.push({
+      headingStart,
+      nextHeadingStart: nextHeading?.index ?? markdown.length
+    });
+  }
+  return ranges;
+}
+
+function normalizeUnmanagedTaskTemplateBody(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .replace(/(?:\n\s*---\s*)+$/u, "")
+    .replace(/^\s*---\s*\n+/u, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function hasDuplicateTaskSummaryBody(bodyMarkdown: string): boolean {
+  const normalized = normalizeManagedSectionBody(bodyMarkdown);
+  if (!normalized) {
+    return false;
+  }
+  return countTaskSummaryTables(normalized) > 1
+    || countTaskSummaryLabelLines(normalized, ["父任务"]) > 1
+    || countTaskSummaryLabelLines(normalized, ["子任务"]) > 1
+    || countTaskSummaryLabelLines(normalized, [TASK_LATEST_LABEL, "任务描述"]) > 1;
+}
+
+function normalizeManagedTaskSummaryBody(bodyMarkdown: string): string {
+  const normalized = normalizeManagedSectionBody(bodyMarkdown);
+  if (!normalized) {
+    return normalized;
+  }
+
+  const tableMarkdown = extractTaskSummaryTableMarkdown(normalized);
+  const parentLine = extractTaskSummaryLabelLine(normalized, ["父任务"]);
+  const childLine = extractTaskSummaryLabelLine(normalized, ["子任务"]);
+  const latestLine = extractTaskSummaryLabelLine(normalized, [TASK_LATEST_LABEL, "任务描述"]);
+  const blocks = [tableMarkdown, parentLine, childLine, latestLine].filter(Boolean) as string[];
+  if (!blocks.length) {
+    return normalized;
+  }
+  return [...blocks, "---"].join("\n\n");
+}
+
+function countTaskSummaryTables(bodyMarkdown: string): number {
+  return bodyMarkdown
+    .split(/\r?\n/)
+    .filter((line) => /^\|/.test(line.trim()) && line.includes("来源"))
+    .length;
+}
+
+function countTaskSummaryLabelLines(bodyMarkdown: string, labels: string[]): number {
+  return bodyMarkdown
+    .split(/\r?\n/)
+    .filter((line) => matchesTaskSummaryLabelLine(line, labels))
+    .length;
+}
+
+function extractTaskSummaryLabelLine(bodyMarkdown: string, labels: string[]): string | undefined {
+  return bodyMarkdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => matchesTaskSummaryLabelLine(line, labels));
+}
+
+function matchesTaskSummaryLabelLine(line: string, labels: string[]): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return labels.some((label) => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`^(?:\\*\\*|<strong>)?\\s*${escaped}\\s*(?:\\*\\*|</strong>)?\\s*[:：]`);
+    return regex.test(trimmed);
+  });
+}
+
 function renderManagedTaskProgressSectionBody(records?: ProgressRecord[]): string {
   const content = renderProgressRecordsMarkdown(records).replace(/\s+$/u, "");
   return [
@@ -2382,45 +2616,37 @@ type ManagedHeadingSectionRange = {
   nextHeadingId?: string;
 };
 
-async function healCorruptedTaskDocument(task: TaskItem, currentSynced = false): Promise<boolean> {
+async function healCorruptedTaskDocument(
+  task: TaskItem,
+  parent?: TaskItem,
+  children: TaskItem[] = [],
+  settings: TaskSettings = {},
+  currentSynced = false
+): Promise<boolean> {
   const expectedTitles = [task.title, taskDocumentTitle(task)];
   const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
   const duplicateHeadingBlocks = rootBlocks.filter((block) => block.type === "h" && matchesDuplicatedTaskTitle(block.content, expectedTitles));
   const duplicateMetadataBlocks = rootBlocks.filter((block) => block.type === "p" && isDuplicatedTaskMetadataParagraph(block.content, expectedTitles));
   const managedSectionBlocks = rootBlocks.filter((block) => block.type === "h" && isManagedTaskSectionHeading(block.content));
-  const separatorBlocks = rootBlocks.filter((block) => block.type === "tb");
   const duplicateManagedSections = hasDuplicateManagedSections(managedSectionBlocks);
-  if (!duplicateHeadingBlocks.length && !duplicateMetadataBlocks.length && !duplicateManagedSections) {
-    return currentSynced;
-  }
-
   const currentMarkdown = await readDocMarkdown(task.docId).catch(() => "");
   if (!currentMarkdown) {
     return currentSynced;
   }
 
   const summaryBody = normalizeManagedSectionBody(extractHeadingSectionBody(currentMarkdown, [TASK_SUMMARY_HEADING]) || "");
+  const duplicateSummaryBody = hasDuplicateTaskSummaryBody(summaryBody);
+  if (!duplicateHeadingBlocks.length && !duplicateMetadataBlocks.length && !duplicateManagedSections && !duplicateSummaryBody) {
+    return currentSynced;
+  }
   const detailBody = extractTaskDetail(currentMarkdown);
-  const blocksToDelete = uniqueRootBlocks([
-    ...duplicateHeadingBlocks,
-    ...duplicateMetadataBlocks,
-    ...separatorBlocks,
-    ...(duplicateHeadingBlocks.length || duplicateMetadataBlocks.length || duplicateManagedSections ? managedSectionBlocks : [])
-  ]);
-
-  for (const block of blocksToDelete) {
-    if (block.type === "h") {
-      await deleteBlockTree(block.id).catch(() => undefined);
-      continue;
-    }
-    await deleteBlock(block.id).catch(() => undefined);
+  const blocksToDelete = uniqueRootBlocks(rootBlocks);
+  for (const block of [...blocksToDelete].reverse()) {
+    await deleteBlockTree(block.id).catch(() => undefined);
   }
 
-  if (summaryBody) {
-    await appendBlock(task.docId, buildManagedHeadingSectionMarkdown(TASK_SUMMARY_HEADING, summaryBody, 2));
-  }
-  await appendBlock(task.docId, buildTaskProgressSection(task.progressRecords).replace(/\s+$/u, ""));
-  await appendBlock(task.docId, buildTaskDetailSection(detailBody).replace(/\s+$/u, ""));
+  const nextMarkdown = renderTaskMarkdown(task, parent, children, settings, detailBody).replace(/\s+$/u, "");
+  await appendBlock(task.docId, nextMarkdown);
   return true;
 }
 

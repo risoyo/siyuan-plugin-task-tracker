@@ -1,21 +1,5 @@
 import { Dialog, Setting, showMessage } from "siyuan";
 import type { TaskService } from "./document";
-import { DEFAULT_TASK_TEMPLATE } from "./types";
-
-const MANAGED_DETAIL_SECTION_TITLE = "## 任务详情";
-const MANAGED_PROGRESS_SECTION_TITLE = "## 推进记录";
-const REQUIRED_TEMPLATE_PLACEHOLDERS = ["{{source}}", "{{status}}", "{{priority}}", "{{description}}"];
-const MANAGED_SUMMARY_HINT = "任务概要受控区正式支持 Markdown 表格，以及紧随表格后的父任务 / 子任务 / 任务近况标签行；插件会持续同步表格和这些标签行。";
-const TEMPLATE_PLACEHOLDER_CHIPS = [
-  "{{project}}",
-  "{{status}}",
-  "{{source}}",
-  "{{priority}}",
-  "{{createdAt}}",
-  "{{parent}}",
-  "{{childTasks}}",
-  "{{description}}"
-];
 
 export function createTaskSettings(
   service: TaskService,
@@ -39,34 +23,10 @@ export function createTaskSettings(
   rootDocIdInput.placeholder = "粘贴文档 ID，例如：20260506092200-qynf33g";
   rootDocIdInput.value = settings.taskRootDocId || "";
 
-  const templateInput = document.createElement("textarea");
-  templateInput.className = "b3-text-field fn__block task-tracker-settings__template";
-  templateInput.spellcheck = false;
-  templateInput.value = settings.taskTemplate || DEFAULT_TASK_TEMPLATE;
-
-  const templateLineNumbers = document.createElement("div");
-  templateLineNumbers.className = "task-tracker-settings__template-lines";
-  const syncTemplateLineNumbers = (): void => {
-    const lineCount = Math.max(templateInput.value.split(/\r?\n/u).length, 1);
-    templateLineNumbers.innerHTML = Array.from({ length: lineCount }, (_, index) => `<div>${index + 1}</div>`).join("");
-  };
-  templateInput.addEventListener("input", syncTemplateLineNumbers);
-  templateInput.addEventListener("scroll", () => {
-    templateLineNumbers.scrollTop = templateInput.scrollTop;
-  });
-  syncTemplateLineNumbers();
-
   const setting = new Setting({
     confirmCallback: async () => {
-      const normalizedTemplate = templateInput.value.trim();
-      const validationError = validateTaskTemplate(normalizedTemplate || DEFAULT_TASK_TEMPLATE);
-      if (validationError) {
-        showMessage(validationError, 7000, "error");
-        throw new Error(validationError);
-      }
       await service.store.setSettings({
-        defaultProject: defaultProjectInput.value.trim() || undefined,
-        taskTemplate: normalizedTemplate || undefined
+        defaultProject: defaultProjectInput.value.trim() || undefined
       });
       actions.refreshViews();
       showMessage("任务追踪设置已保存");
@@ -131,61 +91,7 @@ export function createTaskSettings(
   maintenanceCard.controlsBody.append(maintenanceButtons);
   addSettingsCard(setting, maintenanceCard.card);
 
-  const templateCard = createSettingsCard("template", "任务模板", "新建任务文档时使用。模板中的任务概要、推进记录与任务详情分区会由插件持续管理。");
-  const resetButton = createSettingsButton("恢复默认模板", "ghost");
-  resetButton.addEventListener("click", () => {
-    templateInput.value = DEFAULT_TASK_TEMPLATE;
-    syncTemplateLineNumbers();
-  });
-  templateCard.controlsHeader.append(resetButton);
-
-  const templateEditorPanel = document.createElement("div");
-  templateEditorPanel.className = "task-tracker-settings__template-panel";
-
-  const templateEditor = document.createElement("div");
-  templateEditor.className = "task-tracker-settings__template-editor";
-  templateEditor.append(templateLineNumbers, templateInput);
-
-  const templateChips = document.createElement("div");
-  templateChips.className = "task-tracker-settings__placeholder-list";
-  TEMPLATE_PLACEHOLDER_CHIPS.forEach((placeholder) => {
-    const chip = document.createElement("span");
-    chip.className = "task-tracker-settings__placeholder-chip";
-    chip.textContent = placeholder;
-    templateChips.append(chip);
-  });
-
-  const placeholderLabel = document.createElement("div");
-  placeholderLabel.className = "task-tracker-settings__placeholder-label";
-  placeholderLabel.textContent = "可用变量：";
-
-  const placeholderRow = document.createElement("div");
-  placeholderRow.className = "task-tracker-settings__placeholder-row";
-  placeholderRow.append(placeholderLabel, templateChips);
-
-  templateEditorPanel.append(templateEditor, placeholderRow);
-
-  const templateManagedHint = document.createElement("div");
-  templateManagedHint.className = "task-tracker-settings__callout";
-  templateManagedHint.innerHTML = `
-    <div class="task-tracker-settings__callout-icon">${renderInlineIcon("info")}</div>
-    <div class="task-tracker-settings__callout-content">
-      <div class="task-tracker-settings__callout-title">插件管理的正文交互字段</div>
-      <ul>
-        <li>${MANAGED_SUMMARY_HINT}</li>
-        <li><code>{{description}}</code>：对应任务近况，属于任务元信息字段。</li>
-        <li><code>${MANAGED_PROGRESS_SECTION_TITLE}</code>：对应推进记录受控分区；保存任务时会把结构化推进记录实体化写回该区块。</li>
-        <li><code>${MANAGED_DETAIL_SECTION_TITLE}</code>：对应任务详情正文受控分区；创建时自动追加，编辑时近实时写回。</li>
-      </ul>
-      <div>保存模板时会校验是否仍保留插件管理所需字段；推进记录区块建议保留，但不会阻止旧模板继续保存。</div>
-    </div>
-  `;
-
-  templateCard.controlsBody.append(templateEditorPanel);
-  templateCard.body.append(templateManagedHint);
-  addSettingsCard(setting, templateCard.card);
-
-  const helpCard = createSettingsCard("help", "使用帮助", "查看事项库设置、任务创建、任务控制面板、任务维护、模板占位符和版本规则。");
+  const helpCard = createSettingsCard("help", "使用帮助", "查看事项库设置、任务创建、任务控制面板、任务维护和版本规则。");
   const helpButton = createSettingsButton("打开使用帮助", "outline", true);
   helpButton.addEventListener("click", () => showHelpDialog());
   helpCard.controlsBody.append(helpButton);
@@ -294,7 +200,7 @@ function decorateSettingsRow(wrapper: HTMLElement): void {
   });
 }
 
-type SettingsIconName = "project" | "library" | "shield" | "template" | "help" | "version" | "info" | "external";
+type SettingsIconName = "project" | "library" | "shield" | "help" | "version" | "external";
 
 function renderInlineIcon(name: SettingsIconName): string {
   switch (name) {
@@ -304,25 +210,13 @@ function renderInlineIcon(name: SettingsIconName): string {
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="6.5" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 6v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8V6M5.5 10v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8v-4M5.5 14v4c0 1.5 2.9 2.8 6.5 2.8s6.5-1.3 6.5-2.8v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
     case "shield":
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 5.5 6v5.3c0 4.2 2.7 7.9 6.5 9.2 3.8-1.3 6.5-5 6.5-9.2V6L12 3.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9.3 12.2 1.8 1.8 3.7-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    case "template":
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.8h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.8a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3.8V8h4M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
     case "help":
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h11a1.5 1.5 0 0 1 1.5 1.5v12A2.5 2.5 0 0 0 17 15H7a2.5 2.5 0 0 0-2.5 2.5v-11Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 4v13.5M9.5 8H16M9.5 11.5H16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
     case "version":
       return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.2v5.3M12 7.8h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
-    case "info":
-      return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5M12 8h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
     case "external":
       return `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5H13.5V6.5M13 3 8.5 7.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 3.5H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
-}
-
-function validateTaskTemplate(template: string): string | undefined {
-  const missingPlaceholders = REQUIRED_TEMPLATE_PLACEHOLDERS.filter((placeholder) => !template.includes(placeholder));
-  if (missingPlaceholders.length) {
-    return `任务模板缺少基础创建所需占位符：${missingPlaceholders.join("、")}。请补回后再保存。`;
-  }
-  return undefined;
 }
 
 function showHelpDialog(): void {
@@ -338,7 +232,7 @@ function showHelpDialog(): void {
     <li>新建或打开一个文档，例如“事项库”。</li>
     <li>在文档标题图标菜单中选择“将当前文档设为事项库”。</li>
     <li>如果自动识别失败，请复制该文档 ID，在插件设置的“事项库”中粘贴并点击“绑定 ID”。</li>
-    <li>可选：设置默认项目，或按自己的笔记结构调整任务模板。</li>
+    <li>可选：设置默认项目。</li>
   </ol>
 
   <h2>三、创建任务</h2>
@@ -376,10 +270,8 @@ function showHelpDialog(): void {
   </ul>
   <p>插件启动时会等待思源同步状态稳定，再尝试恢复和同步索引。换设备、同步异常或面板显示不完整时，可以手动执行重建。</p>
 
-  <h2>八、任务模板占位符</h2>
-  <p>模板支持：<code>{{title}}</code>、<code>{{source}}</code>、<code>{{parent}}</code>、<code>{{project}}</code>、<code>{{status}}</code>、<code>{{priority}}</code>、<code>{{description}}</code>、<code>{{dueDate}}</code>、<code>{{planStart}}</code>、<code>{{planEnd}}</code>、<code>{{childTasks}}</code>、<code>{{childTaskList}}</code>、<code>{{createdAt}}</code>、<code>{{updatedAt}}</code>。</p>
-  <p><code>{{description}}</code> 对应“任务近况”元信息字段；<code>${MANAGED_PROGRESS_SECTION_TITLE}</code> 对应“推进记录”受控分区；<code>${MANAGED_DETAIL_SECTION_TITLE}</code> 对应“任务详情”正文受控分区。后两者不通过模板占位符填写，而是在创建后由插件自动补入并在编辑时持续写回。</p>
-  <p>${MANAGED_SUMMARY_HINT}</p>
+  <h2>八、任务文档结构</h2>
+  <p>新建任务文档会固定生成“任务概要”“推进记录”“任务详情”三段结构。其中“任务概要”中的表格、父任务 / 子任务 / 任务近况标签行，以及“推进记录”“任务详情”分区，都会由插件持续托管和同步。</p>
 
   <h2>九、使用建议</h2>
   <ul>
