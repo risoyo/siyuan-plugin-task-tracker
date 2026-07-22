@@ -74,6 +74,7 @@ type ChangeListener = () => void;
 export class TaskService {
   private listeners = new Set<ChangeListener>();
   private recentCreatedTaskIds = new Map<string, number>();
+  private detailSaveChains = new Map<string, Promise<void>>();
 
   constructor(public readonly store: TaskStore) {}
 
@@ -227,17 +228,22 @@ export class TaskService {
         });
         throw error;
       }
+      this.emit();
     }
     await syncSourceTaskReference(current.sourceBlockId, task.sourceBlockId, task.id);
     await setTaskAttrs(task);
-    await this.syncTaskDocument(task.id);
+    await this.syncTaskDocument(task.id, {
+      preserveTaskDescription: "description" in normalizedPatch
+    });
     if (current.parentId && current.parentId !== task.id) {
       await this.syncTaskDocument(current.parentId);
     }
     if (task.parentId && task.parentId !== current.parentId) {
       await this.syncTaskDocument(task.parentId);
     }
-    this.emit();
+    if (!parentIdChanged) {
+      this.emit();
+    }
     return task;
   }
 
@@ -433,27 +439,72 @@ export class TaskService {
     return extractTaskDetail(markdown);
   }
 
+  async getTaskDescription(docId: string): Promise<string> {
+    const markdown = await readDocMarkdown(docId);
+    return extractTaskSummaryDescription(markdown) || "";
+  }
+
   async saveTaskDetail(docId: string, detail: string): Promise<void> {
-    await replaceManagedHeadingSection(docId, [TASK_DETAIL_HEADING], normalizeTaskDetailBody(detail), {
-      createIfMissing: true
+    return this.enqueueDetailSave(docId, async () => {
+      const normalizedDetail = normalizeTaskDetailBody(detail);
+      const currentMarkdown = await readDocMarkdown(docId).catch(() => "");
+      const rootBlocks = await listRootTaskBlocks(docId).catch(() => []);
+      const task = this.store.all().find((item) => item.docId === docId || item.id === docId);
+      if (task && hasUnexpectedManagedTaskRootLayout(rootBlocks)) {
+        const liveDescription = extractTaskSummaryDescription(currentMarkdown);
+        const nextTask = liveDescription === task.description
+          ? task
+          : { ...task, description: liveDescription };
+        const parent = nextTask.parentId ? this.store.get(nextTask.parentId) : undefined;
+        const children = this.store.all().filter((item) => item.parentId === nextTask.id);
+        await healCorruptedTaskDocument(
+          nextTask,
+          parent,
+          children,
+          this.store.getSettings(),
+          false,
+          true,
+          currentMarkdown,
+          rootBlocks,
+          normalizedDetail
+        );
+        return;
+      }
+
+      await replaceManagedHeadingSection(docId, [TASK_DETAIL_HEADING], normalizedDetail, {
+        createIfMissing: true,
+        insertAfterHeadings: [TASK_PROGRESS_HEADING]
+      });
     });
   }
 
-  private async syncTaskDocument(id: string): Promise<boolean> {
-    const task = this.store.get(id);
+  private async syncTaskDocument(
+    id: string,
+    options: { preserveTaskDescription?: boolean } = {}
+  ): Promise<boolean> {
+    let task = this.store.get(id);
     if (!task) {
       return false;
+    }
+
+    const currentMarkdown = await readDocMarkdown(task.docId).catch(() => "");
+    if (!options.preserveTaskDescription) {
+      const liveDescription = extractTaskSummaryDescription(currentMarkdown);
+      if (liveDescription !== task.description) {
+        task = await this.store.update(id, { description: liveDescription });
+      }
     }
 
     const parent = task.parentId ? this.store.get(task.parentId) : undefined;
     const children = this.store.all().filter((item) => item.parentId === task.id);
     const settings = this.store.getSettings();
+    const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
+    if (hasUnexpectedManagedTaskRootLayout(rootBlocks)) {
+      return healCorruptedTaskDocument(task, parent, children, settings, false, true, currentMarkdown, rootBlocks);
+    }
     const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
-      let synced = await syncManagedTaskProgressSection(task, false);
-      synced = await syncManagedTaskDescriptionSection(task, synced);
-      synced = await healCorruptedTaskDocument(task, parent, children, settings, synced);
-      return synced;
+      return healCorruptedTaskDocument(task, parent, children, settings, false, true, currentMarkdown, rootBlocks);
     }
 
     let synced = false;
@@ -555,10 +606,34 @@ export class TaskService {
     await moveDocs([currentPath], task.notebookId, targetParentPath);
 
     const ids = expandWithDescendants(this.store.all(), [task.id]);
-    const pathMap = await refreshTaskPaths(this.store, ids);
-    const movedTask = pathMap.get(task.id) || this.store.get(task.id) || task;
-    await this.syncTaskDocuments(ids);
-    return movedTask;
+    this.refreshMovedTaskPaths(ids);
+    return this.store.get(task.id) || task;
+  }
+
+  private refreshMovedTaskPaths(ids: string[]): void {
+    void (async () => {
+      try {
+        const pathMap = await refreshTaskPaths(this.store, ids, 16);
+        if (pathMap.size > 0) {
+          this.emit();
+        }
+      } catch (error) {
+        console.warn("Task Tracker: failed to refresh moved task paths", ids, error);
+      }
+    })();
+  }
+
+  private enqueueDetailSave(docId: string, action: () => Promise<void>): Promise<void> {
+    const previous = this.detailSaveChains.get(docId) || Promise.resolve();
+    const current = previous
+      .catch(() => undefined)
+      .then(action);
+    this.detailSaveChains.set(docId, current);
+    return current.finally(() => {
+      if (this.detailSaveChains.get(docId) === current) {
+        this.detailSaveChains.delete(docId);
+      }
+    });
   }
 
   private async collectTasksFromRoot(): Promise<TaskItem[]> {
@@ -2080,14 +2155,35 @@ function rewriteTaskDetail(markdown: string, detail: string): string {
 }
 
 function normalizeTaskDetailBody(value: string): string {
-  return truncateTaskDetailDirtyTail(value)
+  return stripTaskDetailLeadingNoise(truncateTaskDetailDirtyTail(value))
     .replace(/^\n+/u, "")
     .replace(/\s+$/u, "");
 }
 
 function truncateTaskDetailDirtyTail(value: string): string {
   const footnoteStart = /(?:^|\n)\[\^[^\]]+\]:\s+/m.exec(value)?.index;
-  return footnoteStart === undefined ? value : value.slice(0, footnoteStart);
+  const managedSectionStart = /(?:^|\n)\s*##\s+(?:任务概要|推进记录|任务详情)\s*$/m.exec(value)?.index;
+  const starts = [footnoteStart, managedSectionStart]
+    .filter((index): index is number => index !== undefined);
+  if (!starts.length) {
+    return value;
+  }
+  return value.slice(0, Math.min(...starts));
+}
+
+function stripTaskDetailLeadingNoise(value: string): string {
+  let output = value.replace(/^\u200b+/u, "");
+  for (let i = 0; i < 6; i += 1) {
+    const next = output
+      .replace(/^\s*---\s*\n[\s\S]*?\n---\s*\n*/u, "")
+      .replace(/^\s*# .*?\n+/u, "")
+      .replace(/^\s*任务详情\s*\n+/u, "");
+    if (next === output) {
+      break;
+    }
+    output = next;
+  }
+  return output;
 }
 
 function buildManagedHeadingSectionMarkdown(title: string, bodyMarkdown: string, level = 2): string {
@@ -2583,6 +2679,21 @@ function extractTaskSummaryLabelLine(bodyMarkdown: string, labels: string[]): st
     .find((line) => matchesTaskSummaryLabelLine(line, labels));
 }
 
+function extractTaskSummaryDescription(markdown: string): string | undefined {
+  const summaryBody = extractHeadingSectionBody(markdown, [TASK_SUMMARY_HEADING]);
+  if (!summaryBody) {
+    return undefined;
+  }
+
+  const line = extractTaskSummaryLabelLine(summaryBody, [TASK_LATEST_LABEL, "任务描述"]);
+  if (!line) {
+    return undefined;
+  }
+
+  const value = line.replace(/^(?:\*\*|<strong>)?\s*(?:任务近况|任务描述)\s*(?:\*\*|<\/strong>)?\s*[:：]\s*/u, "").trim();
+  return normalizeTaskFieldValue(value);
+}
+
 function matchesTaskSummaryLabelLine(line: string, labels: string[]): boolean {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -2621,25 +2732,29 @@ async function healCorruptedTaskDocument(
   parent?: TaskItem,
   children: TaskItem[] = [],
   settings: TaskSettings = {},
-  currentSynced = false
+  currentSynced = false,
+  forceRebuild = false,
+  currentMarkdownOverride?: string,
+  rootBlocksOverride?: RootTaskBlock[],
+  detailOverride?: string
 ): Promise<boolean> {
   const expectedTitles = [task.title, taskDocumentTitle(task)];
-  const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
+  const rootBlocks = rootBlocksOverride || await listRootTaskBlocks(task.docId).catch(() => []);
   const duplicateHeadingBlocks = rootBlocks.filter((block) => block.type === "h" && matchesDuplicatedTaskTitle(block.content, expectedTitles));
   const duplicateMetadataBlocks = rootBlocks.filter((block) => block.type === "p" && isDuplicatedTaskMetadataParagraph(block.content, expectedTitles));
   const managedSectionBlocks = rootBlocks.filter((block) => block.type === "h" && isManagedTaskSectionHeading(block.content));
   const duplicateManagedSections = hasDuplicateManagedSections(managedSectionBlocks);
-  const currentMarkdown = await readDocMarkdown(task.docId).catch(() => "");
+  const currentMarkdown = currentMarkdownOverride ?? await readDocMarkdown(task.docId).catch(() => "");
   if (!currentMarkdown) {
     return currentSynced;
   }
 
   const summaryBody = normalizeManagedSectionBody(extractHeadingSectionBody(currentMarkdown, [TASK_SUMMARY_HEADING]) || "");
   const duplicateSummaryBody = hasDuplicateTaskSummaryBody(summaryBody);
-  if (!duplicateHeadingBlocks.length && !duplicateMetadataBlocks.length && !duplicateManagedSections && !duplicateSummaryBody) {
+  if (!forceRebuild && !duplicateHeadingBlocks.length && !duplicateMetadataBlocks.length && !duplicateManagedSections && !duplicateSummaryBody) {
     return currentSynced;
   }
-  const detailBody = extractTaskDetail(currentMarkdown);
+  const detailBody = detailOverride ?? extractTaskDetail(currentMarkdown);
   const blocksToDelete = uniqueRootBlocks(rootBlocks);
   for (const block of [...blocksToDelete].reverse()) {
     await deleteBlockTree(block.id).catch(() => undefined);
@@ -2703,6 +2818,20 @@ function hasDuplicateManagedSections(blocks: RootTaskBlock[]): boolean {
   return false;
 }
 
+function hasUnexpectedManagedTaskRootLayout(blocks: RootTaskBlock[]): boolean {
+  const expectedHeadings = [TASK_SUMMARY_HEADING, TASK_PROGRESS_HEADING, TASK_DETAIL_HEADING];
+  if (blocks.length !== expectedHeadings.length) {
+    return true;
+  }
+
+  return blocks.some((block, index) => {
+    if (block.type !== "h") {
+      return true;
+    }
+    return (block.content?.trim() || "") !== expectedHeadings[index];
+  });
+}
+
 function uniqueRootBlocks(blocks: RootTaskBlock[]): RootTaskBlock[] {
   const seen = new Set<string>();
   return blocks.filter((block) => {
@@ -2735,14 +2864,14 @@ async function requireTaskPath(docId: string, errorMessage: string, retries = 4)
   throw new Error(errorMessage);
 }
 
-async function refreshTaskPaths(store: TaskStore, ids: string[]): Promise<Map<string, TaskItem>> {
+async function refreshTaskPaths(store: TaskStore, ids: string[], attempts = 16): Promise<Map<string, TaskItem>> {
   const updated = new Map<string, TaskItem>();
   for (const id of ids) {
     const current = store.get(id);
     if (!current) {
       continue;
     }
-    const path = await getTaskPath(current.docId);
+    const path = await waitForTaskPath(current.docId, undefined, attempts);
     if (!path || path === current.path) {
       continue;
     }

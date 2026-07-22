@@ -582,6 +582,7 @@ export class TaskDialog {
     const dragHandle = root.querySelector<HTMLElement>("[data-drag-handle]");
     const dialogContainer = dialog.element.querySelector<HTMLElement>(".b3-dialog__container");
     const titleInput = root.querySelector<HTMLInputElement>("input[name='title']");
+    const descriptionTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='description']");
     const detailTextarea = root.querySelector<HTMLTextAreaElement>("textarea[name='detail']");
     const detailStatus = root.querySelector<HTMLElement>("[data-detail-status]");
     const progressRoot = root.querySelector<HTMLElement>("[data-progress-root]");
@@ -1185,6 +1186,16 @@ export class TaskDialog {
 
     if (detailTextarea) {
       if (editMode && editingTask) {
+        if (descriptionTextarea) {
+          void this.options.service.getTaskDescription(editingTask.docId)
+            .then((description) => {
+              if (destroyed || !descriptionTextarea) {
+                return;
+              }
+              descriptionTextarea.value = description;
+            })
+            .catch(() => undefined);
+        }
         detailTextarea.disabled = true;
         setDetailStatus("读取正文中...");
         void this.options.service.getTaskDetail(editingTask.docId)
@@ -1575,9 +1586,7 @@ export class TaskDialog {
         }
         const normalizedProgressRecords = normalizeProgressRecords(progressRecordsDraft);
         const detailValue = String(data.get("detail") || "");
-        if (editMode && editingTask && detailTextarea && detailTextarea.value !== detailLoadedValue) {
-          await saveDetail(true);
-        }
+        window.clearTimeout(detailSaveTimer);
         const task = editMode && editingTask
           ? await this.options.service.updateTask(editingTask.id, {
             ...baseInput,
@@ -1588,6 +1597,13 @@ export class TaskDialog {
             progressRecords: normalizedProgressRecords,
             detail: detailValue
           });
+        if (editMode && editingTask && detailValue !== detailLoadedValue) {
+          await this.options.service.saveTaskDetail(task.docId, detailValue);
+          detailLoadedValue = detailValue;
+          if (detailTextarea) {
+            detailTextarea.value = detailValue;
+          }
+        }
         const sourceDocIdToOpen = pendingAfterSaveAction === "open-source"
           ? selectedSource?.docId
           : undefined;
