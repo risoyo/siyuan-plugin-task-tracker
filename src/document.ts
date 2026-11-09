@@ -2,7 +2,6 @@ import {
   appendBlock,
   deleteBlock,
   createDocWithMd,
-  getChildBlocks,
   getBlockAttrs,
   getBlockById,
   getDocMarkdown,
@@ -447,30 +446,6 @@ export class TaskService {
   async saveTaskDetail(docId: string, detail: string): Promise<void> {
     return this.enqueueDetailSave(docId, async () => {
       const normalizedDetail = normalizeTaskDetailBody(detail);
-      const currentMarkdown = await readDocMarkdown(docId).catch(() => "");
-      const rootBlocks = await listRootTaskBlocks(docId).catch(() => []);
-      const task = this.store.all().find((item) => item.docId === docId || item.id === docId);
-      if (task && hasUnexpectedManagedTaskRootLayout(rootBlocks)) {
-        const liveDescription = extractTaskSummaryDescription(currentMarkdown);
-        const nextTask = liveDescription === task.description
-          ? task
-          : { ...task, description: liveDescription };
-        const parent = nextTask.parentId ? this.store.get(nextTask.parentId) : undefined;
-        const children = this.store.all().filter((item) => item.parentId === nextTask.id);
-        await healCorruptedTaskDocument(
-          nextTask,
-          parent,
-          children,
-          this.store.getSettings(),
-          false,
-          true,
-          currentMarkdown,
-          rootBlocks,
-          normalizedDetail
-        );
-        return;
-      }
-
       await replaceManagedHeadingSection(docId, [TASK_DETAIL_HEADING], normalizedDetail, {
         createIfMissing: true,
         insertAfterHeadings: [TASK_PROGRESS_HEADING]
@@ -500,28 +475,22 @@ export class TaskService {
     const settings = this.store.getSettings();
     const rootBlocks = await listRootTaskBlocks(task.docId).catch(() => []);
     if (hasUnexpectedManagedTaskRootLayout(rootBlocks)) {
-      return healCorruptedTaskDocument(task, parent, children, settings, false, true, currentMarkdown, rootBlocks);
+      // Do not destructively rebuild a document during an ordinary task save.
+      // A document legitimately has root-level tables, paragraphs, and thematic
+      // breaks between its three managed headings.
+      console.warn("Task Tracker: skipped task document sync because its managed headings are malformed", task.docId);
+      return false;
     }
     const metadataBlock = await findManagedTaskSummaryBlock(task.docId);
     if (!metadataBlock) {
-      return healCorruptedTaskDocument(task, parent, children, settings, false, true, currentMarkdown, rootBlocks);
+      console.warn("Task Tracker: skipped task document sync because its summary block is missing", task.docId);
+      return false;
     }
 
     let synced = false;
     if (metadataBlock.format === "table") {
       const nextTableMarkdown = renderTaskSummaryTable(metadataBlock.markdown || "", task, parent, children, settings);
-      const summaryHeading = await findHeadingBlock(task.docId, [TASK_SUMMARY_HEADING]);
-      if (summaryHeading) {
-        synced = await replaceManagedHeadingSectionBlocks(
-          task.docId,
-          [TASK_SUMMARY_HEADING],
-          buildManagedTaskSummaryBlocks(
-            nextTableMarkdown,
-            buildTaskSummaryLabelLines(task, parent, children, settings)
-          ),
-          { createIfMissing: false }
-        );
-      } else if (!sameMarkdownContent(metadataBlock.markdown, nextTableMarkdown)) {
+      if (!sameMarkdownContent(metadataBlock.markdown, nextTableMarkdown)) {
         await updateBlock(metadataBlock.id, nextTableMarkdown);
         synced = true;
       }
@@ -534,7 +503,6 @@ export class TaskService {
     }
     synced = await syncManagedTaskProgressSection(task, synced);
     synced = await syncManagedTaskDescriptionSection(task, synced);
-    synced = await healCorruptedTaskDocument(task, parent, children, settings, synced);
     return synced;
   }
 
@@ -566,6 +534,10 @@ export class TaskService {
     }
 
     await moveDocs([taskPath], settings.taskRootNotebookId, archivePath);
+    // Since SiYuan 3.8.7, moveDocs may return before the moved document's
+    // block tree is ready for a following update. Wait before synchronizing
+    // the summary so the completion flow does not hit a transient missing tree.
+    await delay(300);
     const ids = expandWithDescendants(this.store.all(), [task.id]);
     const pathMap = await refreshTaskPaths(this.store, ids);
     let archivedTask = this.store.get(task.id) || task;
@@ -2820,16 +2792,12 @@ function hasDuplicateManagedSections(blocks: RootTaskBlock[]): boolean {
 
 function hasUnexpectedManagedTaskRootLayout(blocks: RootTaskBlock[]): boolean {
   const expectedHeadings = [TASK_SUMMARY_HEADING, TASK_PROGRESS_HEADING, TASK_DETAIL_HEADING];
-  if (blocks.length !== expectedHeadings.length) {
+  const managedHeadings = blocks.filter((block) => block.type === "h" && isManagedTaskSectionHeading(block.content));
+  if (managedHeadings.length !== expectedHeadings.length) {
     return true;
   }
 
-  return blocks.some((block, index) => {
-    if (block.type !== "h") {
-      return true;
-    }
-    return (block.content?.trim() || "") !== expectedHeadings[index];
-  });
+  return managedHeadings.some((block, index) => (block.content?.trim() || "") !== expectedHeadings[index]);
 }
 
 function uniqueRootBlocks(blocks: RootTaskBlock[]): RootTaskBlock[] {
@@ -2844,10 +2812,10 @@ function uniqueRootBlocks(blocks: RootTaskBlock[]): RootTaskBlock[] {
 }
 
 async function deleteBlockTree(blockId: string): Promise<void> {
-  const children = await getChildBlocks(blockId).catch(() => []);
-  for (const child of [...children].reverse()) {
-    await deleteBlockTree(child.id).catch(() => undefined);
-  }
+  // deleteBlock removes the target's descendants as part of one transaction.
+  // getChildBlocks also includes every block beneath a heading, rather than
+  // only direct children. Recursing over that response therefore tries to
+  // delete the same descendants repeatedly and causes kernel error toasts.
   await deleteBlock(blockId);
 }
 

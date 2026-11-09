@@ -11,6 +11,7 @@ import "./index.scss";
 import { getBlockById } from "./api";
 import { sourceFromBlock, TaskService } from "./document";
 import { TaskDialog } from "./dialogs/TaskDialog";
+import { openLocalFolderPath, supportsLocalFolderOpen } from "./localPath";
 import { createTaskSettings } from "./settings";
 import { TaskStore } from "./taskStore";
 import { CANCELLED_TASK_STATUS, COMPLETED_TASK_STATUS, type SourceContext, type TaskItem } from "./types";
@@ -463,6 +464,7 @@ export default class TaskTrackerPlugin extends Plugin {
       label: "打开任务",
       click: () => void this.openTaskFromContext({ docId })
     });
+    this.addOpenTaskFolderMenuItem(detail.menu, { docId });
     detail.menu.addItem({
       icon: "iconAdd",
       label: "从当前文档创建任务",
@@ -491,6 +493,7 @@ export default class TaskTrackerPlugin extends Plugin {
       label: "打开任务",
       click: () => void this.openTaskFromContext({ blockId: firstBlockId, docId })
     });
+    this.addOpenTaskFolderMenuItem(detail.menu, { blockId: firstBlockId, docId });
     detail.menu.addItem({
       icon: "iconAdd",
       label: blockElements.length > 1 ? "从第一个选中块创建任务" : "从当前块创建任务",
@@ -893,6 +896,20 @@ export default class TaskTrackerPlugin extends Plugin {
     return [...matchedTasks].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt))[0];
   }
 
+  private addOpenTaskFolderMenuItem(menu: any, context: { blockId?: string; docId?: string }): void {
+    const linkedTask = this.findLinkedTaskFromContext(context);
+    const noteFolderPath = linkedTask?.noteFolderPath?.trim();
+    if (!noteFolderPath) {
+      return;
+    }
+    menu.addItem({
+      icon: "iconFolder",
+      label: "打开任务文件夹",
+      disabled: !supportsLocalFolderOpen(),
+      click: () => void this.openTaskFolderFromContext(context)
+    });
+  }
+
   private async openTaskFromContext(context: { blockId?: string; docId?: string }): Promise<void> {
     await this.ready;
     const linkedTask = this.findLinkedTaskFromContext(context);
@@ -901,6 +918,25 @@ export default class TaskTrackerPlugin extends Plugin {
       return;
     }
     await this.showTaskDialog({ task: linkedTask });
+  }
+
+  private async openTaskFolderFromContext(context: { blockId?: string; docId?: string }): Promise<void> {
+    await this.ready;
+    const linkedTask = this.findLinkedTaskFromContext(context);
+    const noteFolderPath = linkedTask?.noteFolderPath?.trim();
+    if (!noteFolderPath) {
+      showMessage("当前任务未配置笔记对应的文件夹位置", 3000, "info");
+      return;
+    }
+    if (!supportsLocalFolderOpen()) {
+      showMessage("当前环境不支持打开本地文件夹。", 5000, "error");
+      return;
+    }
+    try {
+      await openLocalFolderPath(noteFolderPath);
+    } catch {
+      showMessage("无法打开该文件夹，请检查路径是否存在。", 5000, "error");
+    }
   }
 
   private async requireLinkedTaskForAgent(): Promise<TaskItem> {
