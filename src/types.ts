@@ -8,6 +8,17 @@ export const COMPLETED_TASK_STATUS = "completed";
 export const CANCELLED_TASK_STATUS = "cancelled";
 
 export type TaskPriority = "none" | "low" | "medium" | "high";
+export type TaskCategory = "daily" | "longTerm" | "weekly";
+
+export const TASK_CATEGORY_LABELS: Record<TaskCategory, string> = {
+  daily: "日常工作",
+  longTerm: "长期事项",
+  weekly: "本周事项"
+};
+
+export function normalizeTaskCategory(value: unknown): TaskCategory {
+  return value === "longTerm" || value === "weekly" ? value : "daily";
+}
 
 /** Centralized badge color configuration for each status — Badge + Popover dropdowns. */
 export interface StatusBadgeConfig {
@@ -75,6 +86,7 @@ export interface TaskItem {
   sourceDocId?: string;
   sourceText?: string;
   project?: string;
+  category: TaskCategory;
   priority: TaskPriority;
   status: TaskStatus;
   dueDate?: string;
@@ -183,6 +195,7 @@ export interface TaskCreateInput {
   sourceDocId?: string;
   sourceText?: string;
   project?: string;
+  category?: TaskCategory;
   priority: TaskPriority;
   status: TaskStatus;
   dueDate?: string;
@@ -249,6 +262,7 @@ export const TASK_ATTRS = {
   status: "custom-task-tracker-status",
   priority: "custom-task-tracker-priority",
   project: "custom-task-tracker-project",
+  category: "custom-task-tracker-category",
   dueDate: "custom-task-tracker-due",
   planStart: "custom-task-tracker-plan-start",
   planEnd: "custom-task-tracker-plan-end",

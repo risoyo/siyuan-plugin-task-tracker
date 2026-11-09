@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_DATA_FILE,
   TASKS_DATA_FILE,
+  normalizeTaskCategory,
   type CompletedPageColumnKey,
   type CompletedPageConfig,
   type CompletedSortSpec,
@@ -160,6 +161,7 @@ function normalizeStoredTask(task: TaskItem): TaskItem {
     noteFolderPath: typeof task.noteFolderPath === "string" ? task.noteFolderPath.trim() || undefined : undefined,
     progressRecords: normalizeProgressRecords(task.progressRecords, fallbackTimestamp),
     status: normalizeStoredTaskStatus(task.status),
+    category: normalizeTaskCategory(task.category),
     title: normalizedTitle,
     createdAt: task.createdAt || task.updatedAt || new Date().toISOString()
   };

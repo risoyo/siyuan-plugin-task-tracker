@@ -49,9 +49,11 @@ import {
   REPORT_ATTRS,
   SOURCE_TASK_IDS_ATTR,
   TASK_ATTRS,
+  TASK_CATEGORY_LABELS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   WEEKLY_REPORT_KIND,
+  normalizeTaskCategory,
   type BlockRow,
   type ProgressRecord,
   type SourceContext,
@@ -140,6 +142,7 @@ export class TaskService {
       sourceDocId: input.sourceDocId,
       sourceText: input.sourceText,
       project: input.project?.trim() || undefined,
+      category: normalizeTaskCategory(input.category),
       priority: input.priority || "none",
       status: input.status || defaultTaskStatus(settings),
       dueDate: input.dueDate || undefined,
@@ -738,6 +741,10 @@ export class TaskService {
 function normalizeTaskPatch(patch: Partial<TaskItem>): Partial<TaskItem> {
   const normalized = { ...patch };
 
+  if ("category" in normalized) {
+    normalized.category = normalizeTaskCategory(normalized.category);
+  }
+
   if ("title" in normalized && typeof normalized.title === "string") {
     normalized.title = normalized.title.trim();
   }
@@ -1030,6 +1037,7 @@ function taskFromDoc(doc: BlockRow, attrs: Record<string, string>, settings: Tas
     sourceDocId: attrs[TASK_ATTRS.sourceDocId] || undefined,
     sourceText,
     project: attrs[TASK_ATTRS.project]?.trim() || undefined,
+    category: normalizeTaskCategory(attrs[TASK_ATTRS.category]),
     priority,
     status,
     dueDate: attrs[TASK_ATTRS.dueDate] || undefined,
@@ -1153,6 +1161,7 @@ async function recoverTaskFromDocument(doc: BlockRow, settings: TaskSettings): P
     sourceDocId: undefined,
     sourceText: summary.sourceText,
     project: summary.project,
+    category: normalizeTaskCategory(summary.category),
     priority: summary.priority || "medium",
     status: summary.status || defaultTaskStatus(settings),
     dueDate: summary.dueDate,
@@ -1198,6 +1207,7 @@ function parseTaskSummaryTableMarkdown(markdown: string, settings: TaskSettings)
   const source = parseTaskSourceValue(values.get("来源"));
   return {
     project: normalizeTaskFieldValue(values.get("项目")),
+    category: parseTaskCategoryLabel(values.get("任务属性")),
     status: parseTaskStatusLabel(values.get("状态"), settings),
     priority: parseTaskPriorityLabel(values.get("优先级")),
     createdAt: parseRenderedTaskDate(values.get("创建时间")),
@@ -1226,6 +1236,7 @@ function parseTaskSummaryQuoteMarkdown(markdown: string, settings: TaskSettings)
   const source = parseTaskSourceValue(values.get("来源"));
   return {
     project: normalizeTaskFieldValue(values.get("项目")),
+    category: parseTaskCategoryLabel(values.get("任务属性")),
     status: parseTaskStatusLabel(values.get("状态"), settings),
     priority: parseTaskPriorityLabel(values.get("优先级")),
     description: normalizeTaskFieldValue(values.get(TASK_LATEST_LABEL) || values.get("任务描述")),
@@ -1244,6 +1255,12 @@ function parseTaskStatusLabel(value: string | undefined, settings: TaskSettings)
     return undefined;
   }
   return taskStatusFromLabel(normalized, settings);
+}
+
+function parseTaskCategoryLabel(value?: string): TaskItem["category"] {
+  const normalized = normalizeTaskFieldValue(value);
+  const matched = Object.entries(TASK_CATEGORY_LABELS).find(([id, label]) => id === normalized || label === normalized);
+  return normalizeTaskCategory(matched?.[0]);
 }
 
 function taskStatusFromLabel(label: string, settings: TaskSettings): TaskItem["status"] | undefined {
@@ -1967,6 +1984,7 @@ function renderTemplate(template: string, task: TaskItem, parent?: TaskItem, chi
     source: task.sourceBlockId ? blockRef(task.sourceBlockId, task.sourceText || "来源") : "手动创建",
     parent: parent ? blockRef(parent.docId, parent.title) : "无",
     project: task.project || "未设置",
+    category: TASK_CATEGORY_LABELS[normalizeTaskCategory(task.category)],
     status: getStatusLabel(task.status, settings),
     priority: TASK_PRIORITY_LABELS[task.priority],
     dueDate: formatTaskDate(task.dueDate),
@@ -1990,6 +2008,7 @@ function renderTaskMetadataBlock(task: TaskItem, parent?: TaskItem, children: Ta
   return `> 来源：${sourceRef}
 > 父任务：${parentRef}
 > 项目：${task.project || "未设置"}
+> 任务属性：${TASK_CATEGORY_LABELS[normalizeTaskCategory(task.category)]}
 > 状态：${getStatusLabel(task.status, settings)}
 > 优先级：${TASK_PRIORITY_LABELS[task.priority]}
 > ${TASK_LATEST_LABEL}：${task.description || "无"}
@@ -2482,6 +2501,7 @@ type ManagedTaskSummaryBlock = {
 
 type TaskSummaryValueMap = {
   项目: string;
+  任务属性: string;
   状态: string;
   来源: string;
   优先级: string;
@@ -2499,6 +2519,7 @@ function buildTaskSummaryValueMap(task: TaskItem, parent?: TaskItem, children: T
   const parentRef = parent ? blockRef(parent.docId, parent.title) : "无";
   return {
     项目: task.project || "未设置",
+    任务属性: TASK_CATEGORY_LABELS[normalizeTaskCategory(task.category)],
     状态: getStatusLabel(task.status, settings),
     来源: sourceRef,
     优先级: TASK_PRIORITY_LABELS[task.priority],
@@ -2536,7 +2557,7 @@ function renderManagedTaskSummarySectionBody(tableMarkdown: string, lines: strin
 }
 
 function buildDefaultTaskSummaryTable(task: TaskItem, parent?: TaskItem, children: TaskItem[] = [], settings: TaskSettings = {}): string {
-  const headers: Array<keyof TaskSummaryValueMap> = ["项目", "状态", "来源", "优先级", "创建时间", "完成时间", "截止时间", "计划时间"];
+  const headers: Array<keyof TaskSummaryValueMap> = ["项目", "任务属性", "状态", "来源", "优先级", "创建时间", "完成时间", "截止时间", "计划时间"];
   const values = buildTaskSummaryValueMap(task, parent, children, settings);
   return `| ${headers.join(" | ")} |
 | ${headers.map(() => "---").join(" | ")} |
@@ -2894,8 +2915,22 @@ function renderTaskSummaryTable(markdown: string, task: TaskItem, parent?: TaskI
     }
   }
 
+  if (!headerCells.includes("任务属性")) {
+    const insertAt = headerCells.indexOf("项目") + 1;
+    headerCells.splice(insertAt, 0, "任务属性");
+    alignCells.splice(insertAt, 0, "---");
+    lines[headerIndex] = `| ${headerCells.join(" | ")} |`;
+    lines[headerIndex + 1] = `| ${alignCells.join(" | ")} |`;
+    for (let index = dataStart; index < lines.length && /^\|/.test(lines[index]); index += 1) {
+      const cells = parseMarkdownTableRow(lines[index]);
+      cells.splice(insertAt, 0, index === dataStart ? TASK_CATEGORY_LABELS[normalizeTaskCategory(task.category)] : "");
+      lines[index] = `| ${cells.join(" | ")} |`;
+    }
+  }
+
   const values = buildTaskSummaryValueMap(task, parent, children, settings);
-  const nextRow = headerCells.map((cell) => values[cell as keyof TaskSummaryValueMap] ?? "");
+  const currentCells = parseMarkdownTableRow(lines[dataStart]);
+  const nextRow = headerCells.map((cell, index) => values[cell as keyof TaskSummaryValueMap] ?? currentCells[index] ?? "");
   lines[dataStart] = `| ${nextRow.join(" | ")} |`;
 
   const alignmentLine = lines[headerIndex + 1];
@@ -3165,6 +3200,7 @@ async function setTaskAttrs(task: TaskItem): Promise<void> {
     [TASK_ATTRS.status]: task.status,
     [TASK_ATTRS.priority]: task.priority,
     [TASK_ATTRS.project]: task.project || "",
+    [TASK_ATTRS.category]: normalizeTaskCategory(task.category),
     [TASK_ATTRS.dueDate]: task.dueDate || "",
     [TASK_ATTRS.planStart]: task.planStart || "",
     [TASK_ATTRS.planEnd]: task.planEnd || "",

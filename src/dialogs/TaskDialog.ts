@@ -21,10 +21,13 @@ import {
   PRIORITY_BADGE_CONFIG,
   CANCELLED_TASK_STATUS,
   COMPLETED_TASK_STATUS,
+  TASK_CATEGORY_LABELS,
   TASK_PRIORITY_LABELS,
+  normalizeTaskCategory,
   type ProgressRecord,
   type SourceContext,
   type TaskCreateInput,
+  type TaskCategory,
   type TaskItem,
   type TaskPriority,
   type TaskSettings,
@@ -354,6 +357,7 @@ export class TaskDialog {
     const selectedParentTitle = defaultParentTask?.title || "";
     const defaultStatus: TaskStatus = editingTask?.status || defaultTaskStatus(settings);
     const defaultPriority: TaskPriority = editingTask?.priority || "medium";
+    const defaultCategory = normalizeTaskCategory(editingTask?.category);
     const defaultCreatedAt = editingTask ? formatDateKey(new Date(editingTask.createdAt)) : formatDateKey(new Date());
     const defaultPlanStart = editingTask?.planStart
       ? toDatetimeLocal(editingTask.planStart)
@@ -376,6 +380,9 @@ export class TaskDialog {
       buildComboboxOption("", "无项目", !defaultProject),
       ...projects.map((p) => buildComboboxOption(p, p, p === defaultProject, ICONS.folder)),
     ].join("");
+    const categoryOptionsHtml = (Object.entries(TASK_CATEGORY_LABELS) as Array<[TaskCategory, string]>)
+      .map(([value, label]) => buildComboboxOption(value, label, value === defaultCategory))
+      .join("");
 
     const parentOptionsHtml = (() => {
       const topLevel = activeTasks.filter((t) => !t.parentId);
@@ -430,7 +437,7 @@ export class TaskDialog {
         <input class="task-tracker-dialog-v3__input" name="title" value="${escapeAttr(defaultTitle)}" required placeholder="请输入任务标题" />
       </label>
 
-      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--project-parent">
+      <div class="task-tracker-dialog-v3__row task-tracker-dialog-v3__row--triple">
         <label class="task-tracker-dialog-v3__field task-tracker-dialog-v3__field--proj">
           <span class="task-tracker-dialog-v3__label">项目</span>
           ${buildComboboxSelect("project", defaultProject, "选择或输入项目", ICONS.folder, projectOptionsHtml, "editable")}
@@ -446,6 +453,10 @@ export class TaskDialog {
             <input type="hidden" name="parentId" value="${escapeAttr(selectedParentId)}" />`
             : buildComboboxSelect("parentId", selectedParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml, "select-only", "", selectedParentTitle)
           }
+        </label>
+        <label class="task-tracker-dialog-v3__field">
+          <span class="task-tracker-dialog-v3__label">任务属性</span>
+          ${buildComboboxSelect("category", defaultCategory, "选择任务属性", ICONS.taskGrid, categoryOptionsHtml, "select-only", "", TASK_CATEGORY_LABELS[defaultCategory])}
         </label>
       </div>
 
@@ -1093,6 +1104,7 @@ export class TaskDialog {
 
     initCombobox("project");
     initCombobox("parentId");
+    initCombobox("category");
 
     const closeAllComboboxes = (except?: string) => {
       root.querySelectorAll<HTMLElement>("[data-combobox-menu]").forEach((menu) => {
@@ -1566,6 +1578,7 @@ export class TaskDialog {
           sourceDocId: selectedSource?.docId,
           sourceText: selectedSource?.text,
           project: String(data.get("project") || "").trim() || undefined,
+          category: normalizeTaskCategory(data.get("category")),
           status: (completedAt
             ? COMPLETED_TASK_STATUS
             : String(data.get("status") || defaultTaskStatus(settings))) as TaskStatus,
