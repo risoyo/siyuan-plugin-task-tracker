@@ -80,6 +80,12 @@ export default class TaskTrackerPlugin extends Plugin {
 <symbol id="iconTaskManagerTable" viewBox="0 0 32 32">
 <path d="M5.333 7.333c0-1.105.895-2 2-2h17.333c1.105 0 2 .895 2 2v17.333c0 1.105-.895 2-2 2h-17.333c-1.105 0-2-.895-2-2v-17.333zM8 10.667h16v-2.667h-16v2.667zM8 13.333v4h4.667v-4h-4.667zM15.333 13.333v4h8.667v-4h-8.667zM8 20v4h4.667v-4h-4.667zM15.333 20v4h8.667v-4h-8.667z"></path>
 </symbol>
+<symbol id="iconTaskManagerLongTerm" viewBox="0 0 32 32">
+<circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2.5"></circle><circle cx="16" cy="16" r="6" fill="none" stroke="currentColor" stroke-width="2.5"></circle><circle cx="16" cy="16" r="1.8"></circle>
+</symbol>
+<symbol id="iconTaskManagerWeekly" viewBox="0 0 32 32">
+<rect x="5" y="7" width="22" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"></rect><path d="M5 13h22M11 4v6M21 4v6M11 19l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+</symbol>
 <symbol id="iconTaskManagerList" viewBox="0 0 32 32">
 <path d="M8 8.667h2.667v2.667h-2.667v-2.667zM13.333 8.667h12v2.667h-12v-2.667zM8 14.667h2.667v2.667h-2.667v-2.667zM13.333 14.667h12v2.667h-12v-2.667zM8 20.667h2.667v2.667h-2.667v-2.667zM13.333 20.667h12v2.667h-12v-2.667z"></path>
 </symbol>

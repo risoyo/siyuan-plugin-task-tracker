@@ -11,6 +11,7 @@ import {
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
+import { canSelectParentTask } from "../taskCategory";
 import {
   defaultTaskStatus,
   getAllOrderedStatuses,
@@ -19,7 +20,6 @@ import {
 } from "../statusConfig";
 import {
   PRIORITY_BADGE_CONFIG,
-  CANCELLED_TASK_STATUS,
   COMPLETED_TASK_STATUS,
   TASK_CATEGORY_LABELS,
   TASK_PRIORITY_LABELS,
@@ -79,7 +79,8 @@ function buildComboboxSelect(
   optionsHtml: string,
   mode: ComboboxMode = "select-only",
   extraAttrs: string = "",
-  displayValue?: string
+  displayValue?: string,
+  searchable = false
 ): string {
   const editableInput = mode === "editable"
     ? `<input class="task-tracker-dialog-v3__combobox-input" name="${name}" value="${escapeAttr(value)}" placeholder="${escapeAttr(placeholder)}" autocomplete="off" ${extraAttrs} />`
@@ -95,6 +96,7 @@ function buildComboboxSelect(
     </button>
     ${hiddenInput}
     <div class="task-tracker-dialog-v3__menu" data-combobox-menu="${name}" style="display:none;">
+      ${searchable ? `<input class="task-tracker-dialog-v3__menu-search" type="search" data-combobox-search="${name}" placeholder="搜索任务名称" autocomplete="off" />` : ""}
       <div class="task-tracker-dialog-v3__menu-scroll">
         ${optionsHtml}
       </div>
@@ -336,16 +338,11 @@ export class TaskDialog {
     let sourceMode: SourceMode = defaultMode;
     let selectedSource = sourceMode === "note" && effectiveSource ? { ...effectiveSource } : undefined as SourceContext | undefined;
     const tasks = this.options.service.store.all();
-    const activeTasks = tasks.filter((task) => {
-      if (editMode && task.id === editingTask?.id) {
-        return false;
-      }
-      return task.id === this.options.parentId
-        || task.id === editingTask?.parentId
-        || task.docId === this.options.parentId
-        || task.docId === editingTask?.parentId
-        || (task.status !== COMPLETED_TASK_STATUS && task.status !== CANCELLED_TASK_STATUS);
-    });
+    const parentCandidates = tasks.filter((task) => canSelectParentTask(task, tasks, editingTask?.id));
+    if (!editMode && this.options.parentId && !parentCandidates.some((task) => task.id === this.options.parentId || task.docId === this.options.parentId)) {
+      showMessage("只有未完成的长期事项或本周事项可以作为新子任务的父任务。", 5000, "error");
+      return;
+    }
     const projects = this.options.service.store.getProjects();
     const defaultTitle = editingTask?.title || this.options.presetTitle || effectiveSource?.text || "";
     const defaultProject = editingTask?.project || settings.defaultProject || "";
@@ -353,7 +350,7 @@ export class TaskDialog {
     const defaultParentTask = defaultParentId
       ? tasks.find((task) => task.id === defaultParentId || task.docId === defaultParentId)
       : undefined;
-    const selectedParentId = defaultParentTask?.id || defaultParentId;
+    const selectedParentId = defaultParentId;
     const selectedParentTitle = defaultParentTask?.title || "";
     const defaultStatus: TaskStatus = editingTask?.status || defaultTaskStatus(settings);
     const defaultPriority: TaskPriority = editingTask?.priority || "medium";
@@ -385,14 +382,17 @@ export class TaskDialog {
       .join("");
 
     const parentOptionsHtml = (() => {
-      const topLevel = activeTasks.filter((t) => !t.parentId);
-      const children = activeTasks.filter((t) => t.parentId && !topLevel.includes(t));
       let html = buildComboboxOption("", "无（顶层任务）", !selectedParentId);
-      for (const t of topLevel) {
-        html += buildComboboxOption(t.id, t.title, t.id === selectedParentId);
+      if (selectedParentId && !parentCandidates.some((task) => task.id === selectedParentId || task.docId === selectedParentId)) {
+        html += `<div class="task-tracker-dialog-v3__menu-current" title="${escapeAttr(selectedParentTitle || selectedParentId)}">当前父任务：${escapeHtml(selectedParentTitle || selectedParentId)}</div>`;
       }
-      for (const t of children) {
-        html += buildComboboxOption(t.id, t.title, t.id === selectedParentId, undefined, true);
+      for (const [category, label] of [["longTerm", "长期事项"], ["weekly", "本周事项"]] as const) {
+        const group = parentCandidates.filter((task) => normalizeTaskCategory(task.category) === category);
+        if (!group.length) continue;
+        html += `<div class="task-tracker-dialog-v3__menu-group" data-combobox-group>
+          <div class="task-tracker-dialog-v3__menu-group-title">${label}</div>
+          ${group.map((task) => buildComboboxOption(task.id, task.title, task.id === selectedParentId || task.docId === selectedParentId)).join("")}
+        </div>`;
       }
       return html;
     })();
@@ -451,7 +451,7 @@ export class TaskDialog {
               <span class="task-tracker-dialog-v3__parent-hint">当前任务将作为所选父任务的子任务</span>
             </div>
             <input type="hidden" name="parentId" value="${escapeAttr(selectedParentId)}" />`
-            : buildComboboxSelect("parentId", selectedParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml, "select-only", "", selectedParentTitle)
+            : buildComboboxSelect("parentId", selectedParentId, "选择或输入父任务（可选）", ICONS.hierarchy, parentOptionsHtml, "select-only", "", selectedParentTitle, true)
           }
         </label>
         <label class="task-tracker-dialog-v3__field">
@@ -999,6 +999,7 @@ export class TaskDialog {
       const hidden = mode === "editable" ? null : combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`);
       const input = mode === "editable" ? combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`) : null;
       const valueEl = combobox.querySelector<HTMLElement>(`[data-combobox-value="${name}"]`);
+      const searchInput = menu?.querySelector<HTMLInputElement>(`[data-combobox-search="${name}"]`);
       let isComposing = false;
       let ignoreBlur = false;
 
@@ -1031,6 +1032,11 @@ export class TaskDialog {
         closeAllComboboxes(name);
         openMenu(menu, toggle);
         toggle.classList.add("is-open");
+        if (searchInput) {
+          searchInput.value = "";
+          searchInput.dispatchEvent(new Event("input"));
+        }
+        searchInput?.focus();
       };
 
       toggle?.addEventListener("click", (event) => {
@@ -1087,6 +1093,16 @@ export class TaskDialog {
 
       menu?.addEventListener("mousedown", () => {
         ignoreBlur = true;
+      });
+      searchInput?.addEventListener("input", () => {
+        const query = searchInput.value.trim().toLocaleLowerCase();
+        menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((option) => {
+          const label = option.querySelector<HTMLElement>(".task-tracker-dialog-v3__menu-label")?.textContent || "";
+          option.hidden = Boolean(option.dataset.comboboxOption) && !label.toLocaleLowerCase().includes(query);
+        });
+        menu?.querySelectorAll<HTMLElement>("[data-combobox-group]").forEach((group) => {
+          group.hidden = !group.querySelector("[data-combobox-option]:not([hidden])");
+        });
       });
       menu?.addEventListener("click", (e) => {
         const option = (e.target as HTMLElement).closest<HTMLElement>("[data-combobox-option]");

@@ -35,9 +35,12 @@ import {
 } from "../statusConfig";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import { compareOptionalDates, compareTasksByColumn, sortTaskTree } from "../taskSort";
+import { canSelectParentTask, categoryViewTasks } from "../taskCategory";
 import {
   PRIORITY_BADGE_CONFIG,
   TASK_PRIORITY_LABELS,
+  normalizeTaskCategory,
+  type TaskCategory,
   type StatusColorPreset,
   type CompletedPageColumnKey,
   type CompletedPageConfig,
@@ -56,7 +59,15 @@ import {
   type TaskStatusOption
 } from "../types";
 
-export type TaskManagerView = "table" | "list" | "timeline" | "kanban" | "calendar" | "completed";
+export type TaskManagerView = "table" | "longTerm" | "weekly" | "list" | "timeline" | "kanban" | "calendar" | "completed";
+
+function isTableView(view: TaskManagerView): boolean {
+  return view === "table" || view === "longTerm" || view === "weekly";
+}
+
+function categoryForView(view: TaskManagerView): TaskCategory | undefined {
+  return view === "longTerm" || view === "weekly" ? view : undefined;
+}
 
 export interface TaskManagerNewTaskOptions {
   parentId?: string;
@@ -169,6 +180,8 @@ interface RowActionOptions {
 
 const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
   { value: "table", label: "表格" },
+  { value: "longTerm", label: "长期事项" },
+  { value: "weekly", label: "本周事项" },
   { value: "list", label: "清单" },
   { value: "timeline", label: "时间轴" },
   { value: "kanban", label: "看板" },
@@ -178,6 +191,8 @@ const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
 
 const VIEW_ICONS: Partial<Record<TaskManagerView, string>> = {
   table: "iconTaskManagerTable",
+  longTerm: "iconTaskManagerLongTerm",
+  weekly: "iconTaskManagerWeekly",
   list: "iconTaskManagerList",
   timeline: "iconTaskManagerTimeline",
   kanban: "iconTaskManagerKanban",
@@ -321,10 +336,10 @@ export class TaskManagerTab {
     this.ensureInitialCollapsedParents();
     const tasks = this.tasksForCurrentView();
 
-    this.container.innerHTML = `<div class="task-manager task-manager--${this.view}">
+    this.container.innerHTML = `<div class="task-manager task-manager--${this.view} ${categoryForView(this.view) ? "task-manager--table" : ""}">
   ${this.renderToolbar(tasks)}
   <div class="task-manager__body">
-    ${tasks.length ? this.renderCurrentView(tasks) : `<div class="task-manager-empty">这里暂时没有匹配任务。</div>`}
+    ${tasks.length || this.view === "calendar" ? this.renderCurrentView(tasks) : `<div class="task-manager-empty">这里暂时没有匹配任务。</div>`}
   </div>
 </div>`;
 
@@ -396,16 +411,17 @@ export class TaskManagerTab {
   }
 
   private renderViewSwitch(tasks: TaskItem[]): string {
-    const supportsPageSettings = this.view === "table" || this.view === "completed";
+    const supportsPageSettings = isTableView(this.view) || this.view === "completed";
     const isCompletedView = this.view === "completed";
     const filter = this.currentFilter;
     const filterActive = filter !== "all";
-    const filterOptions = getStatusFilterOptions(this.service.store.getSettings());
+    const filterOptions = getStatusFilterOptions(this.service.store.getSettings())
+      .filter((option) => !categoryForView(this.view) || option.key === "all" || !isProtectedStatus(option.key));
     const filterLabel = filterActive
       ? (filterOptions.find((option) => option.key === filter)?.label || getStatusLabel(filter, this.service.store.getSettings()))
       : "全部任务";
     const filterBtnClass = filterActive ? "task-manager-filter-btn task-manager-filter-all-btn is-filtering" : "task-manager-filter-btn task-manager-filter-all-btn";
-    const tableParentTaskIds = this.view === "table" ? this.parentTaskIdsForTasks(tasks) : [];
+    const tableParentTaskIds = isTableView(this.view) ? this.parentTaskIdsForTasks(tasks) : [];
 
     const dropdownHtml = isCompletedView ? "" : `
     <div class="task-manager-filter-dropdown">
@@ -436,7 +452,7 @@ export class TaskManagerTab {
     }).join("")}
   </div>
   <div class="task-manager-view-switch__right">
-    ${this.view === "table" ? this.renderBulkParentMenu(tableParentTaskIds.length === 0) : ""}
+    ${isTableView(this.view) ? this.renderBulkParentMenu(tableParentTaskIds.length === 0) : ""}
     ${supportsPageSettings ? `<button class="task-icon-btn task-icon-btn--settings task-manager-settings-btn" data-action="open-page-config" type="button" aria-label="页面设置" title="页面设置">${renderControlsIcon()}</button>` : ""}
     ${dropdownHtml}
   </div>
@@ -482,6 +498,8 @@ export class TaskManagerTab {
       case "completed":
         return this.renderCompletedView(tasks);
       case "table":
+      case "longTerm":
+      case "weekly":
       default:
         return this.renderTableView(tasks);
     }
@@ -490,7 +508,10 @@ export class TaskManagerTab {
   private renderTableView(tasks: TaskItem[]): string {
     const columns = this.effectiveTableColumns();
     const sortedTasks = this.sortTasksForTable(tasks);
-    return this.renderTableLikeView(sortedTasks, columns);
+    const matched = categoryForView(this.view) && this.search
+      ? includeDescendants(sortedTasks, new Set(this.filterTasksBySearch(sortedTasks).map((task) => task.id)))
+      : undefined;
+    return this.renderTableLikeView(sortedTasks, columns, matched);
   }
 
   private renderCompletedView(tasks: TaskItem[]): string {
@@ -611,11 +632,14 @@ export class TaskManagerTab {
     return this.renderTableSourceText(task);
   }
 
-  private renderTableLikeView(tasks: TaskItem[], columns: TableColumnDef[]): string {
-    const childCounts = countChildren(tasks);
-    const matched = new Set(tasks.map((task) => task.id));
+  private renderTableLikeView(tasks: TaskItem[], columns: TableColumnDef[], searchMatches?: Set<string>): string {
+    const matched = searchMatches || new Set(tasks.map((task) => task.id));
     const visible = includeAncestors(tasks, matched);
+    const childCounts = countChildren(tasks.filter((task) => visible.has(task.id)));
     const tree = sortTaskTree(buildTaskTree(tasks, visible, matched), this.tableComparator());
+    if (!tree.length) {
+      return `<div class="task-manager-empty">这里暂时没有匹配任务。</div>`;
+    }
 
     return `<div class="task-manager-table-card ${this.freezeFirstColumn ? "is-freeze-first-column" : ""}">
   <div class="task-manager-table-wrap">
@@ -638,7 +662,7 @@ export class TaskManagerTab {
 
   private renderTableHeaderCell(column: TableColumnDef): string {
     const resizable = column.key !== "actions";
-    const freezeButton = column.key === "task" && this.view === "table"
+    const freezeButton = column.key === "task" && isTableView(this.view)
       ? `<button class="task-manager-freeze-btn ${this.freezeFirstColumn ? "is-active" : ""}" data-action="toggle-freeze-first-column" type="button" aria-label="${this.freezeFirstColumn ? "取消冻结任务列" : "冻结任务列"}" title="${this.freezeFirstColumn ? "取消冻结任务列" : "冻结任务列"}">${renderFreezeColumnIcon(this.freezeFirstColumn)}</button>`
       : "";
     return `<th class="task-manager-table__head ${column.className || ""}" data-column-key="${column.key}">
@@ -653,7 +677,7 @@ export class TaskManagerTab {
   private renderTableNode(node: TaskTreeNode, depth: number, childCounts: Map<string, number>, columns: TableColumnDef[], isLastSibling = false): string {
     const task = node.task;
     const childCount = childCounts.get(task.id) || 0;
-    const collapsed = this.collapsedTaskIds.has(task.id);
+    const collapsed = this.collapsedTaskIds.has(task.id) && !(categoryForView(this.view) && this.search);
     const row = this.renderTableRow(node, depth, childCount, collapsed, columns, isLastSibling);
     const children = node.children.length && !collapsed
       ? node.children.map((child, index) => this.renderTableNode(child, depth + 1, childCounts, columns, index === node.children.length - 1)).join("")
@@ -1988,13 +2012,14 @@ export class TaskManagerTab {
       <div class="task-manager-calendar__grid" data-week-rows="${weekRows}" ${expandedWeekIndexes.size ? `data-expanded-weeks="${Array.from(expandedWeekIndexes).join(",")}"` : ""} style="${escapeAttr(gridStyle)}">
         ${days.map((day, index) => this.renderCalendarDay(day, tasksByDate[formatDateKey(day)] || [], Math.floor(index / 7))).join("")}
       </div>
-    </section>
-    ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
+      ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
       <div class="task-manager-calendar__aside-title">未安排任务</div>
       <div class="task-manager-calendar__unplanned">
         ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
       </div>
-    </aside>` : ""}
+      </aside>` : ""}
+    </section>
+    ${this.renderCalendarFollowups()}
   </div>
 </div>`;
   }
@@ -2033,6 +2058,7 @@ export class TaskManagerTab {
     <div class="task-manager-calendar__week-panel">
       <section class="task-manager-calendar__main">
         <div class="task-manager-calendar__week">
+          <div class="task-manager-calendar-week-head"><span></span><span>上午</span><span>下午</span></div>
           ${weekDays.map((day) => this.renderCalendarWeekDay(day, scheduledTasksByDate[day.dateKey] || [], progressTasksByDate[day.dateKey] || [])).join("")}
         </div>
       </section>
@@ -2040,13 +2066,14 @@ export class TaskManagerTab {
         <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--schedule">日程任务</span>
         <span class="task-manager-calendar-legend__item task-manager-calendar-legend__item--progress">推进任务</span>
       </div>
+      ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
+        <div class="task-manager-calendar__aside-title">未安排任务</div>
+        <div class="task-manager-calendar__unplanned">
+          ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
+        </div>
+      </aside>` : ""}
     </div>
-    ${this.calendarUnplannedVisible ? `<aside class="task-manager-calendar__floating-aside">
-      <div class="task-manager-calendar__aside-title">未安排任务</div>
-      <div class="task-manager-calendar__unplanned">
-        ${unplanned.length ? unplanned.map((task) => this.renderTaskCard(task, "calendar-aside")).join("") : `<div class="task-manager-empty">没有未安排任务。</div>`}
-      </div>
-    </aside>` : ""}
+    ${this.renderCalendarFollowups()}
   </div>
 </div>`;
   }
@@ -2059,42 +2086,77 @@ export class TaskManagerTab {
     const dayLabel = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
     const todayClass = day.isToday ? "is-today" : "";
     const groupedTasks = groupCalendarWeekTasksByPeriod(scheduledTasks, progressTasks);
-    const taskAreaClass = groupedTasks.morning.length && groupedTasks.afternoon.length
-      ? "task-manager-calendar-week-row__tasks has-dual-groups"
-      : "task-manager-calendar-week-row__tasks";
-
     return `<div class="task-manager-calendar-week-row ${todayClass}" data-date="${day.dateKey}">
   <div class="task-manager-calendar-week-row__label">
     <span class="task-manager-calendar-week-row__day">${day.label}</span>
     <span class="task-manager-calendar-week-row__date">${dayLabel}</span>
     ${groupedTasks.total ? `<span class="task-manager-calendar-week-row__count">${groupedTasks.total}</span>` : ""}
   </div>
-  <div class="${taskAreaClass}">
-    ${groupedTasks.total ? this.renderCalendarWeekTaskGroups(groupedTasks) : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
+  ${this.renderCalendarWeekPeriod(day.dateKey, "上午", groupedTasks.morning)}
+  ${this.renderCalendarWeekPeriod(day.dateKey, "下午", groupedTasks.afternoon)}
+</div>`;
+  }
+
+  private renderCalendarWeekPeriod(dateKey: string, label: "上午" | "下午", tasks: CalendarWeekRenderTask[]): string {
+    return `<div class="task-manager-calendar-week-period" data-calendar-date="${dateKey}" role="button" tabindex="0" aria-label="${dateKey}${label}新建任务">
+  <span class="task-manager-calendar-week-period__label">${label}</span>
+  <div class="task-manager-calendar-week-period__items">
+    ${tasks.length ? tasks.map((item) => this.renderCalendarWeekTaskItem(item)).join("") : `<span class="task-manager-calendar-week-row__empty">暂无日程</span>`}
   </div>
 </div>`;
   }
 
-  private renderCalendarWeekTaskGroups(groups: CalendarWeekTaskGroups): string {
-    const sections: string[] = [];
-    if (groups.morning.length) {
-      sections.push(this.renderCalendarWeekTaskGroup("上午", groups.morning));
-    }
-    if (groups.afternoon.length) {
-      sections.push(this.renderCalendarWeekTaskGroup("下午", groups.afternoon));
-    }
-    return sections.join("");
+  private renderCalendarWeekTaskItem(item: CalendarWeekRenderTask): string {
+    const task = item.task;
+    const progress = item.kind === "progress";
+    const startTime = formatLocalDateTimeOrEmpty(task.planStart).match(/\d{2}:\d{2}$/)?.[0];
+    const endTime = toDateKey(task.planEnd) === toDateKey(task.planStart)
+      ? formatLocalDateTimeOrEmpty(task.planEnd).match(/\d{2}:\d{2}$/)?.[0]
+      : undefined;
+    const time = !progress && startTime ? `${startTime}${endTime ? ` – ${endTime}` : ""}` : "";
+    return `<button class="task-manager-calendar-pill task-manager-calendar-pill--week ${progress ? "task-manager-calendar-pill--progress" : `task-manager-status-${task.status}`}" type="button" data-task-id="${task.id}" data-task-action="open" title="${escapeAttr(task.title)}" ${progress ? "" : `style="${escapeAttr(this.buildStatusStyleVars(task.status))}"`}>
+      <span class="task-manager-calendar-pill__title">${escapeHtml(task.title)}</span>
+      ${time ? `<span class="task-manager-calendar-pill__time">${escapeHtml(time)}</span>` : ""}
+    </button>`;
   }
 
-  private renderCalendarWeekTaskGroup(label: "上午" | "下午", tasks: CalendarWeekRenderTask[]): string {
-    return `<div class="task-manager-calendar-week-group">
-  <span class="task-manager-calendar-week-group__label">${label}</span>
-  <div class="task-manager-calendar-week-group__items">
-    ${tasks.map((item) => item.kind === "progress"
-      ? `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-calendar-pill--progress" type="button" data-task-id="${item.task.id}" data-task-action="open" title="${escapeAttr(item.task.title)}">${escapeHtml(item.task.title)}</button>`
-      : `<button class="task-manager-calendar-pill task-manager-calendar-pill--week task-manager-status-${item.task.status}" type="button" data-task-id="${item.task.id}" data-task-action="open" title="${escapeAttr(item.task.title)}" style="${escapeAttr(this.buildStatusStyleVars(item.task.status))}">${escapeHtml(item.task.title)}</button>`).join("")}
-  </div>
-</div>`;
+  private renderCalendarFollowups(): string {
+    const active = this.service.store.all().filter((task) => !isProtectedStatus(task.status));
+    return `<aside class="task-manager-calendar-followups" aria-label="事项跟进">
+      ${this.renderCalendarFollowupPanel("longTerm", active.filter((task) => normalizeTaskCategory(task.category) === "longTerm"))}
+      ${this.renderCalendarFollowupPanel("weekly", active.filter((task) => normalizeTaskCategory(task.category) === "weekly"))}
+    </aside>`;
+  }
+
+  private renderCalendarFollowupPanel(category: "longTerm" | "weekly", tasks: TaskItem[]): string {
+    const label = category === "longTerm" ? "长期事项" : "本周事项";
+    const ordered = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return `<section class="task-manager-followup task-manager-followup--${category}">
+      <div class="task-manager-followup__header">
+        <span class="task-manager-followup__icon"><svg><use xlink:href="#${VIEW_ICONS[category]}"></use></svg></span>
+        <span class="task-manager-followup__title">${label}</span>
+        <span class="task-manager-followup__count">${tasks.length}</span>
+        <button class="task-manager-followup__all" type="button" data-manager-view="${category}">查看全部 ›</button>
+      </div>
+      <div class="task-manager-followup__list">
+        ${ordered.length ? ordered.map((task) => this.renderCalendarFollowupItem(category, task)).join("") : `<div class="task-manager-followup__empty">暂无${label}</div>`}
+      </div>
+    </section>`;
+  }
+
+  private renderCalendarFollowupItem(category: "longTerm" | "weekly", task: TaskItem): string {
+    const status = getStatusBadgeConfig(task.status, this.service.store.getSettings());
+    const latestProgressDate = task.progressRecords?.map((record) => record.date).filter(Boolean).sort().at(-1);
+    const secondary = category === "longTerm"
+      ? (latestProgressDate ? `最近推进 · ${formatHumanDate(latestProgressDate)}` : "暂无推进记录")
+      : (task.planStart ? `计划时间 · ${formatHumanDatetimeOrEmpty(task.planStart)}` : (task.description || ""));
+    return `<div class="task-manager-followup__item" data-task-id="${task.id}">
+      <span class="task-manager-followup__dot" style="background:${escapeAttr(status.dotColor)}"></span>
+      <button class="task-manager-followup__task" type="button" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
+      <span class="task-manager-followup__status" style="color:${escapeAttr(status.textColor)};background:${escapeAttr(status.bgColor)}">${escapeHtml(status.label)}</span>
+      <span class="task-manager-followup__chevron" aria-hidden="true">›</span>
+      ${secondary ? `<span class="task-manager-followup__meta" title="${escapeAttr(secondary)}">${escapeHtml(secondary)}</span>` : ""}
+    </div>`;
   }
 
   private renderCalendarDay(day: Date, tasks: TaskItem[], weekIndex: number): string {
@@ -2387,7 +2449,7 @@ export class TaskManagerTab {
       if (action === "open-page-config") {
         if (this.view === "completed") {
           void this.openSettingsDialog("completed");
-        } else if (this.view === "table") {
+        } else if (isTableView(this.view)) {
           void this.openSettingsDialog("table");
         }
         return;
@@ -2410,7 +2472,7 @@ export class TaskManagerTab {
         event.stopPropagation();
         this.bulkParentMenuOpen = !this.bulkParentMenuOpen;
         this.statusDropdownOpen = false;
-        this.render({ preserveTableScroll: this.view === "table" });
+        this.render({ preserveTableScroll: isTableView(this.view) });
         return;
       }
       if (action === "toggle-freeze-first-column") {
@@ -2436,7 +2498,9 @@ export class TaskManagerTab {
       if (action === "select-status-filter") {
         event.stopPropagation();
         const statusKey = actionButton.dataset.statusKey as string;
-        const allowedKeys = new Set<string>(["all", ...getStatusFilterOptions(this.service.store.getSettings()).map((option) => String(option.key))]);
+        const allowedKeys = new Set<string>(["all", ...getStatusFilterOptions(this.service.store.getSettings())
+          .filter((option) => !categoryForView(this.view) || option.key === "all" || !isProtectedStatus(option.key))
+          .map((option) => String(option.key))]);
         if (allowedKeys.has(statusKey)) {
           this.viewFilters.set(this.view, statusKey as "all" | TaskStatus);
           this.statusDropdownOpen = false;
@@ -2597,7 +2661,7 @@ export class TaskManagerTab {
 
     if (this.bulkParentMenuOpen && !target.closest(".task-manager-bulk-parent-dropdown")) {
       this.bulkParentMenuOpen = false;
-      this.render({ preserveTableScroll: this.view === "table" });
+      this.render({ preserveTableScroll: isTableView(this.view) });
       return;
     }
 
@@ -2615,6 +2679,12 @@ export class TaskManagerTab {
       if (task) {
         this.handleTaskAction(taskAction.dataset.taskAction || "", task, taskAction);
       }
+      return;
+    }
+
+    const weekPeriod = target.closest<HTMLElement>("[data-calendar-date]");
+    if (weekPeriod?.dataset.calendarDate) {
+      this.actions.newTask({ presetPlanDate: weekPeriod.dataset.calendarDate });
       return;
     }
 
@@ -2839,6 +2909,12 @@ export class TaskManagerTab {
       this.render();
       return;
     }
+    const weekPeriod = target.closest<HTMLElement>("[data-calendar-date]");
+    if (weekPeriod === target && weekPeriod.dataset.calendarDate && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      this.actions.newTask({ presetPlanDate: weekPeriod.dataset.calendarDate });
+      return;
+    }
     const day = target.closest<HTMLElement>(".task-manager-calendar-day");
     if (day?.dataset.date && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
@@ -2848,8 +2924,8 @@ export class TaskManagerTab {
 
   private handleTaskAction(action: string, task: TaskItem, element?: HTMLElement): void {
     if (action === "open") {
-      if (this.view === "table" || this.view === "calendar") {
-        if (this.view === "table") {
+      if (isTableView(this.view) || this.view === "calendar") {
+        if (isTableView(this.view)) {
           this.pendingTableFocusTaskId = task.id;
         }
         this.actions.editTask(task);
@@ -2864,12 +2940,16 @@ export class TaskManagerTab {
     } else if (action === "open-note-folder") {
       void this.openTaskNoteFolder(task);
     } else if (action === "edit") {
-      if (this.view === "table") {
+      if (isTableView(this.view)) {
         this.pendingTableFocusTaskId = task.id;
       }
       this.actions.editTask(task);
     } else if (action === "subtask") {
-      this.actions.createSubtask(task.id);
+      if (canSelectParentTask(task, this.service.store.all())) {
+        this.actions.createSubtask(task.id);
+      } else {
+        showMessage("只有未完成的长期事项或本周事项可以作为新子任务的父任务。", 5000, "error");
+      }
     } else if (action === "complete") {
       void this.runUpdate(() => this.service.completeTask(task.id));
     } else if (action === "reopen") {
@@ -2882,7 +2962,7 @@ export class TaskManagerTab {
       } else {
         this.collapsedTaskIds.add(task.id);
       }
-      this.render({ preserveTableScroll: this.view === "table" });
+      this.render({ preserveTableScroll: isTableView(this.view) });
     }
   }
 
@@ -2959,6 +3039,10 @@ export class TaskManagerTab {
 
   private tasksForCurrentView(): TaskItem[] {
     const collections = this.getTaskCollections();
+    const category = categoryForView(this.view);
+    if (category) {
+      return categoryViewTasks(collections.allTasks, category, this.currentFilter);
+    }
     if (this.view === "calendar") {
       let tasks = collections.allTasks;
       if (this.currentFilter !== "all") {
@@ -3083,6 +3167,26 @@ function includeAncestors(tasks: TaskItem[], matched: Set<string>): Set<string> 
   }
 
   return visible;
+}
+
+function includeDescendants(tasks: TaskItem[], matched: Set<string>): Set<string> {
+  const included = new Set(matched);
+  const children = new Map<string, string[]>();
+  for (const task of tasks) {
+    if (!task.parentId) continue;
+    const siblings = children.get(task.parentId) || [];
+    siblings.push(task.id);
+    children.set(task.parentId, siblings);
+  }
+  const queue = [...matched];
+  while (queue.length) {
+    for (const childId of children.get(queue.pop() as string) || []) {
+      if (included.has(childId)) continue;
+      included.add(childId);
+      queue.push(childId);
+    }
+  }
+  return included;
 }
 
 function buildTaskTree(tasks: TaskItem[], visible: Set<string>, matched: Set<string>): TaskTreeNode[] {

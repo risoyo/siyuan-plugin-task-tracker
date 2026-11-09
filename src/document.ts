@@ -35,6 +35,7 @@ import {
   type WeeklyProgressEntry
 } from "./progressRecords";
 import { TaskStore } from "./taskStore";
+import { canSelectParentTask } from "./taskCategory";
 import {
   defaultTaskStatus,
   getActiveTaskStatuses,
@@ -117,6 +118,9 @@ export class TaskService {
     }
 
     const parent = input.parentId ? this.store.get(input.parentId) : undefined;
+    if (input.parentId && (!parent || !canSelectParentTask(parent, this.store.all()))) {
+      throw new Error("所选父任务不符合条件，请选择未完成的长期事项或本周事项");
+    }
     const parentCreateHPath = await resolveParentHPath(settings, parent);
     console.info("Task Tracker: creating task with root", {
       rootDocId: settings.taskRootDocId,
@@ -192,6 +196,12 @@ export class TaskService {
     }
 
     const normalizedPatch = normalizeTaskPatch(patch);
+    if ("parentId" in normalizedPatch && normalizedPatch.parentId !== current.parentId && normalizedPatch.parentId) {
+      const parent = this.store.get(normalizedPatch.parentId);
+      if (!parent || !canSelectParentTask(parent, this.store.all(), current.id)) {
+        throw new Error("所选父任务不符合条件，或会形成循环引用");
+      }
+    }
     const title = normalizedPatch.title?.trim();
     if (title === "") {
       throw new Error("请填写任务标题");
