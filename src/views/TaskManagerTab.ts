@@ -182,9 +182,6 @@ const VIEWS: Array<{ value: TaskManagerView; label: string }> = [
   { value: "table", label: "表格" },
   { value: "longTerm", label: "长期事项" },
   { value: "weekly", label: "本周事项" },
-  { value: "list", label: "清单" },
-  { value: "timeline", label: "时间轴" },
-  { value: "kanban", label: "看板" },
   { value: "calendar", label: "日历" },
   { value: "completed", label: "已完成" }
 ];
@@ -1980,7 +1977,8 @@ export class TaskManagerTab {
   private renderCalendarMonthView(tasks: TaskItem[]): string {
     const days = calendarDays(this.month);
     const weekRows = Math.ceil(days.length / 7);
-    const tasksByDate = groupTasksByDate(tasks);
+    const dailyTasks = tasks.filter((task) => normalizeTaskCategory(task.category) === "daily");
+    const tasksByDate = groupTasksByDate(dailyTasks);
     const unplanned = tasks.filter((task) => !isCompletedTaskStatus(task.status) && !task.planStart);
     const monthValue = monthInputValue(this.month);
     const expandedWeekIndexes = new Set<number>();
@@ -2026,7 +2024,8 @@ export class TaskManagerTab {
 
   private renderCalendarWeekView(tasks: TaskItem[]): string {
     const weekLabel = `${formatWeekRangeCompact(formatDateKey(this.weekStart))}`;
-    const scheduledTasksByDate = groupTasksByDate(tasks);
+    const dailyTasks = tasks.filter((task) => normalizeTaskCategory(task.category) === "daily");
+    const scheduledTasksByDate = groupTasksByDate(dailyTasks);
     const unplanned = tasks.filter((task) => !isCompletedTaskStatus(task.status) && !task.planStart);
     const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
     const weekDays: Array<{ date: Date; label: string; dateKey: string; isToday: boolean }> = [];
@@ -2040,7 +2039,7 @@ export class TaskManagerTab {
         isToday: dateKey === formatDateKey(new Date())
       });
     }
-    const progressTasksByDate = groupCalendarWeekProgressTasksByDate(tasks, new Set(weekDays.map((day) => day.dateKey)));
+    const progressTasksByDate = groupCalendarWeekProgressTasksByDate(dailyTasks, new Set(weekDays.map((day) => day.dateKey)));
 
     return `<div class="task-manager-calendar task-manager-calendar--week">
   <div class="task-manager-calendar__toolbar">
@@ -2131,11 +2130,19 @@ export class TaskManagerTab {
   private renderCalendarFollowupPanel(category: "longTerm" | "weekly", tasks: TaskItem[]): string {
     const label = category === "longTerm" ? "长期事项" : "本周事项";
     const ordered = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const currentWeekStart = startOfWeek(new Date());
+    const currentWeekEnd = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
+    const weekRange = `${formatDateKey(currentWeekStart).slice(5).replace("-", ".")}~${formatDateKey(currentWeekEnd).slice(5).replace("-", ".")}`;
     return `<section class="task-manager-followup task-manager-followup--${category}">
       <div class="task-manager-followup__header">
         <span class="task-manager-followup__icon"><svg><use xlink:href="#${VIEW_ICONS[category]}"></use></svg></span>
-        <span class="task-manager-followup__title">${label}</span>
-        <span class="task-manager-followup__count">${tasks.length}</span>
+        <span class="task-manager-followup__heading">
+          <span class="task-manager-followup__title-row">
+            <span class="task-manager-followup__title">${label}</span>
+            <span class="task-manager-followup__count">${tasks.length}</span>
+          </span>
+          ${category === "weekly" ? `<span class="task-manager-followup__week-range">${weekRange}</span>` : ""}
+        </span>
         <button class="task-manager-followup__all" type="button" data-manager-view="${category}">查看全部 ›</button>
       </div>
       <div class="task-manager-followup__list">
@@ -2153,7 +2160,7 @@ export class TaskManagerTab {
     return `<div class="task-manager-followup__item" data-task-id="${task.id}">
       <span class="task-manager-followup__dot" style="background:${escapeAttr(status.dotColor)}"></span>
       <button class="task-manager-followup__task" type="button" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-      <span class="task-manager-followup__status" style="color:${escapeAttr(status.textColor)};background:${escapeAttr(status.bgColor)}">${escapeHtml(status.label)}</span>
+      ${category === "weekly" ? `<span class="task-manager-followup__status" style="color:${escapeAttr(status.textColor)};background:${escapeAttr(status.bgColor)}">${escapeHtml(status.label)}</span>` : ""}
       <span class="task-manager-followup__chevron" aria-hidden="true">›</span>
       ${secondary ? `<span class="task-manager-followup__meta" title="${escapeAttr(secondary)}">${escapeHtml(secondary)}</span>` : ""}
     </div>`;
