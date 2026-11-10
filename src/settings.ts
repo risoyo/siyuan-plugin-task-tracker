@@ -102,7 +102,7 @@ export function createTaskSettings(
   rootCard.controlsBody.append(rootAside);
   addSettingsCard(setting, rootCard.card);
 
-  const hubCard = createSettingsCard("project", "E-Ink Server", "将本周事项和日常工作同步到电子墨水屏 Server。写入 Token 的名称须为 siyuan-task-tracker。");
+  const hubCard = createSettingsCard("project", "E-Ink Server", "仅同步计划开始时间在本周、未完成且未取消的日常工作与本周事项。写入 Token 的名称须为 siyuan-task-tracker。");
   const enabledLabel = document.createElement("label");
   enabledLabel.append(hubEnabled, document.createTextNode(" 启用同步"));
   const insecureLabel = document.createElement("label");
@@ -116,7 +116,7 @@ export function createTaskSettings(
       token: hubToken.value,
       allowInsecureHttp: hubInsecure.checked
     }).then(() => einkHub.sync(true))
-      .then((count) => showMessage(`已同步 ${count} 项到 E-Ink Server`))
+      .then(({ synced, removed }) => showMessage(`已同步 ${synced} 项到 E-Ink Server${removed ? `，清理 ${removed} 项旧同步记录` : ""}`))
       .catch((error) => showMessage(`E-Ink 同步失败：${error?.message || error}`));
   });
   hubCard.controlsBody.append(enabledLabel, hubUrl, hubFeed, hubToken, insecureLabel, syncButton);

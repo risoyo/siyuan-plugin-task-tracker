@@ -2129,7 +2129,9 @@ export class TaskManagerTab {
 
   private renderCalendarFollowupPanel(category: "longTerm" | "weekly", tasks: TaskItem[]): string {
     const label = category === "longTerm" ? "长期事项" : "本周事项";
-    const ordered = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const ordered = [...tasks].sort((a, b) => category === "weekly"
+      ? compareOptionalDates(a.planStart, b.planStart, "asc") || b.updatedAt.localeCompare(a.updatedAt)
+      : b.updatedAt.localeCompare(a.updatedAt));
     const currentWeekStart = startOfWeek(new Date());
     const currentWeekEnd = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
     const weekRange = `${formatDateKey(currentWeekStart).slice(5).replace("-", ".")}~${formatDateKey(currentWeekEnd).slice(5).replace("-", ".")}`;

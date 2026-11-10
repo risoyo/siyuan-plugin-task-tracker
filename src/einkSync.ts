@@ -1,6 +1,7 @@
 import type { Plugin } from "siyuan";
 import type { TaskService } from "./document";
-import type { TaskItem } from "./types";
+import { CANCELLED_TASK_STATUS, COMPLETED_TASK_STATUS, type TaskItem } from "./types";
+import { endOfWeek, formatDateKey, fromDateInput, startOfWeek, toDateKey } from "./date";
 
 const CONFIG_FILE = "eink-hub-sync.json";
 const MANIFEST_FILE = "eink-hub-manifest.json";
@@ -17,6 +18,11 @@ export interface EinkHubConfig {
 interface Manifest {
   fingerprints: Record<string, string>;
   lastTimestamp: number;
+}
+
+interface SyncResult {
+  synced: number;
+  removed: number;
 }
 
 const DEFAULT_CONFIG: EinkHubConfig = {
@@ -94,11 +100,11 @@ export class EinkHubSync {
     }, 2000);
   }
 
-  async sync(force = false): Promise<number> {
-    if (!this.config.enabled) return 0;
+  async sync(force = false): Promise<SyncResult> {
+    if (!this.config.enabled) return { synced: 0, removed: 0 };
     if (this.syncing) {
       this.pending = true;
-      return 0;
+      return { synced: 0, removed: 0 };
     }
     this.syncing = true;
     try {
@@ -112,7 +118,7 @@ export class EinkHubSync {
     }
   }
 
-  private async syncCurrent(force: boolean): Promise<number> {
+  private async syncCurrent(force: boolean): Promise<SyncResult> {
     const { baseUrl, feed, token, allowInsecureHttp } = this.config;
     const parsed = new URL(baseUrl);
     if (!["http:", "https:"].includes(parsed.protocol) || !token || !feed) {
@@ -121,19 +127,30 @@ export class EinkHubSync {
     if (parsed.protocol === "http:" && !["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) && !allowInsecureHttp) {
       throw new Error("公网 HTTP 需要在插件设置中显式允许明文连接");
     }
-    const tasks = this.service.store.all().filter((task) => task.category === "weekly" || task.category === "daily");
-    const current = new Map(tasks.map((task) => [task.id, JSON.stringify(this.payloadFor(task))]));
+    const allTasks = this.service.store.all();
     const previous = this.manifest.fingerprints;
-    if (tasks.length === 0 && Object.keys(previous).length > 0) {
+    if (allTasks.length === 0 && Object.keys(previous).length > 0) {
       throw new Error("任务索引为空，已暂停删除同步；请先检查思源任务库");
     }
+    const now = new Date();
+    const weekStart = formatDateKey(startOfWeek(now));
+    const weekEnd = formatDateKey(endOfWeek(now));
+    const tasks = allTasks.filter((task) => {
+      const planDate = toDateKey(task.planStart);
+      return (task.category === "weekly" || task.category === "daily")
+        && task.status !== COMPLETED_TASK_STATUS
+        && task.status !== CANCELLED_TASK_STATUS
+        && planDate >= weekStart && planDate <= weekEnd;
+    });
+    const current = new Map(tasks.map((task) => [task.id, JSON.stringify(this.payloadFor(task))]));
     const changed = tasks.filter((task) => force || current.get(task.id) !== previous[task.id]);
     const removed = Object.keys(previous).filter((id) => !current.has(id));
     const operations = [
       ...changed.map((task) => ({ kind: "upsert" as const, task })),
       ...removed.map((id) => ({ kind: "delete" as const, id }))
     ];
-    let applied = 0;
+    let synced = 0;
+    let removedCount = 0;
     for (let offset = 0; offset < operations.length; offset += 500) {
       const chunk = operations.slice(offset, offset + 500);
       const stamp = this.nextTimestamp();
@@ -153,7 +170,17 @@ export class EinkHubSync {
         },
         body: JSON.stringify({ source: SOURCE, upserts, deletes })
       });
-      if (!response.ok) throw new Error(`E-Ink Server 返回 HTTP ${response.status}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => undefined);
+        const details = Array.isArray(body?.detail)
+          ? body.detail.slice(0, 3).map((issue: { loc?: unknown; msg?: unknown }) => {
+              const field = Array.isArray(issue.loc) ? issue.loc.join(".") : "";
+              const message = typeof issue.msg === "string" ? issue.msg : "字段无效";
+              return field ? `${field}: ${message}` : message;
+            }).join("；")
+          : typeof body?.detail === "string" ? body.detail : "";
+        throw new Error(`E-Ink Server 返回 HTTP ${response.status}${details ? `：${details}` : ""}`);
+      }
       const result = await response.json();
       if (result.skipped_stale) {
         throw new Error(`E-Ink Server 拒绝了 ${result.skipped_stale} 项较旧的任务更新`);
@@ -163,9 +190,10 @@ export class EinkHubSync {
         else delete previous[entry.id];
       }
       await this.plugin.saveData(MANIFEST_FILE, this.manifest);
-      applied += chunk.length;
+      synced += upserts.length;
+      removedCount += deletes.length;
     }
-    return applied;
+    return { synced, removed: removedCount };
   }
 
   private nextTimestamp(): string {
@@ -182,7 +210,9 @@ export class EinkHubSync {
       category: task.category,
       plan_start: task.planStart || null,
       plan_end: task.planEnd || null,
-      due_at: task.dueDate || null,
+      due_at: task.dueDate
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(task.dueDate) ? fromDateInput(task.dueDate, 0) : task.dueDate) || null
+        : null,
       attributes: { priority: task.priority, project: task.project || "", doc_id: task.docId }
     };
   }
