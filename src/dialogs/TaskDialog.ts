@@ -43,6 +43,7 @@ export interface TaskDialogOptions {
   task?: TaskItem;
   onSaved?: (task: TaskItem) => void;
   onOpenTask?: (task: TaskItem) => void;
+  onOpenTaskTree?: (task: TaskItem, controls: { park: () => void; restore: () => void }) => Promise<void>;
   onOpenSourceDoc?: (docId: string) => void;
 }
 
@@ -403,9 +404,11 @@ export class TaskDialog {
     const priorityDropdownHtml = priorityDropdown(defaultPriority);
     const frontend = getFrontend();
     const isMobileFrontend = frontend === "mobile" || frontend === "browser-mobile";
+    let cleanupDialogState: (() => void) | undefined;
 
     const dialog = new Dialog({
       title: "",
+      destroyCallback: () => cleanupDialogState?.(),
       content: `<div class="task-tracker-dialog-v3">
   <div class="task-tracker-dialog-v3__drag-strip" data-drag-handle aria-hidden="true"></div>
   <div class="task-tracker-dialog-v3__header">
@@ -421,10 +424,14 @@ export class TaskDialog {
       <span class="task-tracker-dialog-v3__title" title="${escapeAttr(headerTaskTitle)}">${escapeHtml(headerTaskTitle)}</span>
     </div>
     <div class="task-tracker-dialog-v3__header-right">
+      ${!isMobileFrontend ? `<button type="button" class="task-tracker-dialog-v3__open-note" data-action="open-tree" aria-label="打开任务树" title="${editMode ? "打开任务树" : "请先保存任务"}" ${editMode ? "" : "disabled"}>
+        <span class="task-tracker-dialog-v3__open-note-icon">${ICONS.hierarchy}</span>
+        <span>打开任务树</span>
+      </button>` : ""}
       ${editMode ? `<button type="button" class="task-tracker-dialog-v3__open-note" data-action="open-note" aria-label="打开笔记" title="打开笔记">
         <span class="task-tracker-dialog-v3__open-note-icon">${ICONS.doc}</span>
         <span>打开笔记</span>
-      </button>` : `<span class="task-tracker-dialog-v3__header-spacer" aria-hidden="true"></span>`}
+      </button>` : ""}
     </div>
   </div>
 
@@ -608,6 +615,7 @@ export class TaskDialog {
     let detailSaving = false;
     let detailDirty = false;
     let destroyed = false;
+    let switchingToTree = false;
     let pendingAfterSaveAction: "open-source" | undefined;
     let sourceEditing = false;
     let sourceDraftMode: SourceMode = sourceMode;
@@ -1162,7 +1170,7 @@ export class TaskDialog {
     };
 
     const saveDetail = async (force = false) => {
-      if (!editMode || !editingTask || !detailTextarea || destroyed) {
+      if (!editMode || !editingTask || !detailTextarea || destroyed || (switchingToTree && !force)) {
         return;
       }
       const value = detailTextarea.value;
@@ -1247,7 +1255,7 @@ export class TaskDialog {
           });
         detailTextarea.addEventListener("input", scheduleDetailSave);
         detailTextarea.addEventListener("blur", () => {
-          if (detailTextarea.value !== detailLoadedValue) {
+          if (!switchingToTree && detailTextarea.value !== detailLoadedValue) {
             window.clearTimeout(detailSaveTimer);
             void saveDetail(true);
           }
@@ -1532,11 +1540,17 @@ export class TaskDialog {
     };
     document.addEventListener("click", handleOutsideClick);
 
-    const cleanupDialog = () => {
+    let cleanedUp = false;
+    cleanupDialogState = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       destroyed = true;
       window.clearTimeout(detailSaveTimer);
       document.removeEventListener("click", handleOutsideClick);
       cleanupDrag?.();
+    };
+    const cleanupDialog = () => {
+      cleanupDialogState?.();
       dialog.destroy();
     };
 
@@ -1557,6 +1571,29 @@ export class TaskDialog {
     });
     root.querySelector<HTMLElement>("[data-action='open-note']")?.addEventListener("click", () => {
       void handleOpenTask();
+    });
+    const treeButton = root.querySelector<HTMLButtonElement>("[data-action='open-tree']");
+    treeButton?.addEventListener("click", () => {
+      if (!editingTask || !this.options.onOpenTaskTree || switchingToTree) return;
+      switchingToTree = true;
+      treeButton.disabled = true;
+      window.clearTimeout(detailSaveTimer);
+      void this.options.onOpenTaskTree(editingTask, {
+        park: () => dialog.element.classList.add("task-tracker-dialog--parked"),
+        restore: () => {
+          if (destroyed) return;
+          dialog.element.classList.remove("task-tracker-dialog--parked");
+          switchingToTree = false;
+          treeButton.disabled = false;
+          if (detailTextarea && detailTextarea.value !== detailLoadedValue) {
+            setDetailStatus("未保存的正文详情仍在弹窗中");
+          }
+        }
+      }).catch((error) => {
+        switchingToTree = false;
+        treeButton.disabled = false;
+        showMessage(error instanceof Error ? error.message : "打开任务树失败", 5000, "error");
+      });
     });
 
     submitButton?.addEventListener("click", () => form.requestSubmit());

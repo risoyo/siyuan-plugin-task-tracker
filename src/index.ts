@@ -10,6 +10,7 @@ import pluginManifest from "../plugin.json";
 import "./index.scss";
 import { getBlockById } from "./api";
 import { sourceFromBlock, TaskService } from "./document";
+import { EinkHubSync } from "./einkSync";
 import { TaskDialog } from "./dialogs/TaskDialog";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "./localPath";
 import { createTaskSettings } from "./settings";
@@ -17,9 +18,11 @@ import { TaskStore } from "./taskStore";
 import { CANCELLED_TASK_STATUS, COMPLETED_TASK_STATUS, type SourceContext, type TaskItem } from "./types";
 import { TaskDock } from "./views/TaskDock";
 import { TaskManagerTab } from "./views/TaskManagerTab";
+import { TaskTreeTab } from "./views/TaskTreeTab";
 
 const DOCK_TYPE = "task_tracker_dock";
 const MANAGER_TAB_TYPE = "task_tracker_manager_tab";
+const TASK_TREE_TAB_TYPE = "task_tracker_tree_tab";
 const RUNTIME_STATE_KEY = "__taskTrackerPluginRuntimeState";
 const TOP_BAR_OWNER_ATTR = "data-task-tracker-topbar-owner";
 
@@ -54,17 +57,21 @@ function getRuntimeState(): TaskTrackerRuntimeState {
 export default class TaskTrackerPlugin extends Plugin {
   private store: TaskStore;
   private service: TaskService;
+  private einkHub?: EinkHubSync;
   private ready: Promise<void>;
   private taskDock?: TaskDock;
   private topBarElement?: HTMLElement;
   private topBarObserver?: MutationObserver;
   private frontend = getFrontend();
   private managerViews = new Map<HTMLElement, TaskManagerTab>();
+  private treeViews = new Map<HTMLElement, TaskTreeTab>();
+  private parkedTreeDialogs = new Map<string, Set<() => void>>();
   private startupRetryTimers = new Set<number>();
   private topBarRecoveryTimers = new Set<number>();
   private readonly lifecycleToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   private dockRegistered = false;
   private managerTabRegistered = false;
+  private taskTreeTabRegistered = false;
   private commandsRegistered = false;
   private contextMenusRegistered = false;
   private docMenuHandler = this.handleDocumentMenu.bind(this);
@@ -102,13 +109,17 @@ export default class TaskTrackerPlugin extends Plugin {
     this.store = new TaskStore(this);
     this.service = new TaskService(this.store);
     this.ready = this.store.load().then(async () => {
+      this.einkHub = new EinkHubSync(this, this.service);
+      await this.einkHub.load();
       this.setting = this.createSettingPanel();
       await this.service.startupSync();
+      this.einkHub.start();
       this.scheduleStartupRecoveryRetries();
     });
 
     this.registerDock();
     this.registerManagerTab();
+    this.registerTaskTreeTab();
     this.registerCommands();
     this.registerAgentActions();
     this.registerContextMenus();
@@ -125,6 +136,7 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.einkHub?.stop();
     for (const timer of this.startupRetryTimers) {
       window.clearTimeout(timer);
     }
@@ -142,6 +154,9 @@ export default class TaskTrackerPlugin extends Plugin {
       view.destroy();
     }
     this.managerViews.clear();
+    for (const view of this.treeViews.values()) view.destroy();
+    this.treeViews.clear();
+    for (const rootId of this.parkedTreeDialogs.keys()) this.restoreTreeDialogs(rootId);
     this.unregisterContextMenus();
     if (this.isActiveInstance()) {
       const state = getRuntimeState();
@@ -235,6 +250,47 @@ export default class TaskTrackerPlugin extends Plugin {
         const view = plugin.managerViews.get(tab.element);
         view?.destroy();
         plugin.managerViews.delete(tab.element);
+      }
+    });
+  }
+
+  private registerTaskTreeTab(): void {
+    if (this.taskTreeTabRegistered || this.isMobileFrontend()) return;
+    this.taskTreeTabRegistered = true;
+    const plugin = this;
+    this.addTab({
+      type: TASK_TREE_TAB_TYPE,
+      init() {
+        if (!plugin.isActiveInstance()) return;
+        const tab = this as any;
+        const rootId = typeof tab.data?.rootTaskId === "string" ? tab.data.rootTaskId : "";
+        tab.element.innerHTML = `<div class="task-tree__loading">任务树加载中...</div>`;
+        void plugin.ready.then(() => {
+          if (!plugin.isActiveInstance()) return;
+          plugin.treeViews.get(tab.element)?.destroy();
+          const view = new TaskTreeTab(tab.element, plugin.service, rootId, {
+            editTask: (task) => void plugin.showTaskDialog({ task }),
+            returnToEditor: () => plugin.restoreTreeDialog(rootId),
+            hasParkedEditor: () => Boolean(plugin.parkedTreeDialogs.get(rootId)?.size),
+            updateTitle: (title) => tab.tab?.updateTitle(title),
+            closeTab: () => tab.tab?.close()
+          });
+          plugin.treeViews.set(tab.element, view);
+          void view.initialize();
+        }).catch((error) => {
+          tab.element.innerHTML = `<div class="task-tree__loading">任务树加载失败：${error?.message || error}</div>`;
+        });
+      },
+      resize() {
+        const tab = this as any;
+        plugin.treeViews.get(tab.element)?.resize();
+      },
+      destroy() {
+        const tab = this as any;
+        const rootId = typeof tab.data?.rootTaskId === "string" ? tab.data.rootTaskId : "";
+        plugin.treeViews.get(tab.element)?.destroy();
+        plugin.treeViews.delete(tab.element);
+        plugin.restoreTreeDialogs(rootId);
       }
     });
   }
@@ -432,7 +488,7 @@ export default class TaskTrackerPlugin extends Plugin {
   }
 
   private createSettingPanel(): Setting {
-    return createTaskSettings(this.service, {
+    return createTaskSettings(this.service, this.einkHub!, {
       setCurrentDocAsRoot: () => this.setCurrentDocAsRoot(),
       setRootDocId: (docId: string) => this.setRootDocId(docId),
       syncDeletedTasks: async () => {
@@ -573,6 +629,7 @@ export default class TaskTrackerPlugin extends Plugin {
       task: options.task,
       onSaved: () => this.refreshViews(options.preserveManagerScroll === true),
       onOpenTask: (task) => void this.openTask(task),
+      onOpenTaskTree: (task, controls) => this.openTaskTree(task, controls),
       onOpenSourceDoc: (docId) => void this.openDocById(docId)
     }).show();
   }
@@ -670,6 +727,54 @@ export default class TaskTrackerPlugin extends Plugin {
         data: {}
       }
     });
+  }
+
+  private async openTaskTree(task: TaskItem, controls?: { park: () => void; restore: () => void }): Promise<void> {
+    if (this.isMobileFrontend()) {
+      showMessage("任务树视图仅支持桌面端", 4000, "info");
+      return;
+    }
+    await this.ready;
+    const savedTask = this.store.get(task.id);
+    if (!savedTask) {
+      throw new Error("任务不存在或已删除");
+    }
+    const tab = await openTab({
+      app: this.app,
+      custom: {
+        icon: "iconTaskTracker",
+        title: `任务树 · ${savedTask.title}`,
+        id: `${this.name}${TASK_TREE_TAB_TYPE}`,
+        data: { rootTaskId: savedTask.id }
+      },
+      removeCurrentTab: false
+    });
+    if (!tab) throw new Error("无法打开任务树标签页");
+    if (controls) {
+      controls.park();
+      const restores = this.parkedTreeDialogs.get(savedTask.id) || new Set<() => void>();
+      restores.add(controls.restore);
+      this.parkedTreeDialogs.set(savedTask.id, restores);
+      for (const view of this.treeViews.values()) {
+        if (view.rootTaskId === savedTask.id) view.render();
+      }
+    }
+  }
+
+  private restoreTreeDialog(rootId: string): void {
+    const restores = this.parkedTreeDialogs.get(rootId);
+    if (!restores?.size) return;
+    const restore = Array.from(restores).pop() as () => void;
+    restores.delete(restore);
+    if (!restores.size) this.parkedTreeDialogs.delete(rootId);
+    restore();
+    for (const view of this.treeViews.values()) {
+      if (view.rootTaskId === rootId) view.render();
+    }
+  }
+
+  private restoreTreeDialogs(rootId: string): void {
+    while (this.parkedTreeDialogs.get(rootId)?.size) this.restoreTreeDialog(rootId);
   }
 
   private async openTask(task: TaskItem): Promise<void> {

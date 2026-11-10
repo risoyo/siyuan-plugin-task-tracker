@@ -1,8 +1,10 @@
 import { Dialog, Setting, showMessage } from "siyuan";
 import type { TaskService } from "./document";
+import type { EinkHubSync } from "./einkSync";
 
 export function createTaskSettings(
   service: TaskService,
+  einkHub: EinkHubSync,
   actions: {
     setCurrentDocAsRoot: () => Promise<void>;
     setRootDocId: (docId: string) => Promise<void>;
@@ -13,6 +15,7 @@ export function createTaskSettings(
   version: string
 ): Setting {
   const settings = service.store.getSettings();
+  const hubConfig = einkHub.getConfig();
   const defaultProjectInput = document.createElement("input");
   defaultProjectInput.className = "b3-text-field fn__block task-tracker-settings__input";
   defaultProjectInput.placeholder = "例如：工作 / 产品 / 客户A";
@@ -23,10 +26,37 @@ export function createTaskSettings(
   rootDocIdInput.placeholder = "粘贴文档 ID，例如：20260506092200-qynf33g";
   rootDocIdInput.value = settings.taskRootDocId || "";
 
+  const hubEnabled = document.createElement("input");
+  hubEnabled.type = "checkbox";
+  hubEnabled.checked = hubConfig.enabled;
+  const hubUrl = document.createElement("input");
+  hubUrl.className = "b3-text-field fn__block task-tracker-settings__input";
+  hubUrl.placeholder = "https://E-Ink-Server";
+  hubUrl.value = hubConfig.baseUrl;
+  const hubFeed = document.createElement("input");
+  hubFeed.className = "b3-text-field fn__block task-tracker-settings__input";
+  hubFeed.placeholder = "home";
+  hubFeed.value = hubConfig.feed;
+  const hubToken = document.createElement("input");
+  hubToken.type = "password";
+  hubToken.className = "b3-text-field fn__block task-tracker-settings__input";
+  hubToken.placeholder = "feed:home:write Token";
+  hubToken.value = hubConfig.token;
+  const hubInsecure = document.createElement("input");
+  hubInsecure.type = "checkbox";
+  hubInsecure.checked = hubConfig.allowInsecureHttp;
+
   const setting = new Setting({
     confirmCallback: async () => {
       await service.store.setSettings({
         defaultProject: defaultProjectInput.value.trim() || undefined
+      });
+      await einkHub.setConfig({
+        enabled: hubEnabled.checked,
+        baseUrl: hubUrl.value,
+        feed: hubFeed.value,
+        token: hubToken.value,
+        allowInsecureHttp: hubInsecure.checked
       });
       actions.refreshViews();
       showMessage("任务追踪设置已保存");
@@ -71,6 +101,26 @@ export function createTaskSettings(
   rootAside.append(rootDocIdInput, rootButtonRow);
   rootCard.controlsBody.append(rootAside);
   addSettingsCard(setting, rootCard.card);
+
+  const hubCard = createSettingsCard("project", "E-Ink Server", "将本周事项和日常工作同步到电子墨水屏 Server。写入 Token 的名称须为 siyuan-task-tracker。");
+  const enabledLabel = document.createElement("label");
+  enabledLabel.append(hubEnabled, document.createTextNode(" 启用同步"));
+  const insecureLabel = document.createElement("label");
+  insecureLabel.append(hubInsecure, document.createTextNode(" 允许公网 HTTP 明文连接"));
+  const syncButton = createSettingsButton("立即全量同步");
+  syncButton.addEventListener("click", () => {
+    void einkHub.setConfig({
+      enabled: hubEnabled.checked,
+      baseUrl: hubUrl.value,
+      feed: hubFeed.value,
+      token: hubToken.value,
+      allowInsecureHttp: hubInsecure.checked
+    }).then(() => einkHub.sync(true))
+      .then((count) => showMessage(`已同步 ${count} 项到 E-Ink Server`))
+      .catch((error) => showMessage(`E-Ink 同步失败：${error?.message || error}`));
+  });
+  hubCard.controlsBody.append(enabledLabel, hubUrl, hubFeed, hubToken, insecureLabel, syncButton);
+  addSettingsCard(setting, hubCard.card);
 
   const maintenanceCard = createSettingsCard("shield", "任务维护", "清理失效索引，或在换设备/同步异常后从事项库文档重建任务索引。");
   const maintenanceButtons = document.createElement("div");
