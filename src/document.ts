@@ -1,6 +1,7 @@
 import {
   appendBlock,
   deleteBlock,
+  getChildBlocks,
   createDocWithMd,
   getBlockAttrs,
   getBlockById,
@@ -3041,9 +3042,7 @@ async function replaceManagedHeadingSectionBlocks(
     return false;
   }
 
-  for (const block of [...sectionRange.bodyBlocks].reverse()) {
-    await deleteBlockTree(block.id).catch(() => undefined);
-  }
+  await clearManagedHeadingSectionBody(sectionRange);
   if (!normalizedBlocks.length) {
     return sectionRange.bodyBlocks.length > 0;
   }
@@ -3087,9 +3086,7 @@ async function replaceManagedHeadingSection(
     return false;
   }
 
-  for (const block of [...sectionRange.bodyBlocks].reverse()) {
-    await deleteBlockTree(block.id).catch(() => undefined);
-  }
+  await clearManagedHeadingSectionBody(sectionRange);
   if (!normalizedBody) {
     return sectionRange.bodyBlocks.length > 0;
   }
@@ -3124,7 +3121,7 @@ async function findManagedHeadingSectionRange(docId: string, headings: string[])
     return undefined;
   }
 
-  const rootBlocks = await listRootTaskBlocks(docId).catch(() => []);
+  const rootBlocks = await listRootTaskBlocks(docId);
   const headingIndex = rootBlocks.findIndex((block) => block.type === "h" && normalizedHeadings.includes(block.content?.trim() || ""));
   if (headingIndex === -1) {
     return undefined;
@@ -3133,11 +3130,45 @@ async function findManagedHeadingSectionRange(docId: string, headings: string[])
   const nextHeadingIndex = rootBlocks.findIndex((block, index) => index > headingIndex && block.type === "h");
   return {
     heading: rootBlocks[headingIndex],
-    bodyBlocks: nextHeadingIndex === -1
-      ? rootBlocks.slice(headingIndex + 1)
-      : rootBlocks.slice(headingIndex + 1, nextHeadingIndex),
+    bodyBlocks: await listHeadingSectionBodyBlocks(rootBlocks[headingIndex].id),
     nextHeadingId: nextHeadingIndex === -1 ? undefined : rootBlocks[nextHeadingIndex]?.id
   };
+}
+
+async function listHeadingSectionBodyBlocks(headingId: string): Promise<RootTaskBlock[]> {
+  // SiYuan treats every block below a heading as its child, including blocks
+  // whose SQL parent_id is not the document and descendants of list/table blocks.
+  const children = await getChildBlocks(headingId);
+  if (!children.length) {
+    return [];
+  }
+
+  const childIds = new Set(children.map((child) => child.id));
+  const parents = new Map<string, string>();
+  for (let offset = 0; offset < children.length; offset += 100) {
+    const ids = children.slice(offset, offset + 100)
+      .map((child) => `'${sqlText(child.id)}'`).join(", ");
+    const rows = await sql<{ id: string; parent_id: string }>(
+      `select id, parent_id from blocks where id in (${ids}) limit 100`
+    );
+    for (const row of rows) {
+      parents.set(row.id, row.parent_id);
+    }
+  }
+  if (parents.size !== childIds.size) {
+    throw new Error("无法完整读取标题下的区块，已停止同步以避免重复写入。");
+  }
+
+  return children.filter((child) => !childIds.has(parents.get(child.id) || ""));
+}
+
+async function clearManagedHeadingSectionBody(sectionRange: ManagedHeadingSectionRange): Promise<void> {
+  for (const block of [...sectionRange.bodyBlocks].reverse()) {
+    await deleteBlockTree(block.id);
+  }
+  if ((await getChildBlocks(sectionRange.heading.id)).length) {
+    throw new Error("旧分区区块未能全部移除，已停止同步以避免重复写入。");
+  }
 }
 
 async function insertManagedHeadingSectionBodyBlocks(

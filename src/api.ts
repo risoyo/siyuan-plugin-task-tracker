@@ -90,6 +90,10 @@ export async function deleteBlock(id: string): Promise<void> {
   await request("/api/block/deleteBlock", { id });
 }
 
+export async function getChildBlocks(id: string): Promise<Array<{ id: string; type: string }>> {
+  return request<Array<{ id: string; type: string }>>("/api/block/getChildBlocks", { id });
+}
+
 export async function setBlockAttrs(id: string, attrs: Record<string, string>): Promise<void> {
   await request("/api/attr/setBlockAttrs", { id, attrs });
 }
