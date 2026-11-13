@@ -1,7 +1,17 @@
-import { isProtectedStatus } from "./statusConfig";
+import { toDateKey, weekKey } from "./date";
+import { isCancelledTaskStatus, isProtectedStatus } from "./statusConfig";
 import { normalizeTaskCategory, type TaskCategory, type TaskItem, type TaskStatus } from "./types";
 
-export function categoryViewTasks(tasks: TaskItem[], category: TaskCategory, statusFilter: "all" | TaskStatus = "all"): TaskItem[] {
+export function weeklyTaskWeekKey(task: TaskItem): string {
+  return weekKey(toDateKey(task.planStart) || task.createdAt);
+}
+
+export function categoryViewTasks(
+  tasks: TaskItem[],
+  category: TaskCategory,
+  statusFilter: "all" | TaskStatus = "all",
+  options: { includeCompleted?: boolean; week?: string } = {}
+): TaskItem[] {
   const children = new Map<string, TaskItem[]>();
   for (const task of tasks) {
     if (task.parentId) {
@@ -12,7 +22,8 @@ export function categoryViewTasks(tasks: TaskItem[], category: TaskCategory, sta
   }
 
   const roots = tasks.filter((task) => normalizeTaskCategory(task.category) === category
-    && !isProtectedStatus(task.status)
+    && (options.includeCompleted ? !isCancelledTaskStatus(task.status) : !isProtectedStatus(task.status))
+    && (!options.week || weeklyTaskWeekKey(task) === options.week)
     && (statusFilter === "all" || task.status === statusFilter));
   const included = new Set<string>();
   const visit = (task: TaskItem) => {

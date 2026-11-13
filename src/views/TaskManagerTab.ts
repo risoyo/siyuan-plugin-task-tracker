@@ -35,7 +35,7 @@ import {
 } from "../statusConfig";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
 import { compareOptionalDates, compareTasksByColumn, sortTaskTree } from "../taskSort";
-import { canSelectParentTask, categoryViewTasks } from "../taskCategory";
+import { canSelectParentTask, categoryViewTasks, weeklyTaskWeekKey } from "../taskCategory";
 import {
   PRIORITY_BADGE_CONFIG,
   TASK_PRIORITY_LABELS,
@@ -2017,7 +2017,7 @@ export class TaskManagerTab {
       </div>
       </aside>` : ""}
     </section>
-    ${this.renderCalendarFollowups()}
+    ${this.renderCalendarFollowups(startOfWeek(new Date()))}
   </div>
 </div>`;
   }
@@ -2072,7 +2072,7 @@ export class TaskManagerTab {
         </div>
       </aside>` : ""}
     </div>
-    ${this.renderCalendarFollowups()}
+    ${this.renderCalendarFollowups(this.weekStart)}
   </div>
 </div>`;
   }
@@ -2119,22 +2119,25 @@ export class TaskManagerTab {
     </button>`;
   }
 
-  private renderCalendarFollowups(): string {
-    const active = this.service.store.all().filter((task) => !isProtectedStatus(task.status));
+  private renderCalendarFollowups(visibleWeekStart: Date): string {
+    const allTasks = this.service.store.all();
+    const visibleWeek = formatDateKey(visibleWeekStart);
+    const active = allTasks.filter((task) => !isProtectedStatus(task.status));
+    const weekly = allTasks.filter((task) => normalizeTaskCategory(task.category) === "weekly"
+      && !isCancelledTaskStatus(task.status)
+      && weeklyTaskWeekKey(task) === visibleWeek);
     return `<aside class="task-manager-calendar-followups" aria-label="事项跟进">
       ${this.renderCalendarFollowupPanel("longTerm", active.filter((task) => normalizeTaskCategory(task.category) === "longTerm"))}
-      ${this.renderCalendarFollowupPanel("weekly", active.filter((task) => normalizeTaskCategory(task.category) === "weekly"))}
+      ${this.renderCalendarFollowupPanel("weekly", weekly, visibleWeekStart)}
     </aside>`;
   }
 
-  private renderCalendarFollowupPanel(category: "longTerm" | "weekly", tasks: TaskItem[]): string {
+  private renderCalendarFollowupPanel(category: "longTerm" | "weekly", tasks: TaskItem[], visibleWeekStart = startOfWeek(new Date())): string {
     const label = category === "longTerm" ? "长期事项" : "本周事项";
     const ordered = [...tasks].sort((a, b) => category === "weekly"
       ? compareOptionalDates(a.planStart, b.planStart, "asc") || b.updatedAt.localeCompare(a.updatedAt)
       : b.updatedAt.localeCompare(a.updatedAt));
-    const currentWeekStart = startOfWeek(new Date());
-    const currentWeekEnd = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
-    const weekRange = `${formatDateKey(currentWeekStart).slice(5).replace("-", ".")}~${formatDateKey(currentWeekEnd).slice(5).replace("-", ".")}`;
+    const weekRange = formatWeekRangeCompact(formatDateKey(visibleWeekStart));
     return `<section class="task-manager-followup task-manager-followup--${category}">
       <div class="task-manager-followup__header">
         <span class="task-manager-followup__icon"><svg><use xlink:href="#${VIEW_ICONS[category]}"></use></svg></span>
@@ -2281,7 +2284,7 @@ export class TaskManagerTab {
 
     return `<span class="task-manager-actions${listClass}">
   ${editButton}
-  <button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>
+  ${!isProtectedStatus(task.status) ? `<button class="${buttonClass}" data-task-action="subtask" aria-label="${subtaskLabel}" title="${subtaskLabel}"${positionAttr}><svg><use xlink:href="#iconAdd"></use></svg></button>` : ""}
   ${isCompletedTaskStatus(task.status)
     ? `<button class="${buttonClass}" data-task-action="reopen" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconRefresh"></use></svg></button>`
     : `<button class="${buttonClass}" data-task-action="complete" aria-label="${statusLabel}" title="${statusLabel}"${positionAttr}><svg><use xlink:href="#iconSelect"></use></svg></button>`}
@@ -3050,7 +3053,9 @@ export class TaskManagerTab {
     const collections = this.getTaskCollections();
     const category = categoryForView(this.view);
     if (category) {
-      return categoryViewTasks(collections.allTasks, category, this.currentFilter);
+      return categoryViewTasks(collections.allTasks, category, this.currentFilter, category === "weekly"
+        ? { includeCompleted: true, week: formatDateKey(startOfWeek(new Date())) }
+        : {});
     }
     if (this.view === "calendar") {
       let tasks = collections.allTasks;
