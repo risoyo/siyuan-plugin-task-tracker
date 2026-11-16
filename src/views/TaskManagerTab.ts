@@ -2039,7 +2039,11 @@ export class TaskManagerTab {
         isToday: dateKey === formatDateKey(new Date())
       });
     }
-    const progressTasksByDate = groupCalendarWeekProgressTasksByDate(dailyTasks, new Set(weekDays.map((day) => day.dateKey)));
+    const progressTasks = tasks.filter((task) => {
+      const category = normalizeTaskCategory(task.category);
+      return category === "daily" || category === "weekly";
+    });
+    const progressTasksByDate = groupCalendarWeekProgressTasksByDate(progressTasks, new Set(weekDays.map((day) => day.dateKey)));
 
     return `<div class="task-manager-calendar task-manager-calendar--week">
   <div class="task-manager-calendar__toolbar">
@@ -2161,11 +2165,10 @@ export class TaskManagerTab {
     const latestProgressDate = task.progressRecords?.map((record) => record.date).filter(Boolean).sort().at(-1);
     const secondary = category === "longTerm"
       ? (latestProgressDate ? `最近推进 · ${formatHumanDate(latestProgressDate)}` : "暂无推进记录")
-      : (task.planStart ? `计划时间 · ${formatHumanDatetimeOrEmpty(task.planStart)}` : (task.description || ""));
+      : (task.description?.trim() || "");
     return `<div class="task-manager-followup__item" data-task-id="${task.id}">
       <span class="task-manager-followup__dot" style="background:${escapeAttr(status.dotColor)}"></span>
       <button class="task-manager-followup__task" type="button" data-task-action="open" title="${escapeAttr(task.title)}">${escapeHtml(task.title)}</button>
-      ${category === "weekly" ? `<span class="task-manager-followup__status" style="color:${escapeAttr(status.textColor)};background:${escapeAttr(status.bgColor)}">${escapeHtml(status.label)}</span>` : ""}
       <span class="task-manager-followup__chevron" aria-hidden="true">›</span>
       ${secondary ? `<span class="task-manager-followup__meta" title="${escapeAttr(secondary)}">${escapeHtml(secondary)}</span>` : ""}
     </div>`;

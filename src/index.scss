@@ -6233,14 +6233,13 @@ body.task-tracker-dialog-dragging {
   border-bottom: 1px solid var(--manager-border);
   display: grid;
   gap: 4px 8px;
-  grid-template-columns: 7px minmax(0, 1fr) auto 12px;
+  grid-template-columns: 7px minmax(0, 1fr) 12px;
   min-width: 0;
   padding: 14px 2px;
 }
 
 .task-manager-followup--longTerm .task-manager-followup__item {
   box-sizing: border-box;
-  grid-template-columns: 7px minmax(0, 1fr) 12px;
   height: 72px;
 }
 
@@ -6272,13 +6271,6 @@ body.task-tracker-dialog-dragging {
 
 .task-manager-followup__task:hover {
   color: var(--manager-accent);
-}
-
-.task-manager-followup__status {
-  border-radius: 999px;
-  font-size: 11px;
-  padding: 3px 7px;
-  white-space: nowrap;
 }
 
 .task-manager-followup__chevron {
