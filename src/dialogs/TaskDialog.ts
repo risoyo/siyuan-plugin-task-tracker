@@ -11,7 +11,7 @@ import {
 import { getDocById } from "../api";
 import type { TaskService } from "../document";
 import { openLocalFolderPath, supportsLocalFolderOpen } from "../localPath";
-import { canSelectParentTask } from "../taskCategory";
+import { buildLongTermParentTree, canSelectParentTask, type ParentTaskTreeNode } from "../taskCategory";
 import {
   defaultTaskStatus,
   getAllOrderedStatuses,
@@ -106,8 +106,8 @@ function buildComboboxSelect(
 }
 
 
-function buildComboboxOption(value: string, label: string, active: boolean, icon?: string, indent?: boolean): string {
-  return `<button type="button" class="task-tracker-dialog-v3__menu-item ${active ? "is-active" : ""} ${indent ? "is-indented" : ""}" data-combobox-option="${escapeAttr(value)}">
+function buildComboboxOption(value: string, label: string, active: boolean, icon?: string, indent?: boolean, tooltip?: string): string {
+  return `<button type="button" class="task-tracker-dialog-v3__menu-item ${active ? "is-active" : ""} ${indent ? "is-indented" : ""}" data-combobox-option="${escapeAttr(value)}"${tooltip ? ` title="${escapeAttr(tooltip)}"` : ""}>
     ${icon ? `<span class="task-tracker-dialog-v3__menu-item-icon">${icon}</span>` : ""}
     <span class="task-tracker-dialog-v3__menu-label">${escapeHtml(label)}</span>
     ${active ? `<span class="task-tracker-dialog-v3__menu-check">${ICONS.check}</span>` : ""}
@@ -307,7 +307,11 @@ function positionPopup(menu: HTMLElement, trigger: HTMLElement): void {
 
   menu.style.position = "fixed";
   menu.style.top = `${top}px`;
-  menu.style.left = `${triggerRect.left}px`;
+  const menuWidth = menu.offsetWidth || triggerRect.width;
+  const left = menu.dataset.comboboxMenu === "parentId"
+    ? Math.max(8, Math.min(triggerRect.left, window.innerWidth - menuWidth - 8))
+    : triggerRect.left;
+  menu.style.left = `${left}px`;
   menu.style.minWidth = `${triggerRect.width}px`;
   menu.style.zIndex = "400";
 }
@@ -382,21 +386,76 @@ export class TaskDialog {
       .map(([value, label]) => buildComboboxOption(value, label, value === defaultCategory))
       .join("");
 
-    const parentOptionsHtml = (() => {
-      let html = buildComboboxOption("", "无（顶层任务）", !selectedParentId);
-      if (selectedParentId && !parentCandidates.some((task) => task.id === selectedParentId || task.docId === selectedParentId)) {
-        html += `<div class="task-tracker-dialog-v3__menu-current" title="${escapeAttr(selectedParentTitle || selectedParentId)}">当前父任务：${escapeHtml(selectedParentTitle || selectedParentId)}</div>`;
+    const longTermTree = buildLongTermParentTree(parentCandidates);
+    const weeklyCandidates = parentCandidates.filter((task) => normalizeTaskCategory(task.category) === "weekly");
+    const parentPathById = new Map<string, string>();
+    const parentAncestorsById = new Map<string, string[]>();
+    const expandedParentIds = new Set<string>();
+    const collapsedSearchParentIds = new Set<string>();
+    let selectedParentValue = selectedParentId;
+    const recordParentPaths = (nodes: ParentTaskTreeNode[], titles: string[] = [], ancestors: string[] = []) => {
+      for (const node of nodes) {
+        const path = [...titles, node.task.title].join(" / ");
+        parentPathById.set(node.task.id, path);
+        parentPathById.set(node.task.docId, path);
+        parentAncestorsById.set(node.task.id, ancestors);
+        parentAncestorsById.set(node.task.docId, ancestors);
+        if (node.task.id === selectedParentId || node.task.docId === selectedParentId) {
+          ancestors.forEach((id) => expandedParentIds.add(id));
+        }
+        recordParentPaths(node.children, [...titles, node.task.title], [...ancestors, node.task.id]);
       }
-      for (const [category, label] of [["longTerm", "长期事项"], ["weekly", "本周事项"]] as const) {
-        const group = parentCandidates.filter((task) => normalizeTaskCategory(task.category) === category);
-        if (!group.length) continue;
+    };
+    recordParentPaths(longTermTree);
+
+    const renderParentOptions = (search: string): string => {
+      const query = search.trim().toLocaleLowerCase();
+      const matchingLongTermIds = new Set<string>();
+      if (query) {
+        const markMatches = (node: ParentTaskTreeNode): boolean => {
+          let childMatches = false;
+          for (const child of node.children) {
+            if (markMatches(child)) childMatches = true;
+          }
+          const matches = node.task.title.toLocaleLowerCase().includes(query) || childMatches;
+          if (matches) matchingLongTermIds.add(node.task.id);
+          return matches;
+        };
+        longTermTree.forEach(markMatches);
+      }
+      const renderLongTermNode = (node: ParentTaskTreeNode, depth: number): string => {
+        const children = query ? node.children.filter((child) => matchingLongTermIds.has(child.task.id)) : node.children;
+        const expanded = query ? !collapsedSearchParentIds.has(node.task.id) : expandedParentIds.has(node.task.id);
+        const toggle = children.length
+          ? `<button type="button" class="task-tracker-dialog-v3__parent-toggle ${expanded ? "is-expanded" : ""}" data-parent-toggle="${escapeAttr(node.task.id)}" aria-label="${expanded ? "收起" : "展开"}${escapeAttr(node.task.title)}" aria-expanded="${expanded}">${ICONS.chevronDown}</button>`
+          : `<span class="task-tracker-dialog-v3__parent-toggle-placeholder" aria-hidden="true"></span>`;
+        return `<div class="task-tracker-dialog-v3__parent-tree-row" style="--parent-depth:${depth}">
+          ${toggle}
+          ${buildComboboxOption(node.task.id, node.task.title, node.task.id === selectedParentValue || node.task.docId === selectedParentValue, undefined, false, parentPathById.get(node.task.id))}
+        </div>${expanded ? children.map((child) => renderLongTermNode(child, depth + 1)).join("") : ""}`;
+      };
+
+      let html = buildComboboxOption("", "无（顶层任务）", !selectedParentValue);
+      if (!query && selectedParentValue && !parentCandidates.some((task) => task.id === selectedParentValue || task.docId === selectedParentValue)) {
+        html += `<div class="task-tracker-dialog-v3__menu-current" title="${escapeAttr(selectedParentTitle || selectedParentValue)}">当前父任务：${escapeHtml(selectedParentTitle || selectedParentValue)}</div>`;
+      }
+      const longTermRoots = query ? longTermTree.filter((node) => matchingLongTermIds.has(node.task.id)) : longTermTree;
+      if (longTermRoots.length) {
         html += `<div class="task-tracker-dialog-v3__menu-group" data-combobox-group>
-          <div class="task-tracker-dialog-v3__menu-group-title">${label}</div>
-          ${group.map((task) => buildComboboxOption(task.id, task.title, task.id === selectedParentId || task.docId === selectedParentId)).join("")}
+          <div class="task-tracker-dialog-v3__menu-group-title">长期事项</div>
+          ${longTermRoots.map((node) => renderLongTermNode(node, 0)).join("")}
+        </div>`;
+      }
+      const weeklyMatches = query ? weeklyCandidates.filter((task) => task.title.toLocaleLowerCase().includes(query)) : weeklyCandidates;
+      if (weeklyMatches.length) {
+        html += `<div class="task-tracker-dialog-v3__menu-group" data-combobox-group>
+          <div class="task-tracker-dialog-v3__menu-group-title">本周事项</div>
+          ${weeklyMatches.map((task) => buildComboboxOption(task.id, task.title, task.id === selectedParentValue || task.docId === selectedParentValue, undefined, false, task.title)).join("")}
         </div>`;
       }
       return html;
-    })();
+    };
+    const parentOptionsHtml = renderParentOptions("");
 
     const statusBadgeHtml = statusBadge(defaultStatus, settings);
     const priorityBadgeHtml = priorityBadge(defaultPriority);
@@ -1007,7 +1066,11 @@ export class TaskDialog {
       const hidden = mode === "editable" ? null : combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`);
       const input = mode === "editable" ? combobox.querySelector<HTMLInputElement>(`input[name="${name}"]`) : null;
       const valueEl = combobox.querySelector<HTMLElement>(`[data-combobox-value="${name}"]`);
+      if (name === "parentId" && valueEl && selectedParentId) {
+        valueEl.title = parentPathById.get(selectedParentId) || selectedParentTitle;
+      }
       const searchInput = menu?.querySelector<HTMLInputElement>(`[data-combobox-search="${name}"]`);
+      const menuScroll = menu?.querySelector<HTMLElement>(".task-tracker-dialog-v3__menu-scroll");
       let isComposing = false;
       let ignoreBlur = false;
 
@@ -1026,6 +1089,7 @@ export class TaskDialog {
         }
         if (valueEl) {
           valueEl.textContent = label || "无";
+          if (name === "parentId") valueEl.title = val ? (parentPathById.get(val) || label) : "";
         }
         syncActiveOption(val);
         if (menu) closeMenu(menu);
@@ -1103,6 +1167,12 @@ export class TaskDialog {
         ignoreBlur = true;
       });
       searchInput?.addEventListener("input", () => {
+        if (name === "parentId" && menuScroll) {
+          collapsedSearchParentIds.clear();
+          menuScroll.innerHTML = renderParentOptions(searchInput.value);
+          menuScroll.scrollTop = 0;
+          return;
+        }
         const query = searchInput.value.trim().toLocaleLowerCase();
         menu?.querySelectorAll<HTMLElement>("[data-combobox-option]").forEach((option) => {
           const label = option.querySelector<HTMLElement>(".task-tracker-dialog-v3__menu-label")?.textContent || "";
@@ -1113,11 +1183,29 @@ export class TaskDialog {
         });
       });
       menu?.addEventListener("click", (e) => {
+        const parentToggle = name === "parentId" ? (e.target as HTMLElement).closest<HTMLElement>("[data-parent-toggle]") : null;
+        if (parentToggle && menuScroll) {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = parentToggle.dataset.parentToggle || "";
+          const expandedIds = searchInput?.value.trim() ? collapsedSearchParentIds : expandedParentIds;
+          if (expandedIds.has(id)) expandedIds.delete(id);
+          else expandedIds.add(id);
+          const scrollTop = menuScroll.scrollTop;
+          menuScroll.innerHTML = renderParentOptions(searchInput?.value || "");
+          menuScroll.scrollTop = scrollTop;
+          ignoreBlur = false;
+          return;
+        }
         const option = (e.target as HTMLElement).closest<HTMLElement>("[data-combobox-option]");
         if (!option) return;
         e.stopPropagation();
         const val = option.dataset.comboboxOption || "";
         const label = option.querySelector<HTMLElement>(".task-tracker-dialog-v3__menu-label")?.textContent || val;
+        if (name === "parentId") {
+          selectedParentValue = val;
+          parentAncestorsById.get(val)?.forEach((id) => expandedParentIds.add(id));
+        }
         updateDisplay(val, val ? label : "");
         ignoreBlur = false;
       });

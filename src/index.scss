@@ -6413,6 +6413,79 @@ body.task-tracker-dialog-dragging {
   white-space: nowrap;
 }
 
+.task-tracker-dialog-v3__menu[data-combobox-menu="parentId"] {
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 16px));
+}
+
+.task-tracker-dialog-v3__menu[data-combobox-menu="parentId"] .task-tracker-dialog-v3__menu-scroll {
+  overflow-x: hidden;
+}
+
+.task-tracker-dialog-v3__parent-tree-row {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+  padding-left: min(calc(var(--parent-depth) * 17px), 119px);
+  position: relative;
+}
+
+.task-tracker-dialog-v3__parent-tree-row[style*="--parent-depth:0"] {
+  padding-left: 0;
+}
+
+.task-tracker-dialog-v3__parent-tree-row:not([style*="--parent-depth:0"])::before {
+  border-bottom: 1px solid #CBD5E1;
+  border-left: 1px solid #CBD5E1;
+  content: "";
+  height: 16px;
+  left: max(2px, calc(min(var(--parent-depth) * 17px, 119px) - 11px));
+  position: absolute;
+  top: 0;
+  width: 8px;
+}
+
+.task-tracker-dialog-v3__parent-toggle,
+.task-tracker-dialog-v3__parent-toggle-placeholder {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 20px;
+  height: 30px;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.task-tracker-dialog-v3__parent-toggle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #7890AE;
+  cursor: pointer;
+  padding: 0;
+}
+
+.task-tracker-dialog-v3__parent-toggle:hover {
+  background: #EFF6FF;
+  color: #2563EB;
+}
+
+.task-tracker-dialog-v3__parent-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.task-tracker-dialog-v3__parent-toggle.is-expanded svg {
+  transform: rotate(0);
+}
+
+.task-tracker-dialog-v3__parent-tree-row .task-tracker-dialog-v3__menu-item {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 5px;
+}
+
 @container task-calendar (max-width: 880px) {
   .task-manager-calendar__layout {
     grid-template-columns: minmax(0, 1fr);

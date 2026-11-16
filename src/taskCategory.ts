@@ -53,3 +53,40 @@ export function canSelectParentTask(parent: TaskItem, tasks: TaskItem[], editing
   }
   return true;
 }
+
+export interface ParentTaskTreeNode {
+  task: TaskItem;
+  children: ParentTaskTreeNode[];
+}
+
+/** Build a display-only tree from eligible long-term parent candidates. */
+export function buildLongTermParentTree(candidates: TaskItem[]): ParentTaskTreeNode[] {
+  const nodes = new Map<string, ParentTaskTreeNode>();
+  const byTaskId = new Map<string, ParentTaskTreeNode>();
+  for (const task of candidates) {
+    if (normalizeTaskCategory(task.category) !== "longTerm" || nodes.has(task.id)) continue;
+    const node = { task, children: [] } as ParentTaskTreeNode;
+    nodes.set(task.id, node);
+    byTaskId.set(task.id, node);
+    if (task.docId && !byTaskId.has(task.docId)) byTaskId.set(task.docId, node);
+  }
+
+  const roots: ParentTaskTreeNode[] = [];
+  for (const node of nodes.values()) {
+    const parent = node.task.parentId ? byTaskId.get(node.task.parentId) : undefined;
+    if (!parent) {
+      roots.push(node);
+      continue;
+    }
+
+    const visited = new Set<string>([node.task.id]);
+    let ancestor: ParentTaskTreeNode | undefined = parent;
+    while (ancestor && !visited.has(ancestor.task.id)) {
+      visited.add(ancestor.task.id);
+      ancestor = ancestor.task.parentId ? byTaskId.get(ancestor.task.parentId) : undefined;
+    }
+    if (ancestor) roots.push(node);
+    else parent.children.push(node);
+  }
+  return roots;
+}
