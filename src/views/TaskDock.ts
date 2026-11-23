@@ -9,14 +9,18 @@ import {
 } from "../date";
 import type { TaskService } from "../document";
 import { escapeHtml } from "../dialogs/TaskDialog";
+import { weeklyTaskWeekKey } from "../taskCategory";
 import {
   getActiveTaskStatuses,
   getAllOrderedStatuses,
-  getStatusBadgeConfig
+  getStatusBadgeConfig,
+  isCancelledTaskStatus,
+  isProtectedStatus
 } from "../statusConfig";
-import { compareTasksBySidebarSortField, sortTaskTree } from "../taskSort";
+import { compareOptionalDates, compareTasksBySidebarSortField, sortTaskTree } from "../taskSort";
 import {
   DEFAULT_DOCK_DISPLAY_OPTIONS,
+  normalizeTaskCategory,
   type DockDisplayOptions,
   type SidebarTaskSortField,
   type TaskItem,
@@ -266,7 +270,8 @@ export class TaskDock {
 
   private renderMobileWeekView(): string {
     const weekLabel = formatWeekRangeCompact(formatDateKey(this.mobileWeekStart));
-    const tasksByDate = groupMobileWeekTasksByDate(this.mobileWeekTasks());
+    const allTasks = this.service.store.all();
+    const tasksByDate = groupMobileWeekTasksByDate(allTasks.filter((task) => normalizeTaskCategory(task.category) === "daily"));
     const weekDays = Array.from({ length: 7 }, (_, index) => {
       const date = new Date(this.mobileWeekStart.getFullYear(), this.mobileWeekStart.getMonth(), this.mobileWeekStart.getDate() + index);
       const dateKey = formatDateKey(date);
@@ -277,6 +282,7 @@ export class TaskDock {
         isToday: dateKey === formatDateKey(new Date())
       };
     });
+    const progressByDate = groupMobileWeekProgressByDate(allTasks, new Set(weekDays.map((day) => day.dateKey)));
 
     return `<section class="task-mobile-week">
   <div class="task-mobile-week-header">
@@ -288,39 +294,76 @@ export class TaskDock {
     <button class="task-mobile-week-nav__today" data-action="today-mobile-week" type="button">今</button>
   </div>
   <div class="task-mobile-week-list">
-    ${weekDays.map((day) => this.renderMobileWeekDay(day, tasksByDate.get(day.dateKey) || [])).join("")}
+    ${weekDays.map((day) => this.renderMobileWeekDay(day, tasksByDate.get(day.dateKey) || [], progressByDate.get(day.dateKey) || [])).join("")}
+    ${this.renderMobileWeekFollowups(allTasks)}
   </div>
 </section>`;
   }
 
   private renderMobileWeekDay(
     day: { label: string; date: Date; dateKey: string; isToday: boolean },
-    tasks: TaskItem[]
+    tasks: TaskItem[],
+    progressTasks: TaskItem[]
   ): string {
+    const count = tasks.length + progressTasks.length;
     return `<section class="task-mobile-week-day ${day.isToday ? "is-today" : ""}" data-mobile-week-date="${day.dateKey}">
   <div class="task-mobile-week-day__date">
     <span class="task-mobile-week-day__weekday">${day.label}</span>
     <span class="task-mobile-week-day__daynum">${day.date.getMonth() + 1}/${day.date.getDate()}</span>
-    <span class="task-mobile-week-day__count">${tasks.length}</span>
+    <span class="task-mobile-week-day__count">${count}</span>
   </div>
   <div class="task-mobile-week-day__content">
-    ${tasks.length
-      ? tasks.map((task) => this.renderMobileWeekTask(task)).join("")
-      : `<span class="task-mobile-week-day__empty">暂无日程</span>`}
+    ${this.renderMobileWeekGroup("任务事项", tasks, false)}
+    ${this.renderMobileWeekGroup("推进事项", progressTasks, true)}
   </div>
 </section>`;
   }
 
-  private renderMobileWeekTask(task: TaskItem): string {
+  private renderMobileWeekGroup(label: string, tasks: TaskItem[], progress: boolean): string {
+    return `<div class="task-mobile-week-group">
+  <div class="task-mobile-week-group__title">${label}</div>
+  <div class="task-mobile-week-group__items">
+    ${tasks.length ? tasks.map((task) => this.renderMobileWeekTask(task, progress)).join("") : `<span class="task-mobile-week-day__empty">暂无${label}</span>`}
+  </div>
+</div>`;
+  }
+
+  private renderMobileWeekTask(task: TaskItem, progress: boolean): string {
     const cfg = getStatusBadgeConfig(task.status, this.service.store.getSettings());
     return `<button
-  class="task-mobile-week-task"
+  class="task-mobile-week-task ${progress ? "task-mobile-week-task--progress" : ""}"
   data-action="open"
   data-task-id="${task.id}"
   title="${escapeHtml(task.title)}"
   type="button"
   style="--task-mobile-week-dot: ${cfg.dotColor}; --task-mobile-week-bg: ${cfg.bgColor}; --task-mobile-week-border: ${cfg.borderColor};"
 >${escapeHtml(task.title)}</button>`;
+  }
+
+  private renderMobileWeekFollowups(allTasks: TaskItem[]): string {
+    const visibleWeek = formatDateKey(this.mobileWeekStart);
+    const longTerm = allTasks.filter((task) => normalizeTaskCategory(task.category) === "longTerm" && !isProtectedStatus(task.status))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const weekly = allTasks.filter((task) => normalizeTaskCategory(task.category) === "weekly"
+      && !isCancelledTaskStatus(task.status) && weeklyTaskWeekKey(task) === visibleWeek)
+      .sort((a, b) => compareOptionalDates(a.planStart, b.planStart, "asc") || b.updatedAt.localeCompare(a.updatedAt));
+    return `<div class="task-mobile-week-followups">
+  ${this.renderMobileWeekFollowup("长期事项", longTerm)}
+  ${this.renderMobileWeekFollowup("本周事项", weekly, formatWeekRangeCompact(visibleWeek))}
+</div>`;
+  }
+
+  private renderMobileWeekFollowup(label: string, tasks: TaskItem[], weekRange?: string): string {
+    return `<section class="task-mobile-week-followup">
+  <div class="task-mobile-week-followup__header">
+    <span class="task-mobile-week-followup__title">${label}</span>
+    <span class="task-mobile-week-followup__count">${tasks.length}</span>
+    ${weekRange ? `<span class="task-mobile-week-followup__range">${escapeHtml(weekRange)}</span>` : ""}
+  </div>
+  <div class="task-mobile-week-followup__items">
+    ${tasks.length ? tasks.map((task) => this.renderMobileWeekTask(task, false)).join("") : `<span class="task-mobile-week-day__empty">暂无${label}</span>`}
+  </div>
+</section>`;
   }
 
   /* ── Task Cards ──────────────────────────────────────────── */
@@ -974,10 +1017,6 @@ export class TaskDock {
     writeMobileDockView(view);
     this.render();
   }
-
-  private mobileWeekTasks(): TaskItem[] {
-    return this.service.store.all().filter((task) => Boolean(toDateKey(task.planStart)));
-  }
 }
 
 /* ── Shared Helpers ──────────────────────────────────────────── */
@@ -1174,6 +1213,25 @@ function groupMobileWeekTasksByDate(tasks: TaskItem[]): Map<string, TaskItem[]> 
   for (const list of grouped.values()) {
     list.sort(compareMobileWeekTasks);
   }
+  return grouped;
+}
+
+function groupMobileWeekProgressByDate(tasks: TaskItem[], dateKeys: Set<string>): Map<string, TaskItem[]> {
+  const grouped = new Map<string, TaskItem[]>();
+  for (const task of tasks) {
+    const category = normalizeTaskCategory(task.category);
+    if (category !== "daily" && category !== "weekly") continue;
+    const seenDates = new Set<string>();
+    for (const record of task.progressRecords || []) {
+      const date = toDateKey(record.date);
+      if (!date || !dateKeys.has(date) || seenDates.has(date)) continue;
+      seenDates.add(date);
+      const list = grouped.get(date) || [];
+      list.push(task);
+      grouped.set(date, list);
+    }
+  }
+  for (const list of grouped.values()) list.sort(compareMobileWeekTasks);
   return grouped;
 }
 

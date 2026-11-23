@@ -3347,21 +3347,38 @@
 }
 
 .task-mobile-week-day__content {
-  align-content: flex-start;
-  align-items: flex-start;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 10px;
   min-height: 84px;
   min-width: 0;
   padding: 12px 10px;
 }
 
+.task-mobile-week-group {
+  min-width: 0;
+}
+
+.task-mobile-week-group__title {
+  color: #64748B;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+
+.task-mobile-week-group__items,
+.task-mobile-week-followup__items {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
 .task-mobile-week-day__empty {
   color: #94A3B8;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
-  padding: 8px 0;
 }
 
 .task-mobile-week-task {
@@ -3396,6 +3413,76 @@
   top: 50%;
   transform: translateY(-50%);
   width: 6px;
+}
+
+.task-mobile-week-task--progress {
+  background: #FFFFFF;
+  border: 1px dashed #60A5FA;
+  color: #2563EB;
+}
+
+.task-mobile-week-task--progress::before {
+  background: #2563EB;
+}
+
+.task-mobile-week-followups {
+  background: #F7F9FC;
+  border-top: 1px solid #E5EAF2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 10px;
+}
+
+.task-mobile-week-followup {
+  background: #FFFFFF;
+  border: 1px solid #E5EAF2;
+  border-radius: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-mobile-week-followup__header {
+  align-items: center;
+  background: #F0F6FF;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.task-mobile-week-followup + .task-mobile-week-followup .task-mobile-week-followup__header {
+  background: #EFFAF5;
+}
+
+.task-mobile-week-followup__title {
+  color: #1F2937;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.task-mobile-week-followup__count {
+  background: #E4EEFF;
+  border-radius: 999px;
+  color: #2875EA;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+}
+
+.task-mobile-week-followup + .task-mobile-week-followup .task-mobile-week-followup__count {
+  background: #DDF7E8;
+  color: #0D9A5A;
+}
+
+.task-mobile-week-followup__range {
+  color: #6B849F;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.task-mobile-week-followup__items {
+  padding: 10px 12px;
 }
 
 .task-tracker--mobile .task-tracker-dock__task-row {
